@@ -25,14 +25,20 @@ function PaymentForm({ clientSecret, formData, onSuccess }: PaymentFormProps) {
     setLoading(true);
     setError('');
 
-    const result = await stripe.confirmSetupIntent(clientSecret, { elements });
+    const result = await stripe.confirmSetup({
+      elements,
+      clientSecret,
+      confirmParams: { return_url: window.location.href },
+      redirect: 'if_required',
+    });
     if (result.error) {
       setError(result.error.message ?? 'Payment failed');
       setLoading(false);
       return;
     }
 
-    const paymentMethodId = result.setupIntent?.payment_method as string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const paymentMethodId = (result as any).setupIntent?.payment_method as string | undefined;
     try {
       await submitOnboarding({ ...formData, stripe_payment_method_id: paymentMethodId });
       onSuccess();
