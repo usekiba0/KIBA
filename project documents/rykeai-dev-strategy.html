@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RYKE AI — Development Strategy & Workflow</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #080808;
+  --white: #f8f6f2;
+  --purple: #7c3aed;
+  --purple-light: #a78bfa;
+  --purple-dark: #4c1d95;
+  --purple-glow: rgba(124,58,237,0.2);
+  --muted: #9ca3af;
+  --surface: #111111;
+  --surface2: #181818;
+  --border: rgba(124,58,237,0.2);
+  --border-subtle: rgba(255,255,255,0.06);
+  --green: #22c55e;
+  --green-dim: rgba(34,197,94,0.12);
+  --amber: #f59e0b;
+  --amber-dim: rgba(245,158,11,0.12);
+  --red: #ef4444;
+  --red-dim: rgba(239,68,68,0.1);
+  --blue: #3b82f6;
+  --blue-dim: rgba(59,130,246,0.12);
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{font-family:'DM Sans',sans-serif;background:var(--black);color:var(--white);line-height:1.6;overflow-x:hidden;}
+h1,h2,h3,h4{font-family:'Cormorant Garamond',serif;font-weight:600;line-height:1.15;}
+h1{font-size:clamp(2.4rem,4vw,3.8rem);}
+h2{font-size:clamp(1.6rem,2.5vw,2.2rem);}
+h3{font-size:clamp(1.1rem,1.8vw,1.4rem);}
+p{font-size:14px;color:var(--muted);line-height:1.75;}
+code,pre{font-family:'DM Mono',monospace;}
+.container{max-width:1100px;margin:0 auto;padding:0 32px;}
+section{padding:72px 0;}
+.divider{height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);}
+
+/* ── HEADER ── */
+.doc-header{background:linear-gradient(180deg,#0d0515 0%,var(--black) 100%);border-bottom:1px solid var(--border);padding:60px 0 72px;text-align:center;position:relative;overflow:hidden;}
+.doc-header::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 80% at 50% -10%,rgba(124,58,237,0.18) 0%,transparent 60%);pointer-events:none;}
+.doc-header::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(124,58,237,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(124,58,237,0.04) 1px,transparent 1px);background-size:48px 48px;mask-image:radial-gradient(ellipse 80% 100% at 50% 0%,black 0%,transparent 100%);pointer-events:none;}
+.logo{font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:rgba(248,246,242,0.4);margin-bottom:16px;position:relative;z-index:1;}
+.logo span{color:var(--purple-light);}
+.doc-tag{display:inline-flex;align-items:center;gap:8px;background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.35);border-radius:99px;padding:6px 16px;font-size:11px;font-weight:500;letter-spacing:1.2px;text-transform:uppercase;color:var(--purple-light);margin-bottom:24px;position:relative;z-index:1;}
+.doc-tag::before{content:'';width:6px;height:6px;background:var(--purple-light);border-radius:50%;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.5;transform:scale(.8);}}
+.doc-header h1{color:var(--white);margin-bottom:20px;position:relative;z-index:1;}
+.doc-header h1 em{font-style:italic;color:var(--purple-light);}
+.doc-header .subtitle{font-size:16px;color:var(--muted);max-width:540px;margin:0 auto 36px;position:relative;z-index:1;}
+.doc-meta{display:flex;justify-content:center;gap:32px;flex-wrap:wrap;position:relative;z-index:1;}
+.doc-meta-item{display:flex;flex-direction:column;align-items:center;gap:4px;}
+.doc-meta-item .label{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);opacity:.6;}
+.doc-meta-item .value{font-size:13px;font-weight:500;color:var(--white);}
+
+/* ── PENDING NOTICE ── */
+.pending-notice{background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.25);border-radius:12px;padding:20px 24px;display:flex;align-items:flex-start;gap:14px;margin-bottom:40px;}
+.pending-icon{font-size:20px;flex-shrink:0;margin-top:2px;}
+.pending-text strong{color:#86efac;font-size:14px;font-weight:600;}
+.pending-text p{font-size:13px;color:#86efac;opacity:.75;margin-top:4px;}
+
+/* ── SECTION LABELS ── */
+.section-label{display:inline-flex;align-items:center;gap:10px;font-size:11px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;color:var(--purple-light);margin-bottom:14px;}
+.section-label::before{content:'';width:24px;height:1px;background:var(--purple-light);}
+.section-title{color:var(--white);margin-bottom:10px;}
+.section-desc{max-width:580px;font-size:14px;margin-bottom:48px;}
+
+/* ── CARDS ── */
+.card{background:var(--surface);border:1px solid var(--border-subtle);border-radius:14px;padding:28px 32px;transition:border-color .3s,transform .3s;}
+.card:hover{border-color:var(--border);transform:translateY(-2px);}
+.card-icon{font-size:28px;margin-bottom:14px;}
+.card-title{font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:600;color:var(--white);margin-bottom:8px;}
+.card-desc{font-size:13px;color:var(--muted);line-height:1.65;}
+
+/* ── TECH STACK ── */
+.stack-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+.stack-card{background:var(--surface);border:1px solid var(--border-subtle);border-radius:12px;padding:20px 22px;}
+.stack-layer{font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--purple-light);margin-bottom:8px;}
+.stack-tech{font-size:14px;font-weight:500;color:var(--white);margin-bottom:4px;}
+.stack-note{font-size:12px;color:var(--muted);}
+
+/* ── TIMELINE / SPRINT ── */
+.sprint-list{display:flex;flex-direction:column;gap:0;}
+.sprint{display:grid;grid-template-columns:160px 1fr;gap:32px;position:relative;padding-bottom:40px;}
+.sprint:last-child{padding-bottom:0;}
+.sprint::before{content:'';position:absolute;left:75px;top:36px;bottom:0;width:1px;background:var(--border-subtle);}
+.sprint:last-child::before{display:none;}
+.sprint-left{display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:4px;}
+.sprint-dot{width:48px;height:48px;border-radius:50%;border:2px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;position:relative;z-index:1;}
+.sprint-week{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-align:center;}
+.sprint-right{}
+.sprint-title{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;color:var(--white);margin-bottom:6px;}
+.sprint-sub{font-size:11px;font-weight:500;letter-spacing:.8px;text-transform:uppercase;color:var(--purple-light);margin-bottom:12px;}
+.sprint-tasks{list-style:none;display:flex;flex-direction:column;gap:7px;margin-bottom:14px;}
+.sprint-tasks li{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:#d1d5db;}
+.sprint-tasks li::before{content:'→';color:var(--purple-light);font-size:11px;flex-shrink:0;margin-top:3px;}
+.sprint-badges{display:flex;flex-wrap:wrap;gap:6px;}
+
+/* ── BADGES ── */
+.badge{font-size:11px;font-weight:500;padding:3px 10px;border-radius:99px;}
+.badge-purple{background:rgba(124,58,237,.15);color:var(--purple-light);border:1px solid rgba(124,58,237,.3);}
+.badge-green{background:var(--green-dim);color:#86efac;border:1px solid rgba(34,197,94,.3);}
+.badge-amber{background:var(--amber-dim);color:#fcd34d;border:1px solid rgba(245,158,11,.3);}
+.badge-blue{background:var(--blue-dim);color:#93c5fd;border:1px solid rgba(59,130,246,.3);}
+.badge-red{background:var(--red-dim);color:#fca5a5;border:1px solid rgba(239,68,68,.25);}
+
+/* ── GIT WORKFLOW ── */
+.branch-diagram{background:var(--surface);border:1px solid var(--border-subtle);border-radius:14px;padding:32px;margin-bottom:32px;}
+.branch-row{display:flex;align-items:center;gap:16px;margin-bottom:20px;}
+.branch-row:last-child{margin-bottom:0;}
+.branch-name{font-family:'DM Mono',monospace;font-size:12px;padding:5px 12px;border-radius:6px;flex-shrink:0;min-width:160px;text-align:center;}
+.branch-main{background:rgba(124,58,237,.2);color:var(--purple-light);border:1px solid rgba(124,58,237,.4);}
+.branch-feature{background:rgba(34,197,94,.1);color:#86efac;border:1px solid rgba(34,197,94,.3);}
+.branch-hotfix{background:var(--red-dim);color:#fca5a5;border:1px solid rgba(239,68,68,.25);}
+.branch-desc{font-size:13px;color:var(--muted);}
+.arrow{color:var(--border);font-size:18px;flex-shrink:0;}
+
+/* ── QUALITY GATES ── */
+.gates-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+.gate{background:var(--surface);border:1px solid var(--border-subtle);border-radius:10px;padding:16px 20px;display:flex;align-items:flex-start;gap:12px;}
+.gate-status{font-size:16px;flex-shrink:0;margin-top:1px;}
+.gate-title{font-size:13px;font-weight:600;color:var(--white);margin-bottom:3px;}
+.gate-desc{font-size:12px;color:var(--muted);line-height:1.55;}
+
+/* ── ENVIRONMENT TABLE ── */
+.env-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+.env-card{background:var(--surface);border:1px solid var(--border-subtle);border-radius:12px;padding:22px;}
+.env-name{font-size:11px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:12px;}
+.env-local .env-name{color:#86efac;}
+.env-staging .env-name{color:#fcd34d;}
+.env-prod .env-name{color:var(--purple-light);}
+.env-rows{display:flex;flex-direction:column;gap:7px;}
+.env-row{display:flex;justify-content:space-between;align-items:center;}
+.env-key{font-size:11px;color:var(--muted);}
+.env-val{font-size:11px;font-weight:500;color:var(--white);}
+
+/* ── CODE BLOCK ── */
+.code-block{background:#0d0d0d;border:1px solid var(--border-subtle);border-radius:10px;padding:20px 22px;overflow-x:auto;margin:16px 0;}
+.code-block pre{font-family:'DM Mono',monospace;font-size:12px;line-height:1.7;color:#e5e7eb;}
+.code-block .comment{color:#6b7280;}
+.code-block .keyword{color:var(--purple-light);}
+.code-block .string{color:#86efac;}
+.code-block .cmd{color:#fcd34d;}
+
+/* ── SDD WORKFLOW ── */
+.sdd-flow{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:8px;}
+.sdd-step{flex:1;min-width:130px;display:flex;flex-direction:column;align-items:center;position:relative;}
+.sdd-step::after{content:'→';position:absolute;right:-14px;top:28px;color:var(--border);font-size:20px;z-index:1;}
+.sdd-step:last-child::after{display:none;}
+.sdd-dot{width:56px;height:56px;border-radius:50%;border:2px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:12px;transition:border-color .3s,box-shadow .3s;}
+.sdd-step:hover .sdd-dot{border-color:var(--purple-light);box-shadow:0 0 16px var(--purple-glow);}
+.sdd-title{font-size:12px;font-weight:600;color:var(--white);text-align:center;margin-bottom:4px;}
+.sdd-cmd{font-family:'DM Mono',monospace;font-size:10px;color:var(--purple-light);text-align:center;}
+
+/* ── DOD TABLE ── */
+table{width:100%;border-collapse:collapse;font-size:13px;}
+thead{background:var(--surface);}
+thead th{padding:14px 18px;text-align:left;font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border-subtle);}
+tbody tr{border-bottom:1px solid var(--border-subtle);transition:background .2s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:rgba(124,58,237,.04);}
+tbody td{padding:14px 18px;color:#d1d5db;vertical-align:top;}
+td .primary{color:var(--white);font-weight:500;}
+td .secondary{font-size:12px;color:var(--muted);margin-top:2px;}
+.table-wrap{border-radius:14px;border:1px solid var(--border-subtle);overflow:hidden;}
+
+/* ── TESTING PYRAMID ── */
+.test-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+.test-card{background:var(--surface);border-radius:12px;padding:22px;border-top:3px solid;}
+.test-card.unit{border-color:#86efac;}
+.test-card.integration{border-color:var(--purple-light);}
+.test-card.contract{border-color:#fcd34d;}
+.test-card.e2e{border-color:#fca5a5;}
+.test-type{font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;}
+.test-card.unit .test-type{color:#86efac;}
+.test-card.integration .test-type{color:var(--purple-light);}
+.test-card.contract .test-type{color:#fcd34d;}
+.test-card.e2e .test-type{color:#fca5a5;}
+.test-desc{font-size:12px;color:var(--muted);line-height:1.6;}
+.test-cmd{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);margin-top:10px;opacity:.7;}
+
+/* ── FOOTER ── */
+.doc-footer{background:var(--surface);border-top:1px solid var(--border-subtle);padding:40px 0;text-align:center;}
+.footer-logo{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--white);margin-bottom:8px;}
+.footer-logo span{color:var(--purple-light);}
+.footer-meta{font-size:12px;color:var(--muted);}
+
+/* ── FADE IN ── */
+.fade-in{opacity:0;transform:translateY(20px);transition:opacity .6s ease,transform .6s ease;}
+.fade-in.visible{opacity:1;transform:translateY(0);}
+</style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<header class="doc-header">
+  <div class="container">
+    <div class="logo">RYKE <span>AI</span></div>
+    <div class="doc-tag">Internal · Development Strategy</div>
+    <h1>Build the <em>Right Thing</em>,<br>the Right Way</h1>
+    <p class="subtitle">The complete development strategy, sprint plan, git workflow, quality gates, and testing approach for RYKE AI Phase 1 MVP.</p>
+    <div class="doc-meta">
+      <div class="doc-meta-item"><span class="label">Version</span><span class="value">1.0</span></div>
+      <div class="doc-meta-item"><span class="label">Phase</span><span class="value">MVP Phase 1</span></div>
+      <div class="doc-meta-item"><span class="label">Timeline</span><span class="value">4–8 Weeks</span></div>
+      <div class="doc-meta-item"><span class="label">Branch</span><span class="value">001-sms-ai-coaching</span></div>
+      <div class="doc-meta-item"><span class="label">Date</span><span class="value">April 2026</span></div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ PENDING DECISION ═══ -->
+<section style="padding:40px 0 0;">
+  <div class="container">
+    <div class="pending-notice fade-in">
+      <div class="pending-icon">💬</div>
+      <div class="pending-text">
+        <strong>✅ iMessage Locked In — SendBlue API (Phase 1)</strong>
+        <p>iPhone users receive coaching as iMessages (blue bubbles) via <strong>SendBlue API</strong>. Android and basic phone users route through Twilio SMS/MMS. Automatic SMS fallback built into SendBlue — no extra code needed. Both channels share the same session context and BullMQ coaching queue. Inbound replies from SendBlue arrive via webhook at <code>POST /webhooks/imsg</code>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SDD WORKFLOW ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">How We Build</div>
+      <h2 class="section-title">Spec-Driven Development (SDD)</h2>
+      <p class="section-desc">Every feature follows a structured pipeline from idea to deployed code. No task is started without a spec. No code ships without passing its predefined tests.</p>
+    </div>
+    <div class="sdd-flow fade-in">
+      <div class="sdd-step">
+        <div class="sdd-dot">📋</div>
+        <div class="sdd-title">Constitution</div>
+        <div class="sdd-cmd">/sp.constitution</div>
+      </div>
+      <div class="sdd-step">
+        <div class="sdd-dot">📝</div>
+        <div class="sdd-title">Specify</div>
+        <div class="sdd-cmd">/sp.specify</div>
+      </div>
+      <div class="sdd-step">
+        <div class="sdd-dot">🔍</div>
+        <div class="sdd-title">Clarify</div>
+        <div class="sdd-cmd">/sp.clarify</div>
+      </div>
+      <div class="sdd-step">
+        <div class="sdd-dot">🏗️</div>
+        <div class="sdd-title">Plan</div>
+        <div class="sdd-cmd">/sp.plan</div>
+      </div>
+      <div class="sdd-step">
+        <div class="sdd-dot">✅</div>
+        <div class="sdd-title">Tasks</div>
+        <div class="sdd-cmd">/sp.tasks</div>
+      </div>
+      <div class="sdd-step">
+        <div class="sdd-dot">🔴</div>
+        <div class="sdd-title">Red Tests</div>
+        <div class="sdd-cmd">Write tests first</div>
+      </div>
+      <div class="sdd-step">
+        <div class="sdd-dot">🟢</div>
+        <div class="sdd-title">Implement</div>
+        <div class="sdd-cmd">/sp.implement</div>
+      </div>
+      <div class="sdd-step">
+        <div class="sdd-dot">♻️</div>
+        <div class="sdd-title">Refactor</div>
+        <div class="sdd-cmd">/simplify</div>
+      </div>
+    </div>
+    <div style="margin-top:32px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;" class="fade-in">
+      <div class="card">
+        <div class="card-icon">📋</div>
+        <div class="card-title">Constitution First</div>
+        <p class="card-desc">All principles are locked in <code>.specify/memory/constitution.md</code> v1.2.0. Every PR includes a constitution check. Non-negotiable gates cannot be bypassed by any feature flag or config.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔴🟢</div>
+        <div class="card-title">Red-Green-Refactor</div>
+        <p class="card-desc">Tests are written and approved before any implementation begins. A feature is not done until all predefined Given/When/Then scenarios pass in CI. No test = no merge.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📖</div>
+        <div class="card-title">PHR on Every Prompt</div>
+        <p class="card-desc">Every AI interaction is recorded as a Prompt History Record in <code>history/prompts/</code>. Full audit trail of decisions, rationale, and outcomes throughout the project.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══ TECH STACK ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Architecture</div>
+      <h2 class="section-title">Confirmed Tech Stack</h2>
+      <p class="section-desc">Three mandatory layers with strict separation — no cross-layer direct calls. Each layer is independently deployable and testable.</p>
+    </div>
+    <div class="stack-grid fade-in">
+      <div class="stack-card">
+        <div class="stack-layer">Layer 1 · Messaging</div>
+        <div class="stack-tech">Twilio SMS/MMS + iMessage</div>
+        <p class="stack-note">Twilio for SMS/MMS (Android + basic phones). <strong>SendBlue</strong> for iMessage to iPhone users — blue bubbles, auto SMS fallback built-in. Both channels abstracted behind a single MessagingService interface.</p>
+      </div>
+      <div class="stack-card">
+        <div class="stack-layer">Layer 2 · AI</div>
+        <div class="stack-tech">Claude API (Anthropic)</div>
+        <p class="stack-note">claude-haiku-4-5 default. Coaching, vision (MMS nutrition), crisis classification, session summarisation. No Twilio or DB calls.</p>
+      </div>
+      <div class="stack-card">
+        <div class="stack-layer">Layer 3 · Data</div>
+        <div class="stack-tech">PostgreSQL 15 + Redis 7</div>
+        <p class="stack-note">PostgreSQL: all durable storage. Redis: session cache (4h TTL) + BullMQ queues. No messaging or AI logic here.</p>
+      </div>
+      <div class="stack-card">
+        <div class="stack-layer">Backend</div>
+        <div class="stack-tech">NestJS 10 · TypeScript 5</div>
+        <p class="stack-note">Node.js 20 LTS. Modular architecture maps directly to the 3-layer structure. BullMQ for all async processing.</p>
+      </div>
+      <div class="stack-card">
+        <div class="stack-layer">Frontend</div>
+        <div class="stack-tech">Next.js 14 · App Router</div>
+        <p class="stack-note">Landing page + multi-step onboarding form only. Stripe Payment Element for card capture. Deployed on Vercel.</p>
+      </div>
+      <div class="stack-card">
+        <div class="stack-layer">Payment</div>
+        <div class="stack-tech">Stripe</div>
+        <p class="stack-note">SetupIntent → Subscription (30-day free trial). Only Stripe customer ID + subscription ID stored. Raw card data never touches RYKE servers.</p>
+      </div>
+      <div class="stack-card">
+        <div class="stack-layer">Crisis Detection</div>
+        <div class="stack-tech">Claude API + BERT Hybrid</div>
+        <p class="stack-note">Claude API classifier (primary) + Transformers.js local BERT (fast-path/fallback). Confidence threshold 0.65. Fully async via BullMQ.</p>
+      </div>
+      <div class="stack-card">
+        <div class="stack-layer">Infrastructure</div>
+        <div class="stack-tech">AWS EC2 + RDS + ElastiCache</div>
+        <p class="stack-note">Backend on EC2, PostgreSQL on RDS, Redis on ElastiCache. Docker Compose for local dev. Horizontal scaling of message workers without code changes.</p>
+      </div>
+      <div class="stack-card">
+        <div class="stack-layer">Testing</div>
+        <div class="stack-tech">Jest + Supertest</div>
+        <p class="stack-note">Unit, integration, and contract tests. Contract tests required for Twilio, Claude, Stripe, and PostgreSQL before any integration work.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══ SPRINT PLAN ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Delivery Timeline</div>
+      <h2 class="section-title">4–8 Week Sprint Plan</h2>
+      <p class="section-desc">MVP must ship within 8 weeks. This plan targets 6 weeks with 2 weeks of buffer for testing, polish, and unexpected blockers.</p>
+    </div>
+    <div class="sprint-list fade-in">
+
+      <div class="sprint">
+        <div class="sprint-left">
+          <div class="sprint-dot">🏗️</div>
+          <div class="sprint-week">Week 1</div>
+        </div>
+        <div class="sprint-right">
+          <div class="sprint-sub">Foundation</div>
+          <div class="sprint-title">Project Setup & Infrastructure</div>
+          <ul class="sprint-tasks">
+            <li>Initialise NestJS monorepo + Next.js frontend with TypeScript</li>
+            <li>Configure Docker Compose (PostgreSQL 15 + Redis 7)</li>
+            <li>Set up CI pipeline (GitHub Actions) with lint + test gates</li>
+            <li>Create all TypeORM entities and run initial migrations</li>
+            <li>Configure environment variables and secrets management</li>
+            <li>Write contract tests for Twilio, Claude, Stripe, PostgreSQL</li>
+            <li>Set up BullMQ queues: sms, coaching, crisis-detection, stripe</li>
+          </ul>
+          <div class="sprint-badges">
+            <span class="badge badge-green">Contract Tests First</span>
+            <span class="badge badge-blue">No Feature Code Yet</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sprint">
+        <div class="sprint-left">
+          <div class="sprint-dot">🌐</div>
+          <div class="sprint-week">Week 2</div>
+        </div>
+        <div class="sprint-right">
+          <div class="sprint-sub">Onboarding</div>
+          <div class="sprint-title">Web Form + Stripe Trial + Welcome SMS</div>
+          <ul class="sprint-tasks">
+            <li>Build multi-step onboarding form (5 steps: goals, metrics, health, contact, payment)</li>
+            <li>Integrate Stripe Payment Element in Next.js Step 5</li>
+            <li>Backend: POST /onboarding/setup-intent + /onboarding/submit</li>
+            <li>Stripe webhook handler for subscription.created → trigger welcome SMS</li>
+            <li>TwilioWebhookGuard + MessagingService (outbound SMS queue)</li>
+            <li>Welcome SMS personalised from onboarding profile data</li>
+            <li>Integration test: form → Stripe → welcome SMS &lt; 30s</li>
+          </ul>
+          <div class="sprint-badges">
+            <span class="badge badge-purple">Zero-Friction Gate</span>
+            <span class="badge badge-amber">Stripe Integration</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sprint">
+        <div class="sprint-left">
+          <div class="sprint-dot">💬</div>
+          <div class="sprint-week">Week 3</div>
+        </div>
+        <div class="sprint-right">
+          <div class="sprint-sub">Core Coaching</div>
+          <div class="sprint-title">SMS AI Coaching Loop</div>
+          <ul class="sprint-tasks">
+            <li>Twilio inbound webhook: validate, store, respond, queue</li>
+            <li>Session cache: Redis sliding window (20 msgs, 4h TTL) + PostgreSQL fallback</li>
+            <li>CoachingService: build system prompt + user profile context + Claude API call</li>
+            <li>Outbound SMS via MessagingService (BullMQ, 3-retry exponential backoff)</li>
+            <li>Session boundary: expiry detection + Claude summarisation trigger</li>
+            <li>Integration test: inbound SMS → Claude → outbound SMS &lt; 10s</li>
+            <li>Unregistered sender handling + duplicate webhook idempotency</li>
+          </ul>
+          <div class="sprint-badges">
+            <span class="badge badge-purple">SMS-First Gate</span>
+            <span class="badge badge-green">Context-Aware</span>
+            <span class="badge badge-blue">Token-Efficiency Gate</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sprint">
+        <div class="sprint-left">
+          <div class="sprint-dot">🥗</div>
+          <div class="sprint-week">Week 4</div>
+        </div>
+        <div class="sprint-right">
+          <div class="sprint-sub">Vision + Safety</div>
+          <div class="sprint-title">MMS Nutrition Analysis + Crisis Detection</div>
+          <ul class="sprint-tasks">
+            <li>MMS detection: parse NumMedia, MediaUrl0 from Twilio webhook</li>
+            <li>VisionService: Claude Vision via URL reference + structured JSON nutrition output</li>
+            <li>Health condition flag injection from user onboarding profile</li>
+            <li>Crisis detection: BullMQ async classifier (Claude + BERT hybrid)</li>
+            <li>SafetyService: holding message &lt; 3s + coach alert within 5 min</li>
+            <li>User.crisis_hold flag + session pause/resume logic</li>
+            <li>Integration tests: MMS food → nutrition &lt; 15s; crisis → holding &lt; 3s; alert &lt; 5min</li>
+          </ul>
+          <div class="sprint-badges">
+            <span class="badge badge-red">Safety Gate — NON-NEGOTIABLE</span>
+            <span class="badge badge-amber">ML Classifier</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sprint">
+        <div class="sprint-left">
+          <div class="sprint-dot">🔒</div>
+          <div class="sprint-week">Week 5</div>
+        </div>
+        <div class="sprint-right">
+          <div class="sprint-sub">Privacy + Billing</div>
+          <div class="sprint-title">Data Rights, Billing Lifecycle & Observability</div>
+          <ul class="sprint-tasks">
+            <li>Data export + deletion endpoint (GDPR-adjacent)</li>
+            <li>Stripe webhook handlers: trial_will_end, updated, payment_failed, payment_succeeded, deleted</li>
+            <li>Subscription status sync (trialing → active → past_due → cancelled)</li>
+            <li>Structured logging on every service operation (inbound, AI, Stripe, handoff, token usage)</li>
+            <li>Token usage logging per turn for Token-Efficiency Gate monitoring</li>
+            <li>Crisis alert SLA monitoring: log breach if coach_alerted_at - created_at &gt; 5 min</li>
+            <li>Error handling: Claude unavailable fallback, Twilio delivery failure, Stripe webhook retry</li>
+          </ul>
+          <div class="sprint-badges">
+            <span class="badge badge-purple">Privacy Gate</span>
+            <span class="badge badge-green">Observability Gate</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sprint">
+        <div class="sprint-left">
+          <div class="sprint-dot">🚀</div>
+          <div class="sprint-week">Weeks 6–8</div>
+        </div>
+        <div class="sprint-right">
+          <div class="sprint-sub">Polish + Launch</div>
+          <div class="sprint-title">End-to-End Testing, Staging Deploy & Launch</div>
+          <ul class="sprint-tasks">
+            <li>Full end-to-end test run: all 6 user stories, all edge cases</li>
+            <li>Crisis detection validation against Verily dataset (&lt;5% false-negative target)</li>
+            <li>Load test: 100 concurrent SMS webhook requests, p95 &lt; 10s</li>
+            <li>Deploy to staging (AWS EC2 + RDS + ElastiCache + Vercel)</li>
+            <li>Manual QA on real devices (smartphone + basic feature phone)</li>
+            <li>Onboarding form → welcome SMS &lt; 30s verified on staging</li>
+            <li>Finalise landing page (convert existing HTML to Next.js components)</li>
+            <li>Production deploy + Twilio number configuration</li>
+          </ul>
+          <div class="sprint-badges">
+            <span class="badge badge-green">All Gates Must Pass</span>
+            <span class="badge badge-amber">Real Device Testing</span>
+            <span class="badge badge-purple">Go Live</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══ GIT WORKFLOW ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Version Control</div>
+      <h2 class="section-title">Git Branching Strategy</h2>
+      <p class="section-desc">Feature-branch workflow with mandatory PR reviews and constitution checks. No direct commits to main.</p>
+    </div>
+    <div class="branch-diagram fade-in">
+      <div class="branch-row">
+        <code class="branch-name branch-main">main</code>
+        <span class="arrow">→</span>
+        <span class="branch-desc">Production-ready code only. Protected branch. Auto-deploys to production on merge.</span>
+      </div>
+      <div class="branch-row">
+        <code class="branch-name branch-feature">001-sms-ai-coaching</code>
+        <span class="arrow">→</span>
+        <span class="branch-desc">Current feature branch. All Phase 1 MVP development happens here. Merges to main on feature completion.</span>
+      </div>
+      <div class="branch-row">
+        <code class="branch-name branch-feature">001-sms-ai-coaching/task-xxx</code>
+        <span class="arrow">→</span>
+        <span class="branch-desc">Individual task branches cut from the feature branch. One branch per task from tasks.md. PR back to feature branch.</span>
+      </div>
+      <div class="branch-row">
+        <code class="branch-name branch-hotfix">hotfix/issue-description</code>
+        <span class="arrow">→</span>
+        <span class="branch-desc">Critical production fixes only. Cut from main, merged back to main AND feature branch.</span>
+      </div>
+    </div>
+    <div class="code-block fade-in">
+      <pre><span class="comment"># Standard task workflow</span>
+<span class="cmd">git checkout</span> 001-sms-ai-coaching
+<span class="cmd">git pull</span> origin 001-sms-ai-coaching
+<span class="cmd">git checkout -b</span> <span class="string">001-sms-ai-coaching/task-001-messaging-layer</span>
+
+<span class="comment"># Write failing tests first (Red), then implement (Green), then clean up</span>
+<span class="cmd">npm run test</span> <span class="comment"># must pass</span>
+<span class="cmd">npm run lint</span> <span class="comment"># must pass</span>
+
+<span class="comment"># Create PR back to feature branch — include constitution check in description</span>
+<span class="cmd">gh pr create</span> --base 001-sms-ai-coaching --title <span class="string">"feat: add messaging layer with Twilio webhook guard"</span></pre>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:24px;" class="fade-in">
+      <div class="card">
+        <div class="card-icon">✅</div>
+        <div class="card-title">PR Checklist</div>
+        <p class="card-desc">Every PR must include: constitution check section, passing tests, no unresolved linting errors, and a PHR if AI-assisted.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🚫</div>
+        <div class="card-title">Never Commit To</div>
+        <p class="card-desc">Never commit directly to <code>main</code>. Never use <code>--no-verify</code> to skip hooks. Never force-push to shared branches.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">💬</div>
+        <div class="card-title">Commit Convention</div>
+        <p class="card-desc">Use conventional commits: <code>feat:</code>, <code>fix:</code>, <code>test:</code>, <code>refactor:</code>, <code>docs:</code>. Keep messages under 72 chars.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══ ENVIRONMENTS ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Environments</div>
+      <h2 class="section-title">Three-Environment Strategy</h2>
+      <p class="section-desc">Local → Staging → Production. No feature goes to production without passing staging validation.</p>
+    </div>
+    <div class="env-grid fade-in">
+      <div class="env-card env-local">
+        <div class="env-name">Local Dev</div>
+        <div class="env-rows">
+          <div class="env-row"><span class="env-key">Backend</span><span class="env-val">localhost:3000</span></div>
+          <div class="env-row"><span class="env-key">Frontend</span><span class="env-val">localhost:3001</span></div>
+          <div class="env-row"><span class="env-key">DB</span><span class="env-val">Docker Compose</span></div>
+          <div class="env-row"><span class="env-key">Webhooks</span><span class="env-val">ngrok tunnel</span></div>
+          <div class="env-row"><span class="env-key">Stripe</span><span class="env-val">Test keys + test cards</span></div>
+          <div class="env-row"><span class="env-key">Twilio</span><span class="env-val">Test credentials</span></div>
+          <div class="env-row"><span class="env-key">Claude</span><span class="env-val">Real API (haiku)</span></div>
+        </div>
+      </div>
+      <div class="env-card env-staging">
+        <div class="env-name">Staging</div>
+        <div class="env-rows">
+          <div class="env-row"><span class="env-key">Backend</span><span class="env-val">AWS EC2 (t3.small)</span></div>
+          <div class="env-row"><span class="env-key">Frontend</span><span class="env-val">Vercel (preview)</span></div>
+          <div class="env-row"><span class="env-key">DB</span><span class="env-val">AWS RDS (db.t3.micro)</span></div>
+          <div class="env-row"><span class="env-key">Cache</span><span class="env-val">ElastiCache (cache.t3.micro)</span></div>
+          <div class="env-row"><span class="env-key">Stripe</span><span class="env-val">Test keys</span></div>
+          <div class="env-row"><span class="env-key">Twilio</span><span class="env-val">Real number (test volume)</span></div>
+          <div class="env-row"><span class="env-key">Deploy</span><span class="env-val">Auto on feature branch merge</span></div>
+        </div>
+      </div>
+      <div class="env-card env-prod">
+        <div class="env-name">Production</div>
+        <div class="env-rows">
+          <div class="env-row"><span class="env-key">Backend</span><span class="env-val">AWS EC2 (t3.medium)</span></div>
+          <div class="env-row"><span class="env-key">Frontend</span><span class="env-val">Vercel (production)</span></div>
+          <div class="env-row"><span class="env-key">DB</span><span class="env-val">AWS RDS (db.t3.small)</span></div>
+          <div class="env-row"><span class="env-key">Cache</span><span class="env-val">ElastiCache (cache.t3.small)</span></div>
+          <div class="env-row"><span class="env-key">Stripe</span><span class="env-val">Live keys</span></div>
+          <div class="env-row"><span class="env-key">Twilio</span><span class="env-val">Production number</span></div>
+          <div class="env-row"><span class="env-key">Deploy</span><span class="env-val">Manual approval → main merge</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══ TESTING ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Quality Assurance</div>
+      <h2 class="section-title">Testing Strategy</h2>
+      <p class="section-desc">Tests are written before implementation. A feature is not done until all predefined scenarios pass in CI. Four testing layers, each with a clear responsibility.</p>
+    </div>
+    <div class="test-grid fade-in">
+      <div class="test-card unit">
+        <div class="test-type">Unit Tests</div>
+        <p class="test-desc">Individual service methods in isolation. Mock all external dependencies. Fast — runs on every commit.</p>
+        <div class="test-cmd">npm run test</div>
+      </div>
+      <div class="test-card integration">
+        <div class="test-type">Integration Tests</div>
+        <p class="test-desc">Full request flows against real PostgreSQL + Redis (Docker). No mocked DB. Covers onboarding, coaching, MMS, crisis flows.</p>
+        <div class="test-cmd">npm run test:integration</div>
+      </div>
+      <div class="test-card contract">
+        <div class="test-type">Contract Tests</div>
+        <p class="test-desc">Verify external API contracts: Twilio webhook format, Claude API message shape, Stripe event structure, PostgreSQL schema.</p>
+        <div class="test-cmd">npm run test:contract</div>
+      </div>
+      <div class="test-card e2e">
+        <div class="test-type">E2E Tests</div>
+        <p class="test-desc">Real SMS sent to Twilio number on staging. Verifies full onboarding flow, coaching loop, MMS nutrition, and crisis detection on real devices.</p>
+        <div class="test-cmd">Manual on staging</div>
+      </div>
+    </div>
+    <div style="margin-top:24px;" class="fade-in">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Flow</th><th>Test Type</th><th>SLA to Verify</th><th>Must Pass Before</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><div class="primary">Onboarding form → welcome SMS</div></td><td>Integration + E2E</td><td>< 30 seconds</td><td>Week 2 merge</td></tr>
+            <tr><td><div class="primary">Inbound SMS → AI reply</div></td><td>Integration</td><td>< 10s p95</td><td>Week 3 merge</td></tr>
+            <tr><td><div class="primary">MMS food photo → nutrition</div></td><td>Integration</td><td>< 15 seconds</td><td>Week 4 merge</td></tr>
+            <tr><td><div class="primary">Crisis signal → holding message</div></td><td>Integration + E2E</td><td>< 3 seconds</td><td>Week 4 merge</td></tr>
+            <tr><td><div class="primary">Crisis signal → coach alert</div></td><td>Integration + E2E</td><td>< 5 minutes</td><td>Week 4 merge</td></tr>
+            <tr><td><div class="primary">Session context across sessions</div></td><td>Integration</td><td>No re-state required</td><td>Week 3 merge</td></tr>
+            <tr><td><div class="primary">Data deletion request</div></td><td>Integration</td><td>All records removed</td><td>Week 5 merge</td></tr>
+            <tr><td><div class="primary">Stripe trial → active transition</div></td><td>Integration</td><td>Webhook processed</td><td>Week 5 merge</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══ QUALITY GATES ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Constitution Enforcement</div>
+      <h2 class="section-title">10 Quality Gates</h2>
+      <p class="section-desc">Every PR must include a constitution check section confirming all applicable gates pass. Non-negotiable gates cannot be bypassed under any circumstance.</p>
+    </div>
+    <div class="gates-grid fade-in">
+      <div class="gate">
+        <div class="gate-status">📱</div>
+        <div><div class="gate-title">SMS-First Gate</div><div class="gate-desc">Every coaching output must be deliverable as SMS. Flag any feature requiring a browser or app (onboarding form is the sole exception).</div></div>
+      </div>
+      <div class="gate">
+        <div class="gate-status">🛡️</div>
+        <div><div class="gate-title">Safety Gate <span class="badge badge-red" style="font-size:10px;">NON-NEGOTIABLE</span></div><div class="gate-desc">Mental health or distress features MUST include handoff logic + integration test covering the handoff path.</div></div>
+      </div>
+      <div class="gate">
+        <div class="gate-status">🔒</div>
+        <div><div class="gate-title">Privacy Gate <span class="badge badge-red" style="font-size:10px;">NON-NEGOTIABLE</span></div><div class="gate-desc">Features handling health or personal data MUST include encryption, access control, and consent mechanism.</div></div>
+      </div>
+      <div class="gate">
+        <div class="gate-status">🔌</div>
+        <div><div class="gate-title">Extensibility Gate</div><div class="gate-desc">New health metric entities MUST use source-agnostic schema. No device-specific fields at the top level.</div></div>
+      </div>
+      <div class="gate">
+        <div class="gate-status">📊</div>
+        <div><div class="gate-title">Observability Gate</div><div class="gate-desc">Every new service operation MUST emit a structured log event. Token usage logged per turn.</div></div>
+      </div>
+      <div class="gate">
+        <div class="gate-status">🎯</div>
+        <div><div class="gate-title">MVP Scope Gate <span class="badge badge-red" style="font-size:10px;">NON-NEGOTIABLE</span></div><div class="gate-desc">Phase 2+ features MUST be blocked and deferred to backlog. Any PR referencing out-of-scope items is rejected.</div></div>
+      </div>
+      <div class="gate">
+        <div class="gate-status">🧪</div>
+        <div><div class="gate-title">Test-First Gate</div><div class="gate-desc">PRs MUST include predefined test files matching the spec's acceptance scenarios. No test = no merge.</div></div>
+      </div>
+      <div class="gate">
+        <div class="gate-status">🪙</div>
+        <div><div class="gate-title">Token-Efficiency Gate</div><div class="gate-desc">New AI prompt templates MUST include estimated token count. Prompts exceeding 500 tokens/turn must be reviewed and justified.</div></div>
+      </div>
+      <div class="gate">
+        <div class="gate-status">📐</div>
+        <div><div class="gate-title">Separation of Concerns Gate</div><div class="gate-desc">No cross-layer direct calls. Messaging / AI / Data layers must remain independently deployable and testable.</div></div>
+      </div>
+      <div class="gate">
+        <div class="gate-status">⚡</div>
+        <div><div class="gate-title">Zero-Friction Gate <span class="badge badge-red" style="font-size:10px;">NON-NEGOTIABLE</span></div><div class="gate-desc">Any onboarding change must be tested end-to-end: form submission → welcome SMS received in under 30 seconds.</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══ DEFINITION OF DONE ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Standards</div>
+      <h2 class="section-title">Definition of Done</h2>
+      <p class="section-desc">A task is not done until every item in this checklist is true. No exceptions.</p>
+    </div>
+    <div class="table-wrap fade-in">
+      <table>
+        <thead>
+          <tr><th>Level</th><th>Criteria</th><th>Verified By</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="badge badge-green">Code</span></td><td><div class="primary">All acceptance scenarios from spec pass</div><div class="secondary">Given/When/Then tests green in CI</div></td><td>CI pipeline</td></tr>
+          <tr><td><span class="badge badge-green">Code</span></td><td><div class="primary">No TypeScript errors, no lint violations</div><div class="secondary">tsc --noEmit + eslint pass</div></td><td>CI pipeline</td></tr>
+          <tr><td><span class="badge badge-green">Code</span></td><td><div class="primary">Smallest viable change — no unrelated edits</div><div class="secondary">PR diff reviewed for scope creep</div></td><td>PR review</td></tr>
+          <tr><td><span class="badge badge-purple">Architecture</span></td><td><div class="primary">No cross-layer direct calls introduced</div><div class="secondary">Messaging / AI / Data boundaries respected</div></td><td>PR review</td></tr>
+          <tr><td><span class="badge badge-purple">Architecture</span></td><td><div class="primary">Constitution check section in PR description</div><div class="secondary">All applicable gates marked PASS</div></td><td>PR review</td></tr>
+          <tr><td><span class="badge badge-amber">Testing</span></td><td><div class="primary">Contract tests written for any new external integration</div><div class="secondary">Twilio, Claude, Stripe, PostgreSQL</div></td><td>CI pipeline</td></tr>
+          <tr><td><span class="badge badge-amber">Testing</span></td><td><div class="primary">Integration test covers primary flow end-to-end</div><div class="secondary">Real DB, no mocked infrastructure in integration suite</div></td><td>CI pipeline</td></tr>
+          <tr><td><span class="badge badge-blue">Observability</span></td><td><div class="primary">Structured log emitted for every new service operation</div></td><td>Code review</td></tr>
+          <tr><td><span class="badge badge-blue">Observability</span></td><td><div class="primary">Token count logged for any new AI prompt template</div><div class="secondary">Must be under 500 tokens/turn or justified in PR</div></td><td>Code review</td></tr>
+          <tr><td><span class="badge badge-red">Safety</span></td><td><div class="primary">Crisis detection path tested if feature touches messaging</div><div class="secondary">Holding message + coach alert verified in integration test</div></td><td>CI pipeline</td></tr>
+          <tr><td><span class="badge badge-red">Safety</span></td><td><div class="primary">PHR created for AI-assisted work</div><div class="secondary">Saved in history/prompts/001-sms-ai-coaching/</div></td><td>Process</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FOOTER ═══ -->
+<footer class="doc-footer">
+  <div class="container">
+    <div class="footer-logo">RYKE <span>AI</span></div>
+    <p class="footer-meta">Development Strategy Document · Version 1.0 · April 2026</p>
+    <p class="footer-meta" style="margin-top:4px;">Built on RYKE AI Constitution v1.2.0 · Branch: 001-sms-ai-coaching</p>
+  </div>
+</footer>
+
+<script>
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+}, { threshold: 0.07, rootMargin: '0px 0px -32px 0px' });
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "rykeai-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@stripe/react-stripe-js": "^3.1.1",
+    "@stripe/stripe-js": "^5.5.0",
+    "axios": "^1.8.4",
+    "next": "14.2.29",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.29",
+    "typescript": "^5.8.2"
+  }
+}

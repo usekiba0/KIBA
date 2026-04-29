@@ -1,0 +1,341 @@
+openapi: 3.1.0
+info:
+  title: RYKE AI MVP — Backend API
+  version: 1.0.0
+  description: |
+    Internal REST API for the RYKE AI MVP Phase 1 backend (NestJS).
+    Covers onboarding, Stripe payment setup, and Twilio webhook reception.
+    All coaching happens over SMS — there are no coaching endpoints here.
+
+servers:
+  - url: https://api.ryke.ai/v1
+    description: Production
+  - url: http://localhost:3000/v1
+    description: Local development
+
+tags:
+  - name: Onboarding
+    description: Web form submission and Stripe trial setup
+  - name: Webhooks
+    description: Inbound webhooks from Twilio and Stripe
+
+paths:
+
+  # ─── ONBOARDING ────────────────────────────────────────────────────────────
+
+  /onboarding/setup-intent:
+    post:
+      tags: [Onboarding]
+      summary: Create a Stripe SetupIntent
+      description: |
+        Called from the frontend when the user reaches Step 5 (Payment).
+        Returns a client_secret for the Stripe Payment Element.
+        Does NOT create a user record yet — that happens on /onboarding/submit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone_number]
+              properties:
+                name:
+                  type: string
+                  example: "Alex Johnson"
+                phone_number:
+                  type: string
+                  description: E.164 format
+                  example: "+15551234567"
+      responses:
+        "200":
+          description: SetupIntent created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_secret:
+                    type: string
+                    example: "seti_xxx_secret_yyy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          description: Invalid phone number (not SMS-capable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /onboarding/submit:
+    post:
+      tags: [Onboarding]
+      summary: Complete onboarding and activate free trial
+      description: |
+        Called after the frontend confirms the Stripe SetupIntent.
+        Creates the user, subscription (trial), and triggers welcome SMS.
+        Idempotent on phone_number — returns existing user if already registered.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingSubmitRequest"
+      responses:
+        "201":
+          description: User created, trial activated, welcome SMS queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingSubmitResponse"
+        "200":
+          description: User already registered — returns existing record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingSubmitResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          description: Payment method setup failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Validation error (phone, required fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+
+  # ─── WEBHOOKS ──────────────────────────────────────────────────────────────
+
+  /webhooks/sms:
+    post:
+      tags: [Webhooks]
+      summary: Receive inbound SMS/MMS from Twilio
+      description: |
+        Twilio posts to this endpoint for every inbound SMS or MMS.
+        The handler validates the Twilio signature, stores the message,
+        responds with empty 200 immediately, and queues async processing.
+        Requires X-Twilio-Signature header for validation.
+      parameters:
+        - name: X-Twilio-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/TwilioInboundWebhook"
+      responses:
+        "200":
+          description: Acknowledged — processing queued
+          content:
+            text/xml:
+              schema:
+                type: string
+                example: ""
+        "401":
+          description: Invalid Twilio signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /webhooks/stripe:
+    post:
+      tags: [Webhooks]
+      summary: Receive Stripe billing events
+      description: |
+        Stripe posts to this endpoint for subscription lifecycle events.
+        Requires Stripe-Signature header. Raw body required for signature verification.
+        Processed idempotently using Stripe event IDs.
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Stripe Event object
+              properties:
+                id:
+                  type: string
+                  example: "evt_xxx"
+                type:
+                  type: string
+                  example: "customer.subscription.created"
+                data:
+                  type: object
+      responses:
+        "200":
+          description: Event acknowledged
+        "400":
+          description: Invalid Stripe signature or malformed event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+# ─── COMPONENTS ──────────────────────────────────────────────────────────────
+
+components:
+
+  schemas:
+
+    OnboardingSubmitRequest:
+      type: object
+      required:
+        - name
+        - phone_number
+        - coaching_focus
+        - goals
+        - stripe_payment_method_id
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: "Alex Johnson"
+        phone_number:
+          type: string
+          description: E.164 format
+          example: "+15551234567"
+        coaching_focus:
+          type: string
+          enum: [fitness, nutrition, wellness, combined]
+          example: "fitness"
+        goals:
+          type: string
+          minLength: 1
+          example: "Build a consistent workout habit and lose 10 lbs"
+        height_cm:
+          type: integer
+          minimum: 50
+          maximum: 280
+          example: 178
+        weight_kg:
+          type: number
+          format: float
+          minimum: 20
+          maximum: 500
+          example: 82.5
+        age:
+          type: integer
+          minimum: 13
+          maximum: 120
+          example: 28
+        health_conditions:
+          type: array
+          items:
+            type: string
+          example: ["type_2_diabetes"]
+        dietary_restrictions:
+          type: array
+          items:
+            type: string
+          example: ["vegetarian"]
+        injuries:
+          type: string
+          nullable: true
+          example: "Lower back pain — avoid heavy deadlifts"
+        stripe_payment_method_id:
+          type: string
+          description: Returned by Stripe after SetupIntent confirmation
+          example: "pm_xxx"
+        plan:
+          type: string
+          enum: [individual, coach_pro, coach_elite]
+          default: individual
+
+    OnboardingSubmitResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        phone_number:
+          type: string
+        subscription_status:
+          type: string
+          enum: [trialing, active]
+        trial_end:
+          type: string
+          format: date-time
+        welcome_sms_queued:
+          type: boolean
+          example: true
+
+    TwilioInboundWebhook:
+      type: object
+      required: [From, Body, SmsMessageSid, NumMedia]
+      properties:
+        From:
+          type: string
+          description: Sender phone number (E.164)
+          example: "+15551234567"
+        To:
+          type: string
+          example: "+18005550001"
+        Body:
+          type: string
+          description: SMS text content (empty string for MMS with no caption)
+          example: "I want to work on fitness"
+        SmsMessageSid:
+          type: string
+          example: "SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        NumMedia:
+          type: string
+          description: Number of media attachments as string
+          example: "0"
+        MediaUrl0:
+          type: string
+          description: Present when NumMedia >= 1
+          example: "https://api.twilio.com/media/..."
+        MediaContentType0:
+          type: string
+          example: "image/jpeg"
+        AccountSid:
+          type: string
+
+    Error:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+        message:
+          type: string
+        error:
+          type: string
+
+    ValidationError:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 422
+        message:
+          type: array
+          items:
+            type: string
+          example: ["phone_number must be a valid E.164 phone number"]
+        error:
+          type: string
+          example: "Unprocessable Entity"
+
+  responses:
+    BadRequest:
+      description: Bad request — missing or malformed fields
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

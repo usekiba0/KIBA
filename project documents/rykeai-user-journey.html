@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RYKE AI — User Journey Document</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #080808;
+  --white: #f8f6f2;
+  --purple: #7c3aed;
+  --purple-light: #a78bfa;
+  --purple-dark: #4c1d95;
+  --purple-glow: rgba(124, 58, 237, 0.25);
+  --muted: #9ca3af;
+  --surface: #111111;
+  --surface2: #181818;
+  --border: rgba(124,58,237,0.2);
+  --border-subtle: rgba(255,255,255,0.06);
+  --green: #22c55e;
+  --amber: #f59e0b;
+  --red: #ef4444;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--black);
+  color: var(--white);
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+/* ── TYPOGRAPHY ── */
+h1, h2, h3 { font-family: 'Cormorant Garamond', serif; font-weight: 600; line-height: 1.15; }
+h1 { font-size: clamp(2.8rem, 5vw, 4.5rem); }
+h2 { font-size: clamp(1.8rem, 3vw, 2.6rem); }
+h3 { font-size: clamp(1.2rem, 2vw, 1.5rem); }
+p { font-size: 15px; line-height: 1.7; color: var(--muted); }
+
+/* ── LAYOUT ── */
+.container { max-width: 1160px; margin: 0 auto; padding: 0 32px; }
+section { padding: 80px 0; }
+
+/* ── HEADER ── */
+.doc-header {
+  background: linear-gradient(180deg, #0d0515 0%, var(--black) 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 64px 0 80px;
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+}
+.doc-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 70% 80% at 50% -10%, rgba(124,58,237,0.2) 0%, transparent 60%);
+  pointer-events: none;
+}
+.doc-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(124,58,237,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124,58,237,0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 100% at 50% 0%, black 0%, transparent 100%);
+  pointer-events: none;
+}
+
+.doc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(124,58,237,0.12);
+  border: 1px solid rgba(124,58,237,0.35);
+  border-radius: 99px;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--purple-light);
+  margin-bottom: 24px;
+  position: relative;
+  z-index: 1;
+}
+.doc-tag::before {
+  content: '';
+  width: 6px; height: 6px;
+  background: var(--purple-light);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+.logo {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--white);
+  opacity: 0.5;
+  margin-bottom: 16px;
+  position: relative;
+  z-index: 1;
+}
+.logo span { color: var(--purple-light); }
+
+.doc-header h1 {
+  color: var(--white);
+  margin-bottom: 20px;
+  position: relative;
+  z-index: 1;
+}
+.doc-header h1 em {
+  font-style: italic;
+  color: var(--purple-light);
+}
+
+.doc-header .subtitle {
+  font-size: 17px;
+  color: var(--muted);
+  max-width: 560px;
+  margin: 0 auto 36px;
+  position: relative;
+  z-index: 1;
+}
+
+.doc-meta {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+}
+.doc-meta-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.doc-meta-item .label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.6;
+}
+.doc-meta-item .value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--white);
+}
+
+/* ── SECTION LABELS ── */
+.section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--purple-light);
+  margin-bottom: 16px;
+}
+.section-label::before {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: var(--purple-light);
+}
+
+.section-title { color: var(--white); margin-bottom: 12px; }
+.section-desc { max-width: 560px; font-size: 15px; margin-bottom: 56px; }
+
+/* ── PERSONAS ── */
+.personas-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.persona-card {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s, transform 0.3s;
+}
+.persona-card:hover {
+  border-color: var(--border);
+  transform: translateY(-4px);
+}
+.persona-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--purple), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.persona-card:hover::before { opacity: 1; }
+
+.persona-avatar {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+.persona-card:nth-child(1) .persona-avatar { background: rgba(124,58,237,0.2); color: var(--purple-light); }
+.persona-card:nth-child(2) .persona-avatar { background: rgba(34,197,94,0.15); color: #86efac; }
+.persona-card:nth-child(3) .persona-avatar { background: rgba(245,158,11,0.15); color: #fcd34d; }
+
+.persona-name {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--white);
+  margin-bottom: 4px;
+}
+.persona-role {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+.persona-card:nth-child(1) .persona-role { color: var(--purple-light); }
+.persona-card:nth-child(2) .persona-role { color: #86efac; }
+.persona-card:nth-child(3) .persona-role { color: #fcd34d; }
+
+.persona-desc { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.65; }
+
+.persona-goals { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.persona-goals li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: #d1d5db;
+}
+.persona-goals li::before {
+  content: '→';
+  color: var(--purple-light);
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ── JOURNEY TIMELINE ── */
+.timeline-section { background: var(--surface); border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); }
+
+.timeline-track {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  position: relative;
+  gap: 0;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.timeline-track::before {
+  content: '';
+  position: absolute;
+  top: 28px;
+  left: 40px;
+  right: 40px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), var(--purple-light), var(--border), transparent);
+}
+
+.timeline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 120px;
+  position: relative;
+  cursor: default;
+}
+
+.timeline-dot {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  position: relative;
+  z-index: 1;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  flex-shrink: 0;
+}
+.timeline-step:hover .timeline-dot {
+  border-color: var(--purple-light);
+  box-shadow: 0 0 20px var(--purple-glow);
+}
+
+.timeline-phase-num {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 20px; height: 20px;
+  background: var(--purple);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.timeline-label {
+  text-align: center;
+}
+.timeline-label .tl-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--white);
+  margin-bottom: 4px;
+}
+.timeline-label .tl-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── PHASE DETAIL CARDS ── */
+.phases-section {}
+.phase-block {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: start;
+  margin-bottom: 80px;
+  padding-bottom: 80px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.phase-block:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.phase-block.reverse { direction: rtl; }
+.phase-block.reverse > * { direction: ltr; }
+
+.phase-info {}
+.phase-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 72px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(124,58,237,0.15);
+  margin-bottom: -16px;
+}
+.phase-icon { font-size: 32px; margin-bottom: 12px; }
+.phase-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--white);
+  margin-bottom: 8px;
+}
+.phase-sub {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--purple-light);
+  margin-bottom: 16px;
+}
+.phase-desc { font-size: 15px; color: var(--muted); margin-bottom: 24px; }
+
+.phase-steps { list-style: none; margin-bottom: 24px; display: flex; flex-direction: column; gap: 10px; }
+.phase-steps li {
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+  color: #d1d5db;
+  align-items: flex-start;
+}
+.step-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--purple);
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+.phase-badges { display: flex; flex-wrap: wrap; gap: 8px; }
+.badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 99px;
+  letter-spacing: 0.3px;
+}
+.badge-purple { background: rgba(124,58,237,0.15); color: var(--purple-light); border: 1px solid rgba(124,58,237,0.3); }
+.badge-green  { background: rgba(34,197,94,0.1);  color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
+.badge-amber  { background: rgba(245,158,11,0.1);  color: #fcd34d; border: 1px solid rgba(245,158,11,0.3); }
+.badge-blue   { background: rgba(99,179,237,0.1);  color: #93c5fd; border: 1px solid rgba(99,179,237,0.3); }
+
+.sla-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 16px;
+}
+.sla-pill::before {
+  content: '⏱';
+  font-size: 13px;
+}
+
+/* ── PHONE MOCKUP ── */
+.phone-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.phone {
+  width: 280px;
+  background: #1a1a1a;
+  border-radius: 40px;
+  padding: 14px 10px;
+  border: 2px solid #2a2a2a;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.04),
+    0 32px 64px rgba(0,0,0,0.6),
+    0 0 40px var(--purple-glow);
+  position: relative;
+  flex-shrink: 0;
+}
+.phone::before {
+  content: '';
+  display: block;
+  width: 80px;
+  height: 6px;
+  background: #2a2a2a;
+  border-radius: 99px;
+  margin: 0 auto 14px;
+}
+
+.phone-screen {
+  background: #f0f0f0;
+  border-radius: 28px;
+  overflow: hidden;
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-header {
+  background: #f8f8f8;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #e5e5e5;
+}
+.phone-header-avatar {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, #7c3aed, #a78bfa);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: white;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.phone-header-info .name { font-size: 13px; font-weight: 600; color: #111; }
+.phone-header-info .status { font-size: 11px; color: #22c55e; }
+
+.messages {
+  flex: 1;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #f0f0f0;
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 82%;
+}
+.msg.incoming { align-self: flex-start; }
+.msg.outgoing { align-self: flex-end; }
+
+.bubble {
+  padding: 10px 14px;
+  border-radius: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.msg.incoming .bubble {
+  background: white;
+  color: #111;
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+.msg.outgoing .bubble {
+  background: #248bf5;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.msg-time {
+  font-size: 10px;
+  color: #999;
+  margin-top: 3px;
+  padding: 0 4px;
+}
+.msg.outgoing .msg-time { text-align: right; }
+
+.msg-typing .bubble {
+  background: white;
+  color: #999;
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* ── SAFETY SECTION ── */
+.safety-section {
+  background: linear-gradient(135deg, rgba(239,68,68,0.06) 0%, rgba(124,58,237,0.06) 100%);
+  border-top: 1px solid rgba(239,68,68,0.2);
+  border-bottom: 1px solid rgba(239,68,68,0.2);
+}
+
+.safety-box {
+  background: rgba(239,68,68,0.06);
+  border: 1px solid rgba(239,68,68,0.2);
+  border-radius: 16px;
+  padding: 40px;
+  position: relative;
+  overflow: hidden;
+}
+.safety-box::before {
+  content: '⚠';
+  position: absolute;
+  top: -20px;
+  right: -10px;
+  font-size: 120px;
+  opacity: 0.04;
+  line-height: 1;
+}
+
+.safety-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.safety-icon {
+  width: 56px; height: 56px;
+  background: rgba(239,68,68,0.15);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.safety-header h3 {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 24px;
+  color: var(--white);
+}
+.safety-header p { font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+.safety-flow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  position: relative;
+}
+.safety-flow::before {
+  content: '';
+  position: absolute;
+  top: 28px;
+  left: 60px;
+  right: 60px;
+  height: 1px;
+  background: rgba(239,68,68,0.3);
+}
+
+.safety-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.safety-step-dot {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: var(--surface);
+  border: 1px solid rgba(239,68,68,0.3);
+  position: relative;
+  z-index: 1;
+}
+.safety-step-title { font-size: 13px; font-weight: 600; color: var(--white); }
+.safety-step-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+.safety-sms {
+  margin-top: 32px;
+  background: var(--surface2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+.safety-sms-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.safety-sms-bubble {
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.2);
+  border-radius: 12px;
+  padding: 14px 18px;
+  font-size: 14px;
+  color: #fca5a5;
+  line-height: 1.6;
+  font-style: italic;
+}
+
+/* ── TOUCHPOINTS TABLE ── */
+.table-section {}
+.table-wrap {
+  overflow-x: auto;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+thead { background: var(--surface); }
+thead th {
+  padding: 16px 20px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+tbody tr {
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background 0.2s;
+}
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: rgba(124,58,237,0.04); }
+tbody td {
+  padding: 16px 20px;
+  color: #d1d5db;
+  vertical-align: middle;
+}
+td .cell-primary { color: var(--white); font-weight: 500; font-size: 14px; }
+td .cell-secondary { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.sla-chip {
+  display: inline-block;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+.sla-fast { background: rgba(34,197,94,0.12); color: #86efac; border: 1px solid rgba(34,197,94,0.25); }
+.sla-med  { background: rgba(245,158,11,0.12); color: #fcd34d; border: 1px solid rgba(245,158,11,0.25); }
+
+/* ── FOOTER ── */
+.doc-footer {
+  background: var(--surface);
+  border-top: 1px solid var(--border-subtle);
+  padding: 40px 0;
+  text-align: center;
+}
+.footer-logo {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--white);
+  margin-bottom: 8px;
+}
+.footer-logo span { color: var(--purple-light); }
+.footer-meta { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.footer-constitution {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--purple-light);
+  opacity: 0.7;
+  margin-top: 12px;
+}
+
+/* ── DIVIDER ── */
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  margin: 0;
+}
+
+/* ── SCROLL FADE-IN ── */
+.fade-in {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.fade-in.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════ HEADER ═══ -->
+<header class="doc-header">
+  <div class="container">
+    <div class="logo">RYKE <span>AI</span></div>
+    <div class="doc-tag">Product Document · User Journey</div>
+    <h1>From First Text to<br><em>Lasting Transformation</em></h1>
+    <p class="subtitle">A complete map of how users discover, onboard, and grow with RYKE AI — the SMS-first coaching platform that meets people where they already are.</p>
+    <div class="doc-meta">
+      <div class="doc-meta-item"><span class="label">Version</span><span class="value">1.0</span></div>
+      <div class="doc-meta-item"><span class="label">Constitution</span><span class="value">v1.2.0</span></div>
+      <div class="doc-meta-item"><span class="label">Phase</span><span class="value">MVP — Phase 1</span></div>
+      <div class="doc-meta-item"><span class="label">Date</span><span class="value">April 2026</span></div>
+      <div class="doc-meta-item"><span class="label">Channels</span><span class="value">SMS only</span></div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════ PERSONAS ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Who We Serve</div>
+      <h2 class="section-title">Three Personas, One Platform</h2>
+      <p class="section-desc">RYKE AI serves anyone with a phone and a goal. These three archetypes represent our core user base during Phase 1.</p>
+    </div>
+    <div class="personas-grid fade-in">
+
+      <div class="persona-card">
+        <div class="persona-avatar">A</div>
+        <div class="persona-name">Alex</div>
+        <div class="persona-role">Fitness Beginner</div>
+        <p class="persona-desc">25 years old, works a desk job. Wants to build a consistent workout habit but doesn't know where to start and can't afford a personal trainer.</p>
+        <ul class="persona-goals">
+          <li>Get a simple weekly workout plan via SMS</li>
+          <li>Receive daily encouragement to stay on track</li>
+          <li>Learn proper form through text-based guidance</li>
+          <li>Track progress without a complicated app</li>
+        </ul>
+      </div>
+
+      <div class="persona-card">
+        <div class="persona-avatar">M</div>
+        <div class="persona-name">Maya</div>
+        <div class="persona-role">Nutrition Seeker</div>
+        <p class="persona-desc">32 years old, busy parent. Wants to eat better and lose 10 lbs but struggles with meal planning and mindless snacking between meetings.</p>
+        <ul class="persona-goals">
+          <li>Get daily meal ideas based on her preferences</li>
+          <li>Understand macros without complex tracking apps</li>
+          <li>Receive accountability check-ins each morning</li>
+          <li>Ask quick food questions and get instant answers</li>
+        </ul>
+      </div>
+
+      <div class="persona-card">
+        <div class="persona-avatar">J</div>
+        <div class="persona-name">Jordan</div>
+        <div class="persona-role">Wellness User</div>
+        <p class="persona-desc">40 years old, high-stress career. Experiences anxiety and poor sleep. Wants a daily mental wellness touchpoint without therapy-level commitment.</p>
+        <ul class="persona-goals">
+          <li>Start each day with a grounding or mindfulness prompt</li>
+          <li>Vent without judgment and get calm, practical responses</li>
+          <li>Build a breathing or wind-down habit via reminders</li>
+          <li>Feel heard — not processed — by an AI coach</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════ TIMELINE ═══ -->
+<section class="timeline-section">
+  <div class="container">
+    <div class="fade-in" style="margin-bottom: 48px;">
+      <div class="section-label">Journey Overview</div>
+      <h2 class="section-title">Seven Phases, Zero Apps</h2>
+      <p class="section-desc">Every step of the RYKE AI journey happens over SMS. No downloads, no logins, no friction.</p>
+    </div>
+    <div class="timeline-track fade-in">
+
+      <div class="timeline-step">
+        <div class="timeline-dot">🔍<span class="timeline-phase-num">1</span></div>
+        <div class="timeline-label">
+          <div class="tl-title">Discovery</div>
+          <div class="tl-sub">User finds RYKE</div>
+        </div>
+      </div>
+
+      <div class="timeline-step">
+        <div class="timeline-dot">🌐<span class="timeline-phase-num">2</span></div>
+        <div class="timeline-label">
+          <div class="tl-title">Landing Page</div>
+          <div class="tl-sub">Phone number entry</div>
+        </div>
+      </div>
+
+      <div class="timeline-step">
+        <div class="timeline-dot">💬<span class="timeline-phase-num">3</span></div>
+        <div class="timeline-label">
+          <div class="tl-title">Onboarding</div>
+          <div class="tl-sub">Welcome SMS &lt;30s</div>
+        </div>
+      </div>
+
+      <div class="timeline-step">
+        <div class="timeline-dot">🎯<span class="timeline-phase-num">4</span></div>
+        <div class="timeline-label">
+          <div class="tl-title">First Convo</div>
+          <div class="tl-sub">Goal discovery</div>
+        </div>
+      </div>
+
+      <div class="timeline-step">
+        <div class="timeline-dot">🏃<span class="timeline-phase-num">5</span></div>
+        <div class="timeline-label">
+          <div class="tl-title">Daily Coaching</div>
+          <div class="tl-sub">Ongoing SMS exchange</div>
+        </div>
+      </div>
+
+      <div class="timeline-step">
+        <div class="timeline-dot">⭐<span class="timeline-phase-num">6</span></div>
+        <div class="timeline-label">
+          <div class="tl-title">Progress</div>
+          <div class="tl-sub">Milestones &amp; wins</div>
+        </div>
+      </div>
+
+      <div class="timeline-step">
+        <div class="timeline-dot">🔄<span class="timeline-phase-num">7</span></div>
+        <div class="timeline-label">
+          <div class="tl-title">Retention</div>
+          <div class="tl-sub">Habit formation</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════ PHASE DETAILS ═══ -->
+<section class="phases-section">
+  <div class="container">
+    <div class="fade-in" style="margin-bottom: 64px;">
+      <div class="section-label">Deep Dive</div>
+      <h2 class="section-title">Each Phase, Explained</h2>
+      <p class="section-desc">Every interaction is designed to feel natural, encouraging, and effortless — like texting a friend who happens to be an expert coach.</p>
+    </div>
+
+    <!-- Phase 1: Discovery -->
+    <div class="phase-block fade-in">
+      <div class="phase-info">
+        <div class="phase-num">01</div>
+        <div class="phase-icon">🔍</div>
+        <div class="phase-sub">Phase One</div>
+        <h3 class="phase-title">Discovery</h3>
+        <p class="phase-desc">The user encounters RYKE AI through word of mouth, social media, or search. The value proposition is immediately clear: AI coaching via SMS, no app required.</p>
+        <ul class="phase-steps">
+          <li><span class="step-dot"></span>User sees a referral post, ad, or search result about RYKE AI</li>
+          <li><span class="step-dot"></span>Clear messaging: "Your AI coach lives in your messages app"</li>
+          <li><span class="step-dot"></span>Curiosity triggered — no signup barrier to explore more</li>
+          <li><span class="step-dot"></span>User navigates to the RYKE AI landing page</li>
+        </ul>
+        <div class="phase-badges">
+          <span class="badge badge-purple">SMS-First</span>
+          <span class="badge badge-blue">Zero Friction</span>
+        </div>
+        <div class="sla-pill">No account required to discover</div>
+      </div>
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="phone-header">
+              <div class="phone-header-avatar">R</div>
+              <div class="phone-header-info">
+                <div class="name">RYKE AI</div>
+                <div class="status">● Active</div>
+              </div>
+            </div>
+            <div class="messages">
+              <div class="msg incoming">
+                <div class="bubble">Hey, have you tried that RYKE AI thing? It's like having a personal trainer but over text 👀</div>
+                <div class="msg-time">from a friend · 9:12 AM</div>
+              </div>
+              <div class="msg outgoing">
+                <div class="bubble">No app download? How does it work?</div>
+                <div class="msg-time">9:13 AM</div>
+              </div>
+              <div class="msg incoming">
+                <div class="bubble">Literally just text it. Go to ryke.ai and enter your number. That's it 🤯</div>
+                <div class="msg-time">9:14 AM</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 2: Landing Page -->
+    <div class="phase-block reverse fade-in">
+      <div class="phase-info">
+        <div class="phase-num">02</div>
+        <div class="phase-icon">🌐</div>
+        <div class="phase-sub">Phase Two</div>
+        <h3 class="phase-title">Landing Page</h3>
+        <p class="phase-desc">The Next.js landing page has one job: capture a phone number and convert. No email, no password, no forms beyond a single field.</p>
+        <ul class="phase-steps">
+          <li><span class="step-dot"></span>User lands on ryke.ai — clean, fast, mobile-optimized</li>
+          <li><span class="step-dot"></span>One action visible above the fold: "Enter your number"</li>
+          <li><span class="step-dot"></span>User submits phone number — no other fields required</li>
+          <li><span class="step-dot"></span>System triggers welcome SMS via Twilio within seconds</li>
+        </ul>
+        <div class="phase-badges">
+          <span class="badge badge-green">Zero-Friction Gate</span>
+          <span class="badge badge-purple">Privacy-Safe</span>
+          <span class="badge badge-blue">Next.js Frontend</span>
+        </div>
+        <div class="sla-pill">Phone number → SMS trigger in under 5 seconds</div>
+      </div>
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="phone-header">
+              <div class="phone-header-avatar" style="background: linear-gradient(135deg, #4c1d95, #7c3aed);">🌐</div>
+              <div class="phone-header-info">
+                <div class="name">ryke.ai</div>
+                <div class="status" style="color: #93c5fd;">Secure Connection</div>
+              </div>
+            </div>
+            <div class="messages" style="background: #fff; justify-content: center; padding: 24px 16px;">
+              <div style="text-align: center; padding: 8px 0;">
+                <div style="font-family: 'Cormorant Garamond', serif; font-size: 20px; font-weight: 700; color: #111; margin-bottom: 6px;">Your coach. In your texts.</div>
+                <div style="font-size: 12px; color: #666; margin-bottom: 20px; line-height: 1.5;">No app. No account. Just results.</div>
+                <div style="background: #f5f5f5; border: 1.5px solid #e0e0e0; border-radius: 10px; padding: 10px 14px; font-size: 13px; color: #999; text-align: left; margin-bottom: 10px;">📱 +1 (555) ...</div>
+                <div style="background: #7c3aed; color: white; border-radius: 10px; padding: 12px; font-size: 14px; font-weight: 600; text-align: center;">Start for Free →</div>
+                <div style="font-size: 10px; color: #aaa; margin-top: 10px;">By entering your number you agree to SMS coaching.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 3: Onboarding -->
+    <div class="phase-block fade-in">
+      <div class="phase-info">
+        <div class="phase-num">03</div>
+        <div class="phase-icon">💬</div>
+        <div class="phase-sub">Phase Three</div>
+        <h3 class="phase-title">Onboarding SMS</h3>
+        <p class="phase-desc">Within 30 seconds of entering their number, the user receives their first SMS. The coach introduces itself and immediately invites conversation — no preamble, no legal walls.</p>
+        <ul class="phase-steps">
+          <li><span class="step-dot"></span>Welcome SMS arrives in under 30 seconds</li>
+          <li><span class="step-dot"></span>Coach introduces itself in a warm, human tone</li>
+          <li><span class="step-dot"></span>First question asked: fitness, nutrition, or headspace?</li>
+          <li><span class="step-dot"></span>User replies — the coaching session has begun</li>
+        </ul>
+        <div class="phase-badges">
+          <span class="badge badge-green">Zero-Friction Gate ✓</span>
+          <span class="badge badge-purple">Human-like AI</span>
+          <span class="badge badge-amber">Twilio Webhook</span>
+        </div>
+        <div class="sla-pill">Welcome SMS delivered within 30 seconds — guaranteed</div>
+      </div>
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="phone-header">
+              <div class="phone-header-avatar">R</div>
+              <div class="phone-header-info">
+                <div class="name">RYKE AI</div>
+                <div class="status">● Just now</div>
+              </div>
+            </div>
+            <div class="messages">
+              <div class="msg incoming">
+                <div class="bubble">Hey! Welcome to RYKE 👋 I'm your personal coach — I live right here in your messages. What's one thing you want to work on: fitness, nutrition, or your headspace?</div>
+                <div class="msg-time">Just now · &lt;30s after signup</div>
+              </div>
+              <div class="msg outgoing">
+                <div class="bubble">Fitness. I want to actually be consistent this time</div>
+                <div class="msg-time">just now</div>
+              </div>
+              <div class="msg incoming">
+                <div class="bubble">Consistency is exactly what I'm here for. Quick question — are you starting from scratch, or do you already have some kind of routine?</div>
+                <div class="msg-time">just now</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 4: First Conversation -->
+    <div class="phase-block reverse fade-in">
+      <div class="phase-info">
+        <div class="phase-num">04</div>
+        <div class="phase-icon">🎯</div>
+        <div class="phase-sub">Phase Four</div>
+        <h3 class="phase-title">First Conversation</h3>
+        <p class="phase-desc">The AI builds a clear picture of the user's goals, schedule, and starting point — one question at a time. No intake forms, no overwhelming questionnaires.</p>
+        <ul class="phase-steps">
+          <li><span class="step-dot"></span>AI asks exactly one question per message</li>
+          <li><span class="step-dot"></span>Conversation feels like texting a friend — not filling out a form</li>
+          <li><span class="step-dot"></span>User's context (goals, schedule, constraints) captured naturally</li>
+          <li><span class="step-dot"></span>First actionable plan or tip delivered by end of session</li>
+        </ul>
+        <div class="phase-badges">
+          <span class="badge badge-purple">One Question Rule</span>
+          <span class="badge badge-blue">Context-Aware</span>
+          <span class="badge badge-green">Action-Oriented</span>
+        </div>
+        <div class="sla-pill">First personalised recommendation within 5 exchanges</div>
+      </div>
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="phone-header">
+              <div class="phone-header-avatar">R</div>
+              <div class="phone-header-info">
+                <div class="name">RYKE AI</div>
+                <div class="status">● Active</div>
+              </div>
+            </div>
+            <div class="messages">
+              <div class="msg outgoing">
+                <div class="bubble">Starting from scratch. I get tired easily and I work 9-5</div>
+                <div class="msg-time">10:03 AM</div>
+              </div>
+              <div class="msg incoming">
+                <div class="bubble">That's a solid starting point. How many days a week are you realistically free for 20–30 minutes?</div>
+                <div class="msg-time">10:03 AM</div>
+              </div>
+              <div class="msg outgoing">
+                <div class="bubble">Maybe 3?</div>
+                <div class="msg-time">10:04 AM</div>
+              </div>
+              <div class="msg incoming">
+                <div class="bubble">Three days is perfect — that's actually the sweet spot for building a habit. Here's your Week 1: Mon / Wed / Fri, 20-minute walks. No gym, no equipment. Just show up. Want me to check in with you Monday morning?</div>
+                <div class="msg-time">10:04 AM</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 5: Daily Coaching -->
+    <div class="phase-block fade-in">
+      <div class="phase-info">
+        <div class="phase-num">05</div>
+        <div class="phase-icon">🏃</div>
+        <div class="phase-sub">Phase Five</div>
+        <h3 class="phase-title">Daily Coaching</h3>
+        <p class="phase-desc">The heart of the RYKE AI experience. The coach shows up in the user's messages every day — checking in, adapting, encouraging, and guiding through real-time conversations.</p>
+        <ul class="phase-steps">
+          <li><span class="step-dot"></span>Morning check-in: "Ready for today?" or a specific reminder</li>
+          <li><span class="step-dot"></span>User can text any time — coach responds within seconds</li>
+          <li><span class="step-dot"></span>Responses adapt to user's tone and emotional state</li>
+          <li><span class="step-dot"></span>Coaching evolves as goals, progress, and mood change</li>
+        </ul>
+        <div class="phase-badges">
+          <span class="badge badge-purple">Personalized AI</span>
+          <span class="badge badge-green">Context Aware</span>
+          <span class="badge badge-blue">Always Available</span>
+          <span class="badge badge-amber">Session Memory</span>
+        </div>
+        <div class="sla-pill">AI response in under 5 seconds · 99.5% SMS uptime</div>
+      </div>
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="phone-header">
+              <div class="phone-header-avatar">R</div>
+              <div class="phone-header-info">
+                <div class="name">RYKE AI</div>
+                <div class="status">● Monday · 7:30 AM</div>
+              </div>
+            </div>
+            <div class="messages">
+              <div class="msg incoming">
+                <div class="bubble">Monday morning ☀️ You said you'd walk today. Even 15 minutes counts — are you in?</div>
+                <div class="msg-time">7:30 AM</div>
+              </div>
+              <div class="msg outgoing">
+                <div class="bubble">ugh yeah fine. Did it last week too btw</div>
+                <div class="msg-time">8:14 AM</div>
+              </div>
+              <div class="msg incoming">
+                <div class="bubble">That's two weeks running. You're building something real — how'd yesterday's walk feel compared to last Monday?</div>
+                <div class="msg-time">8:14 AM</div>
+              </div>
+              <div class="msg outgoing">
+                <div class="bubble">Honestly easier. Didn't feel as winded</div>
+                <div class="msg-time">8:16 AM</div>
+              </div>
+              <div class="msg incoming">
+                <div class="bubble">That's your fitness improving. Ready to level up to 25 minutes this week?</div>
+                <div class="msg-time">8:16 AM</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 6: Progress -->
+    <div class="phase-block reverse fade-in">
+      <div class="phase-info">
+        <div class="phase-num">06</div>
+        <div class="phase-icon">⭐</div>
+        <div class="phase-sub">Phase Six</div>
+        <h3 class="phase-title">Progress Moments</h3>
+        <p class="phase-desc">RYKE AI notices milestones before the user does — and celebrates them in a genuine, non-cheesy way. These micro-moments build emotional loyalty and reinforce habit.</p>
+        <ul class="phase-steps">
+          <li><span class="step-dot"></span>System detects streaks, improvements, and consistency patterns</li>
+          <li><span class="step-dot"></span>Coach acknowledges progress with specific, contextual praise</li>
+          <li><span class="step-dot"></span>User feels seen — not just tracked</li>
+          <li><span class="step-dot"></span>New goals introduced naturally as current ones are achieved</li>
+        </ul>
+        <div class="phase-badges">
+          <span class="badge badge-green">Motivational AI</span>
+          <span class="badge badge-purple">History-Aware</span>
+          <span class="badge badge-blue">Retention Driver</span>
+        </div>
+        <div class="sla-pill">Milestone detected automatically from conversation history</div>
+      </div>
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="phone-header">
+              <div class="phone-header-avatar">R</div>
+              <div class="phone-header-info">
+                <div class="name">RYKE AI</div>
+                <div class="status">● Day 21</div>
+              </div>
+            </div>
+            <div class="messages">
+              <div class="msg incoming">
+                <div class="bubble">You've checked in 7 days straight. That's not luck — that's discipline. Most people quit by day 3. You didn't. 🔥</div>
+                <div class="msg-time">7:30 AM</div>
+              </div>
+              <div class="msg outgoing">
+                <div class="bubble">Honestly didn't realize it was 7 days lol</div>
+                <div class="msg-time">8:02 AM</div>
+              </div>
+              <div class="msg incoming">
+                <div class="bubble">That's exactly how habits form — quietly, until they just become you. Ready for Week 4? I want to add one strength move to your walks.</div>
+                <div class="msg-time">8:03 AM</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 7: Retention -->
+    <div class="phase-block fade-in">
+      <div class="phase-info">
+        <div class="phase-num">07</div>
+        <div class="phase-icon">🔄</div>
+        <div class="phase-sub">Phase Seven</div>
+        <h3 class="phase-title">Long-term Retention</h3>
+        <p class="phase-desc">For users who go quiet, RYKE AI re-engages with empathy — not spam. For active users, the coaching evolves with them as their goals deepen and change.</p>
+        <ul class="phase-steps">
+          <li><span class="step-dot"></span>Re-engagement message sent if no reply in 3+ days</li>
+          <li><span class="step-dot"></span>Tone stays warm — no guilt-tripping or pushy nudges</li>
+          <li><span class="step-dot"></span>Active users see goals evolve: beginner → intermediate</li>
+          <li><span class="step-dot"></span>Users can pause, switch focus (fitness → nutrition), or reset</li>
+        </ul>
+        <div class="phase-badges">
+          <span class="badge badge-amber">Re-engagement Logic</span>
+          <span class="badge badge-purple">Adaptive Coaching</span>
+          <span class="badge badge-green">User-Controlled</span>
+        </div>
+        <div class="sla-pill">Re-engagement triggered after 3 days of inactivity</div>
+      </div>
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="phone-header">
+              <div class="phone-header-avatar">R</div>
+              <div class="phone-header-info">
+                <div class="name">RYKE AI</div>
+                <div class="status">● 3 days since last chat</div>
+              </div>
+            </div>
+            <div class="messages">
+              <div class="msg incoming">
+                <div class="bubble">Hey — no pressure, just checking in. Life gets busy. Whenever you're ready to pick back up, I'm here. What's one small thing you could do today?</div>
+                <div class="msg-time">9:00 AM</div>
+              </div>
+              <div class="msg outgoing">
+                <div class="bubble">Had a rough week honestly. Work was a lot</div>
+                <div class="msg-time">9:41 AM</div>
+              </div>
+              <div class="msg incoming">
+                <div class="bubble">That sounds really draining. Let's keep it simple this week — what would feel like a win for you, even a tiny one?</div>
+                <div class="msg-time">9:42 AM</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════ SAFETY ═══ -->
+<section class="safety-section">
+  <div class="container">
+    <div class="fade-in" style="margin-bottom: 40px;">
+      <div class="section-label">Safety Net</div>
+      <h2 class="section-title">When It Matters Most</h2>
+      <p class="section-desc">RYKE AI is built with a non-negotiable safety layer. If a user shows signs of distress, the system acts immediately — no exceptions, no configuration can disable this.</p>
+    </div>
+    <div class="safety-box fade-in">
+      <div class="safety-header">
+        <div class="safety-icon">🛡️</div>
+        <div>
+          <h3>Crisis Detection & Human Handoff Protocol</h3>
+          <p>Triggered by distress keywords, repeated negative sentiment, or crisis language — automatically and silently.</p>
+        </div>
+      </div>
+
+      <div class="safety-flow">
+        <div class="safety-step">
+          <div class="safety-step-dot">⚠️</div>
+          <div class="safety-step-title">Signal Detected</div>
+          <div class="safety-step-desc">Distress keyword or crisis language identified in user's message</div>
+        </div>
+        <div class="safety-step">
+          <div class="safety-step-dot">💬</div>
+          <div class="safety-step-title">Holding Message</div>
+          <div class="safety-step-desc">Supportive SMS sent to user immediately while coach is alerted</div>
+        </div>
+        <div class="safety-step">
+          <div class="safety-step-dot">📣</div>
+          <div class="safety-step-title">Coach Alerted</div>
+          <div class="safety-step-desc">Coach notified via SMS/email within 5 minutes SLA</div>
+        </div>
+        <div class="safety-step">
+          <div class="safety-step-dot">🤝</div>
+          <div class="safety-step-title">Human Takes Over</div>
+          <div class="safety-step-desc">AI steps back; human coach handles the conversation directly</div>
+        </div>
+      </div>
+
+      <div class="safety-sms">
+        <div class="safety-sms-label">Example Holding Message (sent automatically to user)</div>
+        <div class="safety-sms-bubble">
+          "Thank you for trusting me with this. What you're feeling is real and it matters. I'm connecting you with someone who can support you properly — please hang tight. If this is an emergency, text or call 988 (Suicide & Crisis Lifeline)."
+        </div>
+      </div>
+
+      <div style="margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap;">
+        <span class="badge badge-purple">Non-Negotiable — Cannot be disabled</span>
+        <span class="badge" style="background: rgba(239,68,68,0.1); color: #fca5a5; border: 1px solid rgba(239,68,68,0.25);">Safety Gate ✓</span>
+        <span class="badge badge-amber">5-minute SLA</span>
+        <span class="badge badge-blue">Phase 1: Email/SMS alert · Phase 2: Full dashboard</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════ TOUCHPOINTS TABLE ═══ -->
+<section class="table-section">
+  <div class="container">
+    <div class="fade-in" style="margin-bottom: 40px;">
+      <div class="section-label">Summary</div>
+      <h2 class="section-title">Key Touchpoints at a Glance</h2>
+      <p class="section-desc">Every interaction in the RYKE AI journey, mapped to its channel, actor, and performance target.</p>
+    </div>
+    <div class="table-wrap fade-in">
+      <table>
+        <thead>
+          <tr>
+            <th>Touchpoint</th>
+            <th>Channel</th>
+            <th>Initiated By</th>
+            <th>Latency SLA</th>
+            <th>Phase</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><div class="cell-primary">Phone number submission</div><div class="cell-secondary">User enters number on landing page</div></td>
+            <td>Web (Next.js)</td>
+            <td>User</td>
+            <td><span class="sla-chip sla-fast">&lt; 1s</span></td>
+            <td>Onboarding</td>
+          </tr>
+          <tr>
+            <td><div class="cell-primary">Welcome SMS</div><div class="cell-secondary">First message from RYKE AI</div></td>
+            <td>SMS (Twilio)</td>
+            <td>System (auto)</td>
+            <td><span class="sla-chip sla-fast">&lt; 30s</span></td>
+            <td>Onboarding</td>
+          </tr>
+          <tr>
+            <td><div class="cell-primary">Goal discovery conversation</div><div class="cell-secondary">AI captures user goals, one question at a time</div></td>
+            <td>SMS</td>
+            <td>AI Coach</td>
+            <td><span class="sla-chip sla-fast">&lt; 5s/reply</span></td>
+            <td>First Conversation</td>
+          </tr>
+          <tr>
+            <td><div class="cell-primary">First plan delivery</div><div class="cell-secondary">Personalised Week 1 recommendation</div></td>
+            <td>SMS</td>
+            <td>AI Coach</td>
+            <td><span class="sla-chip sla-fast">&lt; 5 exchanges</span></td>
+            <td>First Conversation</td>
+          </tr>
+          <tr>
+            <td><div class="cell-primary">Daily check-in</div><div class="cell-secondary">Morning nudge or accountability message</div></td>
+            <td>SMS</td>
+            <td>System (scheduled)</td>
+            <td><span class="sla-chip sla-fast">Configurable</span></td>
+            <td>Daily Coaching</td>
+          </tr>
+          <tr>
+            <td><div class="cell-primary">Ad-hoc coaching reply</div><div class="cell-secondary">User texts anytime; AI responds</div></td>
+            <td>SMS (inbound webhook)</td>
+            <td>User</td>
+            <td><span class="sla-chip sla-fast">&lt; 5s</span></td>
+            <td>Daily Coaching</td>
+          </tr>
+          <tr>
+            <td><div class="cell-primary">Milestone celebration</div><div class="cell-secondary">7-day streak, goal achieved, etc.</div></td>
+            <td>SMS</td>
+            <td>System (auto-detect)</td>
+            <td><span class="sla-chip sla-med">Same session</span></td>
+            <td>Progress</td>
+          </tr>
+          <tr>
+            <td><div class="cell-primary">Re-engagement message</div><div class="cell-secondary">Sent after 3+ days of inactivity</div></td>
+            <td>SMS</td>
+            <td>System (auto)</td>
+            <td><span class="sla-chip sla-med">3-day trigger</span></td>
+            <td>Retention</td>
+          </tr>
+          <tr>
+            <td><div class="cell-primary">Crisis holding message</div><div class="cell-secondary">Supportive SMS when distress is detected</div></td>
+            <td>SMS</td>
+            <td>System (immediate)</td>
+            <td><span class="sla-chip sla-fast">&lt; 3s</span></td>
+            <td>Safety Net</td>
+          </tr>
+          <tr>
+            <td><div class="cell-primary">Coach alert notification</div><div class="cell-secondary">Human coach notified of crisis signal</div></td>
+            <td>SMS / Email</td>
+            <td>System (auto)</td>
+            <td><span class="sla-chip sla-fast">&lt; 5 min</span></td>
+            <td>Safety Net</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════ FOOTER ═══ -->
+<footer class="doc-footer">
+  <div class="container">
+    <div class="footer-logo">RYKE <span>AI</span></div>
+    <p class="footer-meta">User Journey Document · Version 1.0 · April 2026</p>
+    <p class="footer-meta">Prepared for internal review and stakeholder alignment</p>
+    <div class="footer-constitution">
+      <span>📋</span>
+      <span>Built on RYKE AI Constitution v1.2.0 — All principles enforced</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
