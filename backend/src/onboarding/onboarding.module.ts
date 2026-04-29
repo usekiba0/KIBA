@@ -4,7 +4,6 @@ import { DataModule } from '../data/data.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { OnboardingService } from './onboarding.service';
 import { OnboardingController } from './onboarding.controller';
-import { StripeService } from './stripe.service';
 import { StripeWebhookController } from './stripe-webhook.controller';
 
 @Module({
@@ -14,7 +13,6 @@ import { StripeWebhookController } from './stripe-webhook.controller';
     BullModule.registerQueue({ name: 'messaging' }),
   ],
   controllers: [OnboardingController, StripeWebhookController],
-  providers: [OnboardingService, StripeService],
-  exports: [StripeService],
+  providers: [OnboardingService],
 })
 export class OnboardingModule {}

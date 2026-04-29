@@ -14,6 +14,7 @@ import { SessionCacheService } from './session-cache.service';
 import { SessionBoundaryService } from './session-boundary.service';
 import { DataRightsService } from './data-rights.service';
 import { DataRightsController } from './data-rights.controller';
+import { StripeService } from '../onboarding/stripe.service';
 
 const ENTITIES = [
   User, Subscription, ConversationSession, Message,
@@ -28,12 +29,13 @@ const ENTITIES = [
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type: 'single',
-        url: `redis://${config.get('REDIS_HOST', 'localhost')}:${config.get('REDIS_PORT', 6379)}`,
+        url: config.get<string>('REDIS_URL') ||
+          `redis://${config.get('REDIS_HOST', 'localhost')}:${config.get('REDIS_PORT', 6379)}`,
       }),
     }),
   ],
   controllers: [DataRightsController],
-  providers: [SessionCacheService, SessionBoundaryService, DataRightsService],
-  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule],
+  providers: [SessionCacheService, SessionBoundaryService, DataRightsService, StripeService],
+  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule, StripeService],
 })
 export class DataModule {}

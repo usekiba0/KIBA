@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
 import { DataModule } from '../data/data.module';
 import { AiModule } from '../ai/ai.module';
+import { SafetyModule } from '../safety/safety.module';
 import { MessagingService } from './messaging.service';
 import { MessagingController } from './messaging.controller';
 import { MessagingProcessor } from './messaging.processor';
@@ -13,6 +14,7 @@ import { SendBlueWebhookGuard } from './guards/sendblue-webhook.guard';
   imports: [
     DataModule,
     AiModule,
+    forwardRef(() => SafetyModule),
     BullModule.registerQueue(
       { name: 'messaging' },
       { name: 'coaching' },

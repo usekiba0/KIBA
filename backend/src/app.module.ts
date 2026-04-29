@@ -28,7 +28,8 @@ import { HealthController } from './common/health/health.controller';
         // Database
         DATABASE_URL: Joi.string().uri().required(),
 
-        // Redis
+        // Redis (REDIS_URL takes precedence over REDIS_HOST/REDIS_PORT)
+        REDIS_URL: Joi.string().uri().optional(),
         REDIS_HOST: Joi.string().default('localhost'),
         REDIS_PORT: Joi.number().default(6379),
 
@@ -72,27 +73,46 @@ import { HealthController } from './common/health/health.controller';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        url: config.get<string>('DATABASE_URL'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        migrations: [__dirname + '/data/migrations/*{.ts,.js}'],
-        synchronize: false,
-        logging: config.get('NODE_ENV') === 'development',
-        ssl: config.get('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
-      }),
+      useFactory: (config: ConfigService) => {
+        const dbUrl = config.getOrThrow<string>('DATABASE_URL');
+        const isCloudDb = !dbUrl.includes('localhost') && !dbUrl.includes('127.0.0.1');
+        return {
+          type: 'postgres',
+          url: dbUrl,
+          entities: [__dirname + '/**/*.entity{.ts,.js}'],
+          migrations: [__dirname + '/data/migrations/*{.ts,.js}'],
+          synchronize: false,
+          logging: config.get('NODE_ENV') === 'development',
+          ssl: isCloudDb ? { rejectUnauthorized: false } : false,
+        };
+      },
     }),
 
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        redis: {
-          host: config.get<string>('REDIS_HOST', 'localhost'),
-          port: config.get<number>('REDIS_PORT', 6379),
-          password: config.get<string>('REDIS_PASSWORD'),
-        },
-      }),
+      useFactory: (config: ConfigService) => {
+        const redisUrl = config.get<string>('REDIS_URL');
+        if (redisUrl) {
+          const parsed = new URL(redisUrl);
+          return {
+            redis: {
+              host: parsed.hostname,
+              port: parseInt(parsed.port) || 6379,
+              password: parsed.password || undefined,
+              username: parsed.username && parsed.username !== 'default' ? parsed.username : undefined,
+              tls: parsed.protocol === 'rediss:' ? {} : undefined,
+            },
+          };
+        }
+        return {
+          redis: {
+            host: config.get<string>('REDIS_HOST', 'localhost'),
+            port: config.get<number>('REDIS_PORT', 6379),
+            password: config.get<string>('REDIS_PASSWORD'),
+          },
+        };
+      },
     }),
 
     // Rate limiting: 60 requests per minute per IP by default

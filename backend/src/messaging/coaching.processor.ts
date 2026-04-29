@@ -1,5 +1,5 @@
 import { Process, Processor } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { Job } from 'bull';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -58,6 +58,7 @@ export class CoachingProcessor {
     private readonly sessionCache: SessionCacheService,
     private readonly sessionBoundary: SessionBoundaryService,
     private readonly messagingService: MessagingService,
+    @Inject(forwardRef(() => SafetyService))
     private readonly safetyService: SafetyService,
   ) {}
 

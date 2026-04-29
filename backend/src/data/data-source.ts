@@ -11,9 +11,12 @@ import { ProcessedStripeEvent } from './entities/processed-stripe-event.entity';
 
 dotenv.config();
 
+const dbUrl = process.env.DATABASE_URL ?? '';
+const isCloudDb = !dbUrl.includes('localhost') && !dbUrl.includes('127.0.0.1');
+
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  url: process.env.DATABASE_URL,
+  url: dbUrl,
   entities: [
     User, Subscription, ConversationSession, Message,
     NutritionalAnalysis, CrisisAlert, SessionSummary, ProcessedStripeEvent,
@@ -21,4 +24,5 @@ export const AppDataSource = new DataSource({
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',
+  ssl: isCloudDb ? { rejectUnauthorized: false } : false,
 });

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
 import { DataModule } from '../data/data.module';
 import { MessagingModule } from '../messaging/messaging.module';
@@ -10,7 +10,7 @@ import { SafetyController } from './safety.controller';
 @Module({
   imports: [
     DataModule,
-    MessagingModule,
+    forwardRef(() => MessagingModule),
     AiModule,
     BullModule.registerQueue({ name: 'crisis-detection' }),
   ],
