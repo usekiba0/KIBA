@@ -55,6 +55,9 @@ export default function OnboardingPage() {
       <div className="onboarding-card">
         <div className="logo-small">RYKE <span>AI</span></div>
         <div className="progress-bar">
+          <div className="progress-track">
+            <div className="progress-track-fill" style={{ width: `${(step / (STEPS.length - 1)) * 100}%` }} />
+          </div>
           {STEPS.map((label, i) => (
             <div key={label} className={`progress-step ${i <= step ? 'active' : ''} ${i < step ? 'done' : ''}`}>
               <div className="progress-dot">{i < step ? '✓' : i + 1}</div>
@@ -71,51 +74,219 @@ export default function OnboardingPage() {
       </div>
 
       <style jsx>{`
-        .onboarding-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: #080808; }
-        .onboarding-card { background: #111; border: 1px solid rgba(124,58,237,0.2); border-radius: 20px; padding: 40px; width: 100%; max-width: 520px; }
-        .logo-small { font-family: serif; font-size: 14px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: rgba(248,246,242,0.4); margin-bottom: 24px; }
+        /* ── Layout ───────────────────────────────────────── */
+        .onboarding-container {
+          min-height: 100vh; display: flex; align-items: center; justify-content: center;
+          padding: 24px; background: radial-gradient(ellipse at 50% 0%, rgba(124,58,237,0.08) 0%, #080808 60%);
+        }
+        .onboarding-card {
+          background: linear-gradient(160deg, #141414 0%, #0f0f0f 100%);
+          border: 1px solid rgba(124,58,237,0.22); border-radius: 24px;
+          padding: 40px; width: 100%; max-width: 540px;
+          box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+        }
+
+        /* ── Logo ─────────────────────────────────────────── */
+        .logo-small {
+          font-family: serif; font-size: 13px; font-weight: 700; letter-spacing: 3px;
+          text-transform: uppercase; color: rgba(248,246,242,0.35); margin-bottom: 28px;
+          display: flex; align-items: center; gap: 6px;
+        }
         .logo-small span { color: #a78bfa; }
-        .progress-bar { display: flex; justify-content: space-between; margin-bottom: 36px; position: relative; }
-        .progress-bar::before { content: ''; position: absolute; top: 14px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.08); }
+
+        /* ── Progress bar ─────────────────────────────────── */
+        .progress-bar {
+          display: flex; justify-content: space-between; margin-bottom: 36px;
+          position: relative;
+        }
+        .progress-track {
+          position: absolute; top: 13px; left: 14px; right: 14px; height: 2px;
+          background: rgba(255,255,255,0.06); border-radius: 2px;
+        }
+        .progress-track-fill {
+          height: 100%; background: linear-gradient(90deg, #7c3aed, #a78bfa);
+          border-radius: 2px; transition: width 0.4s ease;
+        }
         .progress-step { display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; z-index: 1; }
-        .progress-dot { width: 28px; height: 28px; border-radius: 50%; background: #1a1a1a; border: 2px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #666; }
-        .progress-step.active .progress-dot { border-color: #7c3aed; background: rgba(124,58,237,0.2); color: #a78bfa; }
+        .progress-dot {
+          width: 28px; height: 28px; border-radius: 50%; background: #181818;
+          border: 2px solid rgba(255,255,255,0.1); display: flex; align-items: center;
+          justify-content: center; font-size: 11px; font-weight: 600; color: #555;
+          transition: all 0.3s ease;
+        }
+        .progress-step.active .progress-dot {
+          border-color: #7c3aed; background: rgba(124,58,237,0.18); color: #a78bfa;
+          box-shadow: 0 0 0 4px rgba(124,58,237,0.12);
+        }
         .progress-step.done .progress-dot { background: #7c3aed; border-color: #7c3aed; color: white; }
-        .progress-label { font-size: 10px; color: #666; letter-spacing: 0.5px; }
+        .progress-label { font-size: 10px; color: #555; letter-spacing: 0.5px; text-transform: uppercase; }
         .progress-step.active .progress-label { color: #a78bfa; }
-        :global(.step h2) { font-family: serif; font-size: 24px; font-weight: 600; color: #f8f6f2; margin-bottom: 8px; }
-        :global(.step-desc) { font-size: 14px; color: #9ca3af; margin-bottom: 24px; }
-        :global(.focus-grid) { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-        :global(.focus-card) { background: #1a1a1a; border: 2px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; text-align: left; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; gap: 4px; }
-        :global(.focus-card.selected) { border-color: #7c3aed; background: rgba(124,58,237,0.1); }
-        :global(.focus-label) { font-size: 14px; font-weight: 600; color: #f8f6f2; }
-        :global(.focus-desc) { font-size: 12px; color: #9ca3af; }
-        :global(.field-label) { display: flex; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 500; color: #d1d5db; margin-bottom: 16px; }
-        :global(.optional) { font-weight: 400; color: #6b7280; font-size: 12px; }
-        :global(.input), :global(.textarea) { background: #1a1a1a; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px 14px; color: #f8f6f2; font-size: 14px; outline: none; transition: border-color 0.2s; width: 100%; }
-        :global(.input:focus), :global(.textarea:focus) { border-color: rgba(124,58,237,0.5); }
-        :global(.textarea) { resize: vertical; font-family: inherit; }
-        :global(.field-row) { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        :global(.field-error) { font-size: 12px; color: #fca5a5; margin-top: 4px; }
-        :global(.field-hint) { font-size: 12px; color: #6b7280; margin-top: 4px; }
-        :global(.btn-primary) { background: #7c3aed; color: white; border: none; border-radius: 10px; padding: 12px 24px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
-        :global(.btn-primary:hover:not(:disabled)) { background: #6d28d9; }
-        :global(.btn-primary:disabled) { opacity: 0.4; cursor: not-allowed; }
-        :global(.btn-secondary) { background: transparent; color: #9ca3af; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 20px; font-size: 14px; cursor: pointer; }
-        :global(.btn-row) { display: flex; justify-content: space-between; margin-top: 8px; }
-        :global(.tags-input) { display: flex; flex-wrap: wrap; gap: 6px; background: #1a1a1a; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; min-height: 42px; }
-        :global(.tag) { background: rgba(124,58,237,0.15); color: #a78bfa; border: 1px solid rgba(124,58,237,0.3); border-radius: 99px; padding: 2px 10px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
-        :global(.tag button) { background: none; border: none; color: #a78bfa; cursor: pointer; font-size: 14px; line-height: 1; }
-        :global(.tag-input) { background: none; border: none; outline: none; color: #f8f6f2; font-size: 13px; flex: 1; min-width: 120px; }
-        :global(.trial-summary) { background: #1a1a1a; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-        :global(.trial-row) { display: flex; justify-content: space-between; font-size: 13px; color: #d1d5db; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        :global(.trial-row:last-child) { border-bottom: none; }
-        :global(.trial-free) { color: #86efac; font-weight: 600; }
-        .success-card { text-align: center; background: #111; border: 1px solid rgba(124,58,237,0.2); border-radius: 20px; padding: 48px; max-width: 400px; }
-        .success-icon { font-size: 48px; margin-bottom: 20px; }
-        .success-card h2 { font-family: serif; font-size: 28px; color: #f8f6f2; margin-bottom: 12px; }
-        .success-card p { font-size: 15px; color: #9ca3af; line-height: 1.6; }
-        .success-hint { font-size: 13px; margin-top: 12px; }
+        .progress-step.done .progress-label { color: #7c3aed; }
+
+        /* ── Step entry animation ─────────────────────────── */
+        @keyframes stepIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ── Success screen ───────────────────────────────── */
+        .success-card {
+          text-align: center; background: linear-gradient(160deg,#141414,#0f0f0f);
+          border: 1px solid rgba(124,58,237,0.22); border-radius: 24px; padding: 52px;
+          max-width: 420px; box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+          animation: stepIn 0.4s ease both;
+        }
+        .success-icon { font-size: 52px; margin-bottom: 20px; }
+        .success-card h2 { font-family: serif; font-size: 30px; color: #f8f6f2; margin-bottom: 14px; }
+        .success-card p { font-size: 15px; color: #9ca3af; line-height: 1.65; }
+        .success-hint { font-size: 13px; margin-top: 14px; color: #6b7280; }
+      `}</style>
+
+      <style jsx global>{`
+        /* ── Step animation ───────────────────────────────── */
+        .step { animation: stepIn 0.3s ease both; }
+        @keyframes stepIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ── Step typography ──────────────────────────────── */
+        .step h2 { font-family: serif; font-size: 26px; font-weight: 600; color: #f8f6f2; margin-bottom: 6px; line-height: 1.3; }
+        .step-desc { font-size: 14px; color: #9ca3af; margin-bottom: 28px; line-height: 1.6; }
+
+        /* ── Coaching focus cards ─────────────────────────── */
+        .focus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 22px; }
+        .focus-card {
+          background: #181818; border: 2px solid rgba(255,255,255,0.07); border-radius: 14px;
+          padding: 16px; text-align: left; cursor: pointer;
+          transition: border-color 0.2s, background 0.2s, transform 0.15s;
+          display: flex; flex-direction: column; gap: 5px;
+        }
+        .focus-card:hover { border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.06); transform: translateY(-1px); }
+        .focus-card.selected { border-color: #7c3aed; background: rgba(124,58,237,0.12); }
+        .focus-label { font-size: 14px; font-weight: 600; color: #f8f6f2; }
+        .focus-desc { font-size: 12px; color: #9ca3af; line-height: 1.4; }
+
+        /* ── Form fields ──────────────────────────────────── */
+        .field-label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 500; color: #d1d5db; margin-bottom: 18px; }
+        .optional { font-weight: 400; color: #6b7280; font-size: 12px; }
+        .input, .textarea {
+          background: #181818; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+          padding: 11px 14px; color: #f8f6f2; font-size: 14px; outline: none;
+          transition: border-color 0.2s, box-shadow 0.2s; width: 100%;
+        }
+        .input:focus, .textarea:focus {
+          border-color: rgba(124,58,237,0.6);
+          box-shadow: 0 0 0 3px rgba(124,58,237,0.12);
+        }
+        .textarea { resize: vertical; font-family: inherit; line-height: 1.5; }
+        .field-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .field-error { font-size: 12px; color: #fca5a5; margin-top: 4px; }
+        .field-hint { font-size: 12px; color: #6b7280; margin-top: 5px; line-height: 1.4; }
+
+        /* ── Buttons ──────────────────────────────────────── */
+        .btn-primary {
+          background: linear-gradient(135deg, #7c3aed, #6d28d9); color: white;
+          border: none; border-radius: 12px; padding: 13px 26px; font-size: 14px;
+          font-weight: 600; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+          box-shadow: 0 4px 14px rgba(124,58,237,0.35);
+        }
+        .btn-primary:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 6px 20px rgba(124,58,237,0.45);
+        }
+        .btn-primary:active:not(:disabled) { transform: translateY(0); }
+        .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
+        .btn-secondary {
+          background: transparent; color: #9ca3af;
+          border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+          padding: 13px 20px; font-size: 14px; cursor: pointer;
+          transition: border-color 0.2s, color 0.2s;
+        }
+        .btn-secondary:hover { border-color: rgba(255,255,255,0.2); color: #d1d5db; }
+        .btn-row { display: flex; justify-content: space-between; margin-top: 10px; gap: 10px; }
+
+        /* ── Tag input ────────────────────────────────────── */
+        .tags-input {
+          display: flex; flex-wrap: wrap; gap: 6px;
+          background: #181818; border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 10px; padding: 8px 10px; min-height: 46px;
+          cursor: text; transition: border-color 0.2s, box-shadow 0.2s;
+          align-items: center;
+        }
+        .tags-input:focus-within, .tags-input--open {
+          border-color: rgba(124,58,237,0.5);
+          box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+        }
+        .tag {
+          background: rgba(124,58,237,0.18); color: #c4b5fd;
+          border: 1px solid rgba(124,58,237,0.35); border-radius: 99px;
+          padding: 3px 10px 3px 12px; font-size: 12px; font-weight: 500;
+          display: flex; align-items: center; gap: 5px; line-height: 1.4;
+          transition: background 0.15s;
+        }
+        .tag:hover { background: rgba(124,58,237,0.25); }
+        .tag button {
+          background: none; border: none; color: rgba(196,181,253,0.6);
+          cursor: pointer; font-size: 15px; line-height: 1; padding: 0;
+          display: flex; align-items: center; transition: color 0.15s;
+        }
+        .tag button:hover { color: #fca5a5; }
+        .tag-input {
+          background: none; border: none; outline: none;
+          color: #f8f6f2; font-size: 13px; min-width: 120px;
+          padding: 2px 0; line-height: 1.5;
+        }
+        .tag-input::placeholder { color: #555; }
+
+        /* ── Autocomplete dropdown ────────────────────────── */
+        .ac-dropdown {
+          position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+          background: #1c1c1e; border: 1px solid rgba(124,58,237,0.3);
+          border-radius: 12px; overflow: hidden; z-index: 200;
+          box-shadow: 0 12px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
+          max-height: 280px; overflow-y: auto;
+        }
+        .ac-dropdown::-webkit-scrollbar { width: 4px; }
+        .ac-dropdown::-webkit-scrollbar-track { background: transparent; }
+        .ac-dropdown::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.3); border-radius: 2px; }
+        .ac-option {
+          padding: 10px 14px; font-size: 13px; color: #c9cdd5; cursor: pointer;
+          transition: background 0.1s, color 0.1s; border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .ac-option:last-child { border-bottom: none; }
+        .ac-option--hl, .ac-option:hover { background: rgba(124,58,237,0.14); color: #e5e7eb; }
+        .ac-option mark {
+          background: none; color: #a78bfa; font-weight: 600;
+        }
+        .ac-option--add {
+          color: #a78bfa; border-top: 1px solid rgba(124,58,237,0.15) !important;
+          display: flex; align-items: center; gap: 8px; font-weight: 500;
+        }
+        .ac-add-icon {
+          width: 18px; height: 18px; background: rgba(124,58,237,0.25);
+          border-radius: 50%; display: inline-flex; align-items: center;
+          justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0;
+        }
+
+        /* ── Health section sub-layout ────────────────────── */
+        .health-section { margin-bottom: 24px; }
+        .health-section-header {
+          display: flex; align-items: center; gap: 8px; margin-bottom: 5px;
+        }
+        .health-section-icon { font-size: 16px; }
+        .health-section-label {
+          font-size: 13px; font-weight: 600; color: #d1d5db;
+        }
+        .health-section-hint {
+          font-size: 12px; color: #6b7280; margin-bottom: 10px; line-height: 1.45;
+        }
+
+        /* ── Trial summary ────────────────────────────────── */
+        .trial-summary {
+          background: #181818; border-radius: 14px; padding: 18px;
+          margin-bottom: 18px; border: 1px solid rgba(255,255,255,0.06);
+        }
+        .trial-row {
+          display: flex; justify-content: space-between; font-size: 13px;
+          color: #d1d5db; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .trial-row:last-child { border-bottom: none; }
+        .trial-free { color: #86efac; font-weight: 600; }
       `}</style>
     </div>
   );
