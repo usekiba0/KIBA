@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RYKE AI — Client Setup Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #080808;
+  --white: #f8f6f2;
+  --purple: #7c3aed;
+  --purple-light: #a78bfa;
+  --purple-dark: #4c1d95;
+  --purple-glow: rgba(124,58,237,0.2);
+  --muted: #9ca3af;
+  --surface: #111111;
+  --surface2: #181818;
+  --border: rgba(124,58,237,0.2);
+  --border-subtle: rgba(255,255,255,0.06);
+  --green: #22c55e;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --blue: #3b82f6;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{font-family:'DM Sans',sans-serif;background:var(--black);color:var(--white);line-height:1.6;overflow-x:hidden;}
+h1,h2,h3,h4{font-family:'Cormorant Garamond',serif;font-weight:600;line-height:1.2;}
+h1{font-size:clamp(2.2rem,4vw,3.4rem);}
+h2{font-size:clamp(1.5rem,2.5vw,2rem);}
+h3{font-size:clamp(1.1rem,1.8vw,1.35rem);}
+code,pre{font-family:'DM Mono',monospace;}
+p{font-size:14px;color:var(--muted);line-height:1.75;}
+a{color:var(--purple-light);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.container{max-width:900px;margin:0 auto;padding:0 32px;}
+section{padding:64px 0;}
+.divider{height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);}
+
+/* ── HEADER ── */
+.doc-header{background:linear-gradient(180deg,#0d0515 0%,var(--black) 100%);border-bottom:1px solid var(--border);padding:56px 0 68px;text-align:center;position:relative;overflow:hidden;}
+.doc-header::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 80% at 50% -10%,rgba(124,58,237,0.18) 0%,transparent 60%);pointer-events:none;}
+.doc-header::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(124,58,237,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(124,58,237,0.04) 1px,transparent 1px);background-size:48px 48px;mask-image:radial-gradient(ellipse 80% 100% at 50% 0%,black 0%,transparent 100%);pointer-events:none;}
+.logo{font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:rgba(248,246,242,0.4);margin-bottom:14px;position:relative;z-index:1;}
+.logo span{color:var(--purple-light);}
+.doc-tag{display:inline-flex;align-items:center;gap:8px;background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.35);border-radius:99px;padding:6px 16px;font-size:11px;font-weight:500;letter-spacing:1.2px;text-transform:uppercase;color:var(--purple-light);margin-bottom:20px;position:relative;z-index:1;}
+.doc-tag::before{content:'';width:6px;height:6px;background:var(--purple-light);border-radius:50%;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.5;transform:scale(.8);}}
+.doc-header h1{color:var(--white);margin-bottom:16px;position:relative;z-index:1;}
+.doc-header h1 em{font-style:italic;color:var(--purple-light);}
+.doc-header .subtitle{font-size:15px;color:var(--muted);max-width:560px;margin:0 auto 32px;position:relative;z-index:1;}
+.doc-meta{display:flex;justify-content:center;gap:32px;flex-wrap:wrap;position:relative;z-index:1;}
+.doc-meta-item{display:flex;flex-direction:column;align-items:center;gap:3px;}
+.doc-meta-item .label{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);opacity:.6;}
+.doc-meta-item .value{font-size:13px;font-weight:500;color:var(--white);}
+
+/* ── SECTION LABELS ── */
+.section-label{display:inline-flex;align-items:center;gap:10px;font-size:11px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;color:var(--purple-light);margin-bottom:12px;}
+.section-label::before{content:'';width:20px;height:1px;background:var(--purple-light);}
+.section-title{color:var(--white);margin-bottom:8px;}
+.section-desc{font-size:14px;margin-bottom:40px;}
+
+/* ── OVERVIEW CARDS ── */
+.overview-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:0;}
+.overview-card{background:var(--surface);border:1px solid var(--border-subtle);border-radius:14px;padding:24px 28px;display:flex;align-items:flex-start;gap:16px;transition:border-color .3s;}
+.overview-card:hover{border-color:var(--border);}
+.ov-icon{font-size:28px;flex-shrink:0;}
+.ov-num{font-family:'Cormorant Garamond',serif;font-size:13px;font-weight:600;color:var(--purple-light);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}
+.ov-title{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px;}
+.ov-desc{font-size:12px;color:var(--muted);}
+
+/* ── SERVICE SECTIONS ── */
+.service-block{margin-bottom:72px;}
+.service-header{display:flex;align-items:center;gap:16px;margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid var(--border-subtle);}
+.service-logo{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;}
+.service-logo.twilio{background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);}
+.service-logo.anthropic{background:rgba(124,58,237,0.15);border:1px solid rgba(124,58,237,0.3);}
+.service-logo.sendblue{background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);}
+.service-logo.stripe{background:rgba(99,130,255,0.15);border:1px solid rgba(99,130,255,0.3);}
+.service-logo.github{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);}
+.service-info .service-name{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;color:var(--white);}
+.service-info .service-url a{font-family:'DM Mono',monospace;font-size:12px;color:var(--purple-light);}
+.service-info .service-purpose{font-size:12px;color:var(--muted);margin-top:4px;}
+.service-cost{margin-left:auto;text-align:right;flex-shrink:0;}
+.cost-label{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:2px;}
+.cost-value{font-size:13px;font-weight:600;color:#86efac;}
+
+/* ── STEPS ── */
+.steps{display:flex;flex-direction:column;gap:0;}
+.step{display:grid;grid-template-columns:48px 1fr;gap:20px;position:relative;padding-bottom:28px;}
+.step:last-child{padding-bottom:0;}
+.step::before{content:'';position:absolute;left:23px;top:44px;bottom:0;width:1px;background:var(--border-subtle);}
+.step:last-child::before{display:none;}
+.step-num{width:48px;height:48px;border-radius:50%;background:var(--surface2);border:2px solid var(--border-subtle);display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;color:var(--purple-light);flex-shrink:0;position:relative;z-index:1;}
+.step-body{}
+.step-title{font-size:15px;font-weight:600;color:var(--white);margin-bottom:6px;padding-top:10px;}
+.step-desc{font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.65;}
+.step-url{display:inline-flex;align-items:center;gap:6px;background:rgba(124,58,237,0.1);border:1px solid rgba(124,58,237,0.25);border-radius:8px;padding:6px 12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--purple-light);margin-bottom:10px;}
+.step-url::before{content:'🔗';font-size:12px;}
+
+/* ── KEY BOXES ── */
+.key-box{background:var(--surface2);border:1px solid var(--border-subtle);border-radius:10px;padding:14px 18px;margin-bottom:10px;}
+.key-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:6px;}
+.key-row:last-child{margin-bottom:0;}
+.key-name{font-family:'DM Mono',monospace;font-size:12px;color:var(--white);font-weight:500;}
+.key-desc{font-size:12px;color:var(--muted);}
+.key-badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;flex-shrink:0;}
+.key-required{background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.25);}
+.key-optional{background:rgba(245,158,11,0.1);color:#fcd34d;border:1px solid rgba(245,158,11,0.25);}
+
+/* ── SCREENSHOT PLACEHOLDER ── */
+.screenshot-hint{background:var(--surface);border:1px dashed rgba(124,58,237,0.3);border-radius:10px;padding:14px 18px;display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.screenshot-hint .hint-icon{font-size:18px;flex-shrink:0;}
+.screenshot-hint p{font-size:12px;color:var(--muted);margin:0;}
+.screenshot-hint strong{color:#fcd34d;}
+
+/* ── INFO CALLOUT ── */
+.callout{border-radius:10px;padding:14px 18px;display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;}
+.callout.info{background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);}
+.callout.warn{background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);}
+.callout.success{background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);}
+.callout-icon{font-size:16px;flex-shrink:0;margin-top:1px;}
+.callout p{font-size:12px;margin:0;line-height:1.6;}
+.callout.info p{color:#93c5fd;}
+.callout.warn p{color:#fcd34d;}
+.callout.success p{color:#86efac;}
+
+/* ── GITHUB SECRETS TABLE ── */
+.secrets-table-wrap{border-radius:12px;border:1px solid var(--border-subtle);overflow:hidden;margin-top:16px;}
+table{width:100%;border-collapse:collapse;}
+thead{background:var(--surface2);}
+thead th{padding:12px 18px;text-align:left;font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border-subtle);}
+tbody tr{border-bottom:1px solid var(--border-subtle);transition:background .2s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:rgba(124,58,237,0.04);}
+tbody td{padding:12px 18px;font-size:12px;vertical-align:middle;}
+.td-key{font-family:'DM Mono',monospace;color:var(--white);font-weight:500;}
+.td-source{color:var(--muted);}
+.badge{font-size:10px;font-weight:500;padding:2px 8px;border-radius:99px;}
+.badge-req{background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.25);}
+.badge-opt{background:rgba(245,158,11,0.1);color:#fcd34d;border:1px solid rgba(245,158,11,0.25);}
+
+/* ── CHECKLIST ── */
+.checklist{background:var(--surface);border:1px solid var(--border-subtle);border-radius:14px;padding:28px 32px;margin-top:8px;}
+.checklist-title{font-family:'Cormorant Garamond',serif;font-size:18px;color:var(--white);margin-bottom:18px;}
+.check-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-subtle);}
+.check-item:last-child{border-bottom:none;}
+.check-box{width:20px;height:20px;border-radius:5px;border:2px solid rgba(124,58,237,0.4);flex-shrink:0;}
+.check-text{font-size:13px;color:#d1d5db;}
+.check-service{font-size:11px;color:var(--purple-light);margin-left:auto;flex-shrink:0;}
+
+/* ── FOOTER ── */
+.doc-footer{background:var(--surface);border-top:1px solid var(--border-subtle);padding:36px 0;text-align:center;}
+.footer-logo{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--white);}
+.footer-logo span{color:var(--purple-light);}
+
+/* ── FADE IN ── */
+.fade-in{opacity:0;transform:translateY(18px);transition:opacity .5s ease,transform .5s ease;}
+.fade-in.visible{opacity:1;transform:translateY(0);}
+</style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<header class="doc-header">
+  <div class="container">
+    <div class="logo">RYKE <span>AI</span></div>
+    <div class="doc-tag">Client Setup Guide</div>
+    <h1>Third-Party Services<br><em>Setup Instructions</em></h1>
+    <p class="subtitle">Step-by-step instructions to create and configure all accounts required to run RYKE AI. Each section includes the exact URL, what to click, and which keys to collect.</p>
+    <div class="doc-meta">
+      <div class="doc-meta-item"><span class="label">Services</span><span class="value">4 Required</span></div>
+      <div class="doc-meta-item"><span class="label">Keys to collect</span><span class="value">12 total</span></div>
+      <div class="doc-meta-item"><span class="label">Est. time</span><span class="value">30–45 minutes</span></div>
+      <div class="doc-meta-item"><span class="label">Upfront cost</span><span class="value">$0 (all free tiers)</span></div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ OVERVIEW ═══ -->
+<section>
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">What You Need</div>
+      <h2 class="section-title">Four Services, One Platform</h2>
+      <p class="section-desc">RYKE AI relies on four third-party services. You will create a free account for each, navigate to the relevant settings page, and copy the API keys listed below.</p>
+    </div>
+    <div class="overview-grid fade-in">
+      <div class="overview-card">
+        <div class="ov-icon">💬</div>
+        <div>
+          <div class="ov-num">Step 1</div>
+          <div class="ov-title">Twilio</div>
+          <p class="ov-desc">Sends and receives SMS and MMS messages. Powers all coaching conversations for Android and non-iPhone users.</p>
+        </div>
+      </div>
+      <div class="overview-card">
+        <div class="ov-icon">🤖</div>
+        <div>
+          <div class="ov-num">Step 2</div>
+          <div class="ov-title">Anthropic (Claude API)</div>
+          <p class="ov-desc">The AI brain behind all coaching conversations, food photo analysis, and crisis detection.</p>
+        </div>
+      </div>
+      <div class="overview-card">
+        <div class="ov-icon">🍎</div>
+        <div>
+          <div class="ov-num">Step 3</div>
+          <div class="ov-title">SendBlue</div>
+          <p class="ov-desc">Delivers coaching messages as iMessages (blue bubbles) to iPhone users with automatic SMS fallback.</p>
+        </div>
+      </div>
+      <div class="overview-card">
+        <div class="ov-icon">💳</div>
+        <div>
+          <div class="ov-num">Step 4</div>
+          <div class="ov-title">Stripe</div>
+          <p class="ov-desc">Handles payment card collection, free trial activation, and monthly subscription billing.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══ STEP 1: TWILIO ═══ -->
+<section>
+  <div class="container">
+    <div class="section-label fade-in">Step 1 of 4</div>
+
+    <div class="service-block fade-in">
+      <div class="service-header">
+        <div class="service-logo twilio">📱</div>
+        <div class="service-info">
+          <div class="service-name">Twilio</div>
+          <div class="service-url"><a href="https://www.twilio.com/try-twilio" target="_blank">https://www.twilio.com/try-twilio</a></div>
+          <div class="service-purpose">SMS/MMS messaging — sends and receives all coaching text messages</div>
+        </div>
+        <div class="service-cost">
+          <div class="cost-label">Starting cost</div>
+          <div class="cost-value">Free trial credit</div>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Create a Twilio account</div>
+            <p class="step-desc">Go to the link below and sign up with your email. Twilio gives you free trial credit to get started — no credit card required initially.</p>
+            <div class="step-url">https://www.twilio.com/try-twilio</div>
+            <div class="callout info"><span class="callout-icon">ℹ️</span><p>Verify your email address when prompted. Twilio will also ask you to verify a phone number — use a real mobile number you have access to.</p></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Get a phone number</div>
+            <p class="step-desc">After signing in, go to <strong style="color:var(--white)">Phone Numbers → Manage → Buy a number</strong>. Search for a number with SMS and MMS capabilities. With the free trial you can get one number at no charge.</p>
+            <div class="screenshot-hint"><span class="hint-icon">📌</span><p>Select a number that shows both <strong>SMS ✓</strong> and <strong>MMS ✓</strong> capability icons.</p></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Copy your credentials</div>
+            <p class="step-desc">Go to <strong style="color:var(--white)">Account → API keys & tokens</strong> (or your Console dashboard). Copy the three values below.</p>
+            <div class="key-box">
+              <div class="key-row"><span class="key-name">TWILIO_ACCOUNT_SID</span><span class="key-desc">Starts with <code>AC</code> — found on your Console dashboard</span><span class="key-badge key-required">Required</span></div>
+              <div class="key-row"><span class="key-name">TWILIO_AUTH_TOKEN</span><span class="key-desc">Click "show" next to Auth Token on the dashboard</span><span class="key-badge key-required">Required</span></div>
+              <div class="key-row"><span class="key-name">TWILIO_PHONE_NUMBER</span><span class="key-desc">The number you purchased — in E.164 format e.g. <code>+15551234567</code></span><span class="key-badge key-required">Required</span></div>
+            </div>
+            <div class="callout warn"><span class="callout-icon">⚠️</span><p>Keep your Auth Token secret. Never share it or post it publicly. Treat it like a password.</p></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-title">Configure the webhook URL</div>
+            <p class="step-desc">Go to <strong style="color:var(--white)">Phone Numbers → Manage → Active numbers → click your number → Messaging Configuration</strong>. Under "A message comes in" set the webhook URL to your backend URL. Leave this blank for now — your developer will fill it in after deployment.</p>
+            <div class="screenshot-hint"><span class="hint-icon">📌</span><p>Webhook URL format: <code>https://api.ryke.ai/v1/webhooks/sms</code> — your developer will provide the exact URL.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 2: ANTHROPIC ═══ -->
+    <div class="section-label fade-in">Step 2 of 4</div>
+
+    <div class="service-block fade-in">
+      <div class="service-header">
+        <div class="service-logo anthropic">🤖</div>
+        <div class="service-info">
+          <div class="service-name">Anthropic (Claude API)</div>
+          <div class="service-url"><a href="https://console.anthropic.com" target="_blank">https://console.anthropic.com</a></div>
+          <div class="service-purpose">AI coaching engine — powers all conversations, food analysis, and safety detection</div>
+        </div>
+        <div class="service-cost">
+          <div class="cost-label">Starting cost</div>
+          <div class="cost-value">Pay as you go</div>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Create an Anthropic account</div>
+            <p class="step-desc">Go to the Anthropic Console and sign up. Use a business email address.</p>
+            <div class="step-url">https://console.anthropic.com</div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Add billing (required to use the API)</div>
+            <p class="step-desc">Go to <strong style="color:var(--white)">Settings → Billing</strong> and add a credit card. Add an initial credit of at least <strong style="color:var(--white)">$10</strong> to get started. You will only be charged for what you use — Claude Haiku (the model RYKE AI uses) costs roughly <strong style="color:var(--white)">$0.25 per 1,000 messages</strong>.</p>
+            <div class="callout success"><span class="callout-icon">✅</span><p>At 100 active users sending 10 messages/day, expect roughly $7–$10/month in Claude costs. This is extremely low compared to Twilio SMS costs.</p></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Create an API key</div>
+            <p class="step-desc">Go to <strong style="color:var(--white)">API Keys</strong> in the left sidebar and click <strong style="color:var(--white)">"Create Key"</strong>. Give it a name like "RYKE AI Production". Copy the key immediately — it is only shown once.</p>
+            <div class="key-box">
+              <div class="key-row"><span class="key-name">ANTHROPIC_API_KEY</span><span class="key-desc">Starts with <code>sk-ant-</code> — shown only once at creation</span><span class="key-badge key-required">Required</span></div>
+            </div>
+            <div class="callout warn"><span class="callout-icon">⚠️</span><p>Copy and save this key immediately in a secure location (password manager). Anthropic does not show it again — if lost, you must create a new one.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 3: SENDBLUE ═══ -->
+    <div class="section-label fade-in">Step 3 of 4</div>
+
+    <div class="service-block fade-in">
+      <div class="service-header">
+        <div class="service-logo sendblue">🍎</div>
+        <div class="service-info">
+          <div class="service-name">SendBlue</div>
+          <div class="service-url"><a href="https://sendblue.co" target="_blank">https://sendblue.co</a></div>
+          <div class="service-purpose">iMessage delivery — sends coaching as blue bubbles to iPhone users</div>
+        </div>
+        <div class="service-cost">
+          <div class="cost-label">Starting cost</div>
+          <div class="cost-value">Free tier available</div>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Create a SendBlue account</div>
+            <p class="step-desc">Go to SendBlue and sign up. SendBlue provides iMessage-as-a-service — your iPhone users will receive coaching as native iMessages.</p>
+            <div class="step-url">https://sendblue.co</div>
+            <div class="callout info"><span class="callout-icon">ℹ️</span><p>iPhone users will see RYKE AI messages as blue bubbles. Android users and basic phone users automatically fall back to regular SMS through Twilio — no action needed from you.</p></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Get your API credentials</div>
+            <p class="step-desc">After signing in, go to <strong style="color:var(--white)">Dashboard → API Keys</strong> (or Developer settings). Copy both values below.</p>
+            <div class="key-box">
+              <div class="key-row"><span class="key-name">SENDBLUE_API_KEY_ID</span><span class="key-desc">Your public API Key ID from the dashboard</span><span class="key-badge key-required">Required</span></div>
+              <div class="key-row"><span class="key-name">SENDBLUE_API_SECRET_KEY</span><span class="key-desc">Your API Secret Key — keep this private</span><span class="key-badge key-required">Required</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Note your sending number</div>
+            <p class="step-desc">Note the phone number assigned to your SendBlue account. This is the number iPhone users will receive messages from.</p>
+            <div class="key-box">
+              <div class="key-row"><span class="key-name">SENDBLUE_SENDING_NUMBER</span><span class="key-desc">Phone number in E.164 format e.g. <code>+15551234567</code></span><span class="key-badge key-optional">Optional</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 4: STRIPE ═══ -->
+    <div class="section-label fade-in">Step 4 of 4</div>
+
+    <div class="service-block fade-in">
+      <div class="service-header">
+        <div class="service-logo stripe">💳</div>
+        <div class="service-info">
+          <div class="service-name">Stripe</div>
+          <div class="service-url"><a href="https://dashboard.stripe.com/register" target="_blank">https://dashboard.stripe.com/register</a></div>
+          <div class="service-purpose">Payment processing — collects cards, activates free trials, handles monthly billing</div>
+        </div>
+        <div class="service-cost">
+          <div class="cost-label">Fee per transaction</div>
+          <div class="cost-value">2.9% + $0.30</div>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Create a Stripe account</div>
+            <p class="step-desc">Go to Stripe and register. Use your business email. Stripe will ask for basic business details to activate live payments — you can start in test mode immediately without completing this.</p>
+            <div class="step-url">https://dashboard.stripe.com/register</div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Create your subscription product and pricing</div>
+            <p class="step-desc">Go to <strong style="color:var(--white)">Product Catalogue → Add Product</strong>. Create a product called <strong style="color:var(--white)">"RYKE AI Individual"</strong> with a recurring price of <strong style="color:var(--white)">$20.00/month</strong>. After saving, copy the <strong style="color:var(--white)">Price ID</strong> (starts with <code>price_</code>).</p>
+            <div class="key-box">
+              <div class="key-row"><span class="key-name">STRIPE_PRICE_ID_INDIVIDUAL</span><span class="key-desc">The price ID for the $20/mo plan — starts with <code>price_</code></span><span class="key-badge key-required">Required</span></div>
+            </div>
+            <div class="screenshot-hint"><span class="hint-icon">📌</span><p>On the product page, click the price to expand it. The Price ID appears under the price details — it looks like <code>price_1ABC123XYZ</code>.</p></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Get your API keys</div>
+            <p class="step-desc">Go to <strong style="color:var(--white)">Developers → API Keys</strong>. You will see two keys — use the <strong style="color:var(--white)">test keys</strong> first (for development) and switch to live keys when you go live.</p>
+            <div class="key-box">
+              <div class="key-row"><span class="key-name">STRIPE_SECRET_KEY</span><span class="key-desc">Secret key — starts with <code>sk_test_</code> (test) or <code>sk_live_</code> (production)</span><span class="key-badge key-required">Required</span></div>
+            </div>
+            <div class="callout warn"><span class="callout-icon">⚠️</span><p>Only share the <strong>secret key</strong> with your developer. Never expose it in a browser, public repo, or email.</p></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-title">Set up a webhook and get the webhook secret</div>
+            <p class="step-desc">Go to <strong style="color:var(--white)">Developers → Webhooks → Add endpoint</strong>. Your developer will provide the exact URL after deployment. For now, add a placeholder and select these events to listen to:</p>
+            <div class="key-box" style="margin-bottom:10px;">
+              <div style="font-size:12px;color:var(--muted);line-height:2;">
+                ✓ customer.subscription.created &nbsp;&nbsp;
+                ✓ customer.subscription.updated &nbsp;&nbsp;
+                ✓ customer.subscription.trial_will_end &nbsp;&nbsp;
+                ✓ invoice.payment_failed &nbsp;&nbsp;
+                ✓ invoice.payment_succeeded &nbsp;&nbsp;
+                ✓ customer.subscription.deleted
+              </div>
+            </div>
+            <p class="step-desc">After creating the webhook, click <strong style="color:var(--white)">"Reveal signing secret"</strong> and copy it.</p>
+            <div class="key-box">
+              <div class="key-row"><span class="key-name">STRIPE_WEBHOOK_SECRET</span><span class="key-desc">Webhook signing secret — starts with <code>whsec_</code></span><span class="key-badge key-required">Required</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 5: GITHUB SECRETS ═══ -->
+    <div class="section-label fade-in">Final Step</div>
+
+    <div class="service-block fade-in">
+      <div class="service-header">
+        <div class="service-logo github">⚙️</div>
+        <div class="service-info">
+          <div class="service-name">GitHub Repository Secrets</div>
+          <div class="service-url"><a href="https://github.com/avancerasolution/ryke-ai/settings/secrets/actions" target="_blank">github.com/avancerasolution/ryke-ai → Settings → Secrets</a></div>
+          <div class="service-purpose">Stores all API keys securely for the CI/CD pipeline and deployments</div>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Open the GitHub Secrets page</div>
+            <p class="step-desc">Go to your RYKE AI repository on GitHub, then navigate to <strong style="color:var(--white)">Settings → Secrets and variables → Actions</strong>.</p>
+            <div class="step-url">https://github.com/avancerasolution/ryke-ai/settings/secrets/actions</div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Add each secret below</div>
+            <p class="step-desc">Click <strong style="color:var(--white)">"New repository secret"</strong> for each row in the table. Enter the exact name shown and paste the value you collected from each service above.</p>
+            <div class="secrets-table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Secret Name</th><th>Where to get it</th><th>Required</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td class="td-key">ANTHROPIC_API_KEY</td><td class="td-source">Anthropic Console → API Keys</td><td><span class="badge badge-req">Required</span></td></tr>
+                  <tr><td class="td-key">TWILIO_ACCOUNT_SID</td><td class="td-source">Twilio Console → Dashboard</td><td><span class="badge badge-req">Required</span></td></tr>
+                  <tr><td class="td-key">TWILIO_AUTH_TOKEN</td><td class="td-source">Twilio Console → Dashboard → Show</td><td><span class="badge badge-req">Required</span></td></tr>
+                  <tr><td class="td-key">TWILIO_PHONE_NUMBER</td><td class="td-source">Twilio → Phone Numbers → Active Numbers</td><td><span class="badge badge-req">Required</span></td></tr>
+                  <tr><td class="td-key">SENDBLUE_API_KEY_ID</td><td class="td-source">SendBlue Dashboard → API Keys</td><td><span class="badge badge-req">Required</span></td></tr>
+                  <tr><td class="td-key">SENDBLUE_API_SECRET_KEY</td><td class="td-source">SendBlue Dashboard → API Keys</td><td><span class="badge badge-req">Required</span></td></tr>
+                  <tr><td class="td-key">STRIPE_SECRET_KEY</td><td class="td-source">Stripe → Developers → API Keys → Secret key</td><td><span class="badge badge-req">Required</span></td></tr>
+                  <tr><td class="td-key">STRIPE_WEBHOOK_SECRET</td><td class="td-source">Stripe → Developers → Webhooks → Signing secret</td><td><span class="badge badge-req">Required</span></td></tr>
+                  <tr><td class="td-key">STRIPE_PRICE_ID_INDIVIDUAL</td><td class="td-source">Stripe → Product Catalogue → Price ID</td><td><span class="badge badge-req">Required</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="callout info" style="margin-top:14px;"><span class="callout-icon">ℹ️</span><p>GitHub Secrets are encrypted and never shown again after saving. If you make a mistake, simply overwrite the secret by adding a new one with the same name.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ COMPLETION CHECKLIST ═══ -->
+    <div class="fade-in">
+      <div class="section-label">All Done?</div>
+      <h2 class="section-title">Setup Checklist</h2>
+      <p class="section-desc">Use this checklist to confirm everything is in place before handing the keys to your developer.</p>
+
+      <div class="checklist">
+        <div class="checklist-title">✅ Pre-Launch Checklist</div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">Twilio account created and email verified</span><span class="check-service">Twilio</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">Twilio phone number purchased (SMS + MMS enabled)</span><span class="check-service">Twilio</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">TWILIO_ACCOUNT_SID copied</span><span class="check-service">Twilio</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">TWILIO_AUTH_TOKEN copied</span><span class="check-service">Twilio</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">TWILIO_PHONE_NUMBER noted (E.164 format)</span><span class="check-service">Twilio</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">Anthropic account created and billing added</span><span class="check-service">Anthropic</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">ANTHROPIC_API_KEY created and saved securely</span><span class="check-service">Anthropic</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">SendBlue account created</span><span class="check-service">SendBlue</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">SENDBLUE_API_KEY_ID and SENDBLUE_API_SECRET_KEY copied</span><span class="check-service">SendBlue</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">Stripe account created</span><span class="check-service">Stripe</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">Stripe product created: "RYKE AI Individual" at $20/mo</span><span class="check-service">Stripe</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">STRIPE_PRICE_ID_INDIVIDUAL copied</span><span class="check-service">Stripe</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">STRIPE_SECRET_KEY copied (test key first)</span><span class="check-service">Stripe</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">Stripe webhook created with 6 events selected</span><span class="check-service">Stripe</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">STRIPE_WEBHOOK_SECRET copied</span><span class="check-service">Stripe</span></div>
+        <div class="check-item"><div class="check-box"></div><span class="check-text">All 9 secrets added to GitHub repository</span><span class="check-service">GitHub</span></div>
+      </div>
+
+      <div class="callout success" style="margin-top:20px;">
+        <span class="callout-icon">🚀</span>
+        <p>Once all 16 items are checked, send the confirmation to your developer. They will deploy the backend, run the database setup, and configure the webhook URLs with the final production domain. The platform will be live within hours.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ FOOTER ═══ -->
+<footer class="doc-footer">
+  <div class="container">
+    <div class="footer-logo">RYKE <span>AI</span></div>
+    <p style="font-size:12px;color:var(--muted);margin-top:8px;">Client Setup Guide · For questions contact your RYKE AI developer</p>
+    <p style="font-size:12px;color:var(--muted);margin-top:4px;">Repository: github.com/avancerasolution/ryke-ai</p>
+  </div>
+</footer>
+
+<script>
+const observer = new IntersectionObserver(
+  entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
+  { threshold: 0.07, rootMargin: '0px 0px -32px 0px' }
+);
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
