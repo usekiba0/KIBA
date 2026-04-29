@@ -157,10 +157,11 @@ export class OnboardingService {
       });
       const savedUser = await manager.save(User, user);
 
+      const phoneSuffix = dto.phone_number.replace(/\D/g, '').slice(-10);
       const sub = manager.create(Subscription, {
         user_id: savedUser.id,
-        stripe_customer_id: 'cus_beta_bypass',
-        stripe_subscription_id: 'sub_beta_bypass',
+        stripe_customer_id: `cus_beta_${phoneSuffix}`,
+        stripe_subscription_id: `sub_beta_${phoneSuffix}`,
         plan: (dto.plan as SubscriptionPlan) ?? SubscriptionPlan.INDIVIDUAL,
         status: SubscriptionStatus.TRIALING,
         trial_start: new Date(),

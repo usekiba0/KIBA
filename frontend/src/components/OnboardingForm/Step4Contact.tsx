@@ -8,7 +8,9 @@ interface Props {
 }
 
 function isValidPhone(phone: string): boolean {
-  return /^\+?[1-9]\d{7,14}$/.test(phone.replace(/\s|-/g, ''));
+  // Accept 10+ digits with optional country code prefix — normalised before sending
+  const digits = phone.replace(/\D/g, '');
+  return digits.length >= 10 && digits.length <= 15;
 }
 
 export default function Step4Contact({ data, onChange, onNext, onBack }: Props) {
@@ -32,9 +34,9 @@ export default function Step4Contact({ data, onChange, onNext, onBack }: Props) 
           onChange={e => onChange({ phone_number: e.target.value })}
           placeholder="+1 555 000 1234" />
         {data.phone_number && !phoneValid && (
-          <span className="field-error">Please enter a valid mobile number with country code (e.g. +1)</span>
+          <span className="field-error">Enter at least 10 digits — e.g. (415) 555-0100 or +44 7911 123456</span>
         )}
-        <span className="field-hint">iPhone users get iMessages (blue bubbles) — everyone else gets SMS.</span>
+        <span className="field-hint">US numbers work with or without +1. iPhone users get iMessages (blue bubbles).</span>
       </label>
 
       <div className="btn-row">
