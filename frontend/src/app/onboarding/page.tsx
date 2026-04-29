@@ -77,11 +77,11 @@ export default function OnboardingPage() {
         /* ── Layout ───────────────────────────────────────── */
         .onboarding-container {
           min-height: 100vh; display: flex; align-items: center; justify-content: center;
-          padding: 24px; background: radial-gradient(ellipse at 50% 0%, rgba(124,58,237,0.08) 0%, #080808 60%);
+          padding: 24px; background: radial-gradient(ellipse at 50% 0%, rgba(225,29,72,0.08) 0%, #09090b 60%);
         }
         .onboarding-card {
           background: linear-gradient(160deg, #141414 0%, #0f0f0f 100%);
-          border: 1px solid rgba(124,58,237,0.22); border-radius: 24px;
+          border: 1px solid rgba(225,29,72,0.22); border-radius: 24px;
           padding: 40px; width: 100%; max-width: 540px;
           box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
         }
@@ -92,7 +92,7 @@ export default function OnboardingPage() {
           text-transform: uppercase; color: rgba(248,246,242,0.35); margin-bottom: 28px;
           display: flex; align-items: center; gap: 6px;
         }
-        .logo-small span { color: #a78bfa; }
+        .logo-small span { color: #fb7185; }
 
         /* ── Progress bar ─────────────────────────────────── */
         .progress-bar {
@@ -104,7 +104,7 @@ export default function OnboardingPage() {
           background: rgba(255,255,255,0.06); border-radius: 2px;
         }
         .progress-track-fill {
-          height: 100%; background: linear-gradient(90deg, #7c3aed, #a78bfa);
+          height: 100%; background: linear-gradient(90deg, #e11d48, #8b5cf6);
           border-radius: 2px; transition: width 0.4s ease;
         }
         .progress-step { display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; z-index: 1; }
@@ -115,13 +115,13 @@ export default function OnboardingPage() {
           transition: all 0.3s ease;
         }
         .progress-step.active .progress-dot {
-          border-color: #7c3aed; background: rgba(124,58,237,0.18); color: #a78bfa;
-          box-shadow: 0 0 0 4px rgba(124,58,237,0.12);
+          border-color: #e11d48; background: rgba(225,29,72,0.18); color: #8b5cf6;
+          box-shadow: 0 0 0 4px rgba(225,29,72,0.12);
         }
-        .progress-step.done .progress-dot { background: #7c3aed; border-color: #7c3aed; color: white; }
+        .progress-step.done .progress-dot { background: #e11d48; border-color: #e11d48; color: white; }
         .progress-label { font-size: 10px; color: #555; letter-spacing: 0.5px; text-transform: uppercase; }
-        .progress-step.active .progress-label { color: #a78bfa; }
-        .progress-step.done .progress-label { color: #7c3aed; }
+        .progress-step.active .progress-label { color: #8b5cf6; }
+        .progress-step.done .progress-label { color: #e11d48; }
 
         /* ── Step entry animation ─────────────────────────── */
         @keyframes stepIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -129,13 +129,13 @@ export default function OnboardingPage() {
         /* ── Success screen ───────────────────────────────── */
         .success-card {
           text-align: center; background: linear-gradient(160deg,#141414,#0f0f0f);
-          border: 1px solid rgba(124,58,237,0.22); border-radius: 24px; padding: 52px;
+          border: 1px solid rgba(225,29,72,0.22); border-radius: 24px; padding: 52px;
           max-width: 420px; box-shadow: 0 24px 60px rgba(0,0,0,0.5);
           animation: stepIn 0.4s ease both;
         }
         .success-icon { font-size: 52px; margin-bottom: 20px; }
-        .success-card h2 { font-family: serif; font-size: 30px; color: #f8f6f2; margin-bottom: 14px; }
-        .success-card p { font-size: 15px; color: #9ca3af; line-height: 1.65; }
+        .success-card h2 { font-family: serif; font-size: 30px; color: #fafafa; margin-bottom: 14px; }
+        .success-card p { font-size: 15px; color: #a1a1aa; line-height: 1.65; }
         .success-hint { font-size: 13px; margin-top: 14px; color: #6b7280; }
       `}</style>
 
@@ -145,8 +145,8 @@ export default function OnboardingPage() {
         @keyframes stepIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
         /* ── Step typography ──────────────────────────────── */
-        .step h2 { font-family: serif; font-size: 26px; font-weight: 600; color: #f8f6f2; margin-bottom: 6px; line-height: 1.3; }
-        .step-desc { font-size: 14px; color: #9ca3af; margin-bottom: 28px; line-height: 1.6; }
+        .step h2 { font-family: serif; font-size: 26px; font-weight: 600; color: #fafafa; margin-bottom: 6px; line-height: 1.3; }
+        .step-desc { font-size: 14px; color: #a1a1aa; margin-bottom: 28px; line-height: 1.6; }
 
         /* ── Coaching focus cards ─────────────────────────── */
         .focus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 22px; }
@@ -156,22 +156,22 @@ export default function OnboardingPage() {
           transition: border-color 0.2s, background 0.2s, transform 0.15s;
           display: flex; flex-direction: column; gap: 5px;
         }
-        .focus-card:hover { border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.06); transform: translateY(-1px); }
-        .focus-card.selected { border-color: #7c3aed; background: rgba(124,58,237,0.12); }
-        .focus-label { font-size: 14px; font-weight: 600; color: #f8f6f2; }
-        .focus-desc { font-size: 12px; color: #9ca3af; line-height: 1.4; }
+        .focus-card:hover { border-color: rgba(225,29,72,0.4); background: rgba(225,29,72,0.06); transform: translateY(-1px); }
+        .focus-card.selected { border-color: #e11d48; background: rgba(225,29,72,0.12); }
+        .focus-label { font-size: 14px; font-weight: 600; color: #fafafa; }
+        .focus-desc { font-size: 12px; color: #a1a1aa; line-height: 1.4; }
 
         /* ── Form fields ──────────────────────────────────── */
         .field-label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 500; color: #d1d5db; margin-bottom: 18px; }
         .optional { font-weight: 400; color: #6b7280; font-size: 12px; }
         .input, .textarea {
           background: #181818; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
-          padding: 11px 14px; color: #f8f6f2; font-size: 14px; outline: none;
+          padding: 11px 14px; color: #fafafa; font-size: 14px; outline: none;
           transition: border-color 0.2s, box-shadow 0.2s; width: 100%;
         }
         .input:focus, .textarea:focus {
-          border-color: rgba(124,58,237,0.6);
-          box-shadow: 0 0 0 3px rgba(124,58,237,0.12);
+          border-color: rgba(225,29,72,0.6);
+          box-shadow: 0 0 0 3px rgba(225,29,72,0.12);
         }
         .textarea { resize: vertical; font-family: inherit; line-height: 1.5; }
         .field-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -180,19 +180,19 @@ export default function OnboardingPage() {
 
         /* ── Buttons ──────────────────────────────────────── */
         .btn-primary {
-          background: linear-gradient(135deg, #7c3aed, #6d28d9); color: white;
+          background: linear-gradient(135deg, #e11d48, #be123c); color: white;
           border: none; border-radius: 12px; padding: 13px 26px; font-size: 14px;
           font-weight: 600; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
-          box-shadow: 0 4px 14px rgba(124,58,237,0.35);
+          box-shadow: 0 4px 14px rgba(225,29,72,0.35);
         }
         .btn-primary:hover:not(:disabled) {
           transform: translateY(-1px);
-          box-shadow: 0 6px 20px rgba(124,58,237,0.45);
+          box-shadow: 0 6px 20px rgba(225,29,72,0.45);
         }
         .btn-primary:active:not(:disabled) { transform: translateY(0); }
         .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
         .btn-secondary {
-          background: transparent; color: #9ca3af;
+          background: transparent; color: #a1a1aa;
           border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
           padding: 13px 20px; font-size: 14px; cursor: pointer;
           transition: border-color 0.2s, color 0.2s;
@@ -209,17 +209,17 @@ export default function OnboardingPage() {
           align-items: center;
         }
         .tags-input:focus-within, .tags-input--open {
-          border-color: rgba(124,58,237,0.5);
-          box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+          border-color: rgba(225,29,72,0.5);
+          box-shadow: 0 0 0 3px rgba(225,29,72,0.1);
         }
         .tag {
-          background: rgba(124,58,237,0.18); color: #c4b5fd;
-          border: 1px solid rgba(124,58,237,0.35); border-radius: 99px;
+          background: rgba(225,29,72,0.18); color: #fda4af;
+          border: 1px solid rgba(225,29,72,0.35); border-radius: 99px;
           padding: 3px 10px 3px 12px; font-size: 12px; font-weight: 500;
           display: flex; align-items: center; gap: 5px; line-height: 1.4;
           transition: background 0.15s;
         }
-        .tag:hover { background: rgba(124,58,237,0.25); }
+        .tag:hover { background: rgba(225,29,72,0.25); }
         .tag button {
           background: none; border: none; color: rgba(196,181,253,0.6);
           cursor: pointer; font-size: 15px; line-height: 1; padding: 0;
@@ -228,7 +228,7 @@ export default function OnboardingPage() {
         .tag button:hover { color: #fca5a5; }
         .tag-input {
           background: none; border: none; outline: none;
-          color: #f8f6f2; font-size: 13px; min-width: 120px;
+          color: #fafafa; font-size: 13px; min-width: 120px;
           padding: 2px 0; line-height: 1.5;
         }
         .tag-input::placeholder { color: #555; }
@@ -236,29 +236,29 @@ export default function OnboardingPage() {
         /* ── Autocomplete dropdown ────────────────────────── */
         .ac-dropdown {
           position: absolute; top: calc(100% + 6px); left: 0; right: 0;
-          background: #1c1c1e; border: 1px solid rgba(124,58,237,0.3);
+          background: #1c1c1e; border: 1px solid rgba(225,29,72,0.3);
           border-radius: 12px; overflow: hidden; z-index: 200;
           box-shadow: 0 12px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
           max-height: 280px; overflow-y: auto;
         }
         .ac-dropdown::-webkit-scrollbar { width: 4px; }
         .ac-dropdown::-webkit-scrollbar-track { background: transparent; }
-        .ac-dropdown::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.3); border-radius: 2px; }
+        .ac-dropdown::-webkit-scrollbar-thumb { background: rgba(225,29,72,0.3); border-radius: 2px; }
         .ac-option {
           padding: 10px 14px; font-size: 13px; color: #c9cdd5; cursor: pointer;
           transition: background 0.1s, color 0.1s; border-bottom: 1px solid rgba(255,255,255,0.04);
         }
         .ac-option:last-child { border-bottom: none; }
-        .ac-option--hl, .ac-option:hover { background: rgba(124,58,237,0.14); color: #e5e7eb; }
+        .ac-option--hl, .ac-option:hover { background: rgba(225,29,72,0.14); color: #e5e7eb; }
         .ac-option mark {
-          background: none; color: #a78bfa; font-weight: 600;
+          background: none; color: #8b5cf6; font-weight: 600;
         }
         .ac-option--add {
-          color: #a78bfa; border-top: 1px solid rgba(124,58,237,0.15) !important;
+          color: #8b5cf6; border-top: 1px solid rgba(225,29,72,0.15) !important;
           display: flex; align-items: center; gap: 8px; font-weight: 500;
         }
         .ac-add-icon {
-          width: 18px; height: 18px; background: rgba(124,58,237,0.25);
+          width: 18px; height: 18px; background: rgba(225,29,72,0.25);
           border-radius: 50%; display: inline-flex; align-items: center;
           justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0;
         }
