@@ -43,6 +43,13 @@ export class OnboardingService {
       };
     }
 
+    const betaMode = this.config.get<string>('BETA_MODE') === 'true';
+    const isBetaBypass = betaMode && dto.stripe_payment_method_id === 'pm_beta_bypass';
+
+    if (isBetaBypass) {
+      return this.submitBeta(dto);
+    }
+
     const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
     const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 30);
 
@@ -128,6 +135,53 @@ export class OnboardingService {
       }
       throw err;
     }
+  }
+
+  private async submitBeta(dto: OnboardingFormDto) {
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + 30);
+
+    const result = await this.dataSource.transaction(async (manager) => {
+      const user = manager.create(User, {
+        phone_number: dto.phone_number,
+        name: dto.name,
+        coaching_focus: dto.coaching_focus,
+        goals: dto.goals,
+        height_cm: dto.height_cm ?? null,
+        weight_kg: dto.weight_kg ?? null,
+        age: dto.age ?? null,
+        health_conditions: dto.health_conditions ?? [],
+        dietary_restrictions: dto.dietary_restrictions ?? [],
+        injuries: dto.injuries ?? null,
+        status: UserStatus.TRIAL,
+      });
+      const savedUser = await manager.save(User, user);
+
+      const sub = manager.create(Subscription, {
+        user_id: savedUser.id,
+        stripe_customer_id: 'cus_beta_bypass',
+        stripe_subscription_id: 'sub_beta_bypass',
+        plan: (dto.plan as SubscriptionPlan) ?? SubscriptionPlan.INDIVIDUAL,
+        status: SubscriptionStatus.TRIALING,
+        trial_start: new Date(),
+        trial_end: trialEnd,
+      });
+      await manager.save(Subscription, sub);
+
+      return { savedUser, trialEnd };
+    });
+
+    structuredLog(this.logger, 'log', {
+      service: 'onboarding', operation: 'user_created_beta', userId: result.savedUser.id,
+    });
+
+    return {
+      user_id: result.savedUser.id,
+      phone_number: result.savedUser.phone_number,
+      subscription_status: SubscriptionStatus.TRIALING,
+      trial_end: result.trialEnd,
+      welcome_sms_queued: false,
+    };
   }
 
   private buildWelcomeMessage(user: User): string {

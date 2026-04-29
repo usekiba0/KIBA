@@ -20,6 +20,7 @@ import { HealthController } from './common/health/health.controller';
       validationSchema: Joi.object({
         // App
         NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
+        BETA_MODE: Joi.string().valid('true', 'false').default('false'),
         PORT: Joi.number().default(3000),
         APP_BASE_URL: Joi.string().uri().required(),
         FRONTEND_URL: Joi.string().uri().required(),

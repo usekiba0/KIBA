@@ -21,7 +21,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const exceptionResponse =
       exception instanceof HttpException ? exception.getResponse() : null;
 
-    // In production, never expose internal error details or stack traces
+    this.logger.error(
+      JSON.stringify({
+        service: 'exception-filter',
+        operation: 'unhandled_exception',
+        statusCode: status,
+        path: request.url,
+        method: request.method,
+        message: isProd ? `HTTP ${status}` : (exception instanceof Error ? exception.message : String(exception)),
+        stack: isProd ? undefined : (exception instanceof Error ? exception.stack : undefined),
+      }),
+    );
+
+    if (!isProd && exceptionResponse) {
+      // Pass through full HttpException body (includes ValidationPipe field errors)
+      response.status(status).json(exceptionResponse);
+      return;
+    }
+
     const message = isProd
       ? status < 500
         ? (typeof exceptionResponse === 'string'
@@ -31,19 +48,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
       : exception instanceof Error
         ? exception.message
         : String(exception);
-
-    this.logger.error(
-      JSON.stringify({
-        service: 'exception-filter',
-        operation: 'unhandled_exception',
-        statusCode: status,
-        path: request.url,
-        method: request.method,
-        // Never log the full error in production to avoid sensitive data leakage in log aggregators
-        message: isProd ? `HTTP ${status}` : (exception instanceof Error ? exception.message : String(exception)),
-        stack: isProd ? undefined : (exception instanceof Error ? exception.stack : undefined),
-      }),
-    );
 
     response.status(status).json({
       statusCode: status,
