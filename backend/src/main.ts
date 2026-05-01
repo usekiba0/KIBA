@@ -16,10 +16,23 @@ async function bootstrap() {
   // Required for Twilio webhook signature validation (must be before JSON body parser)
   app.use(express.urlencoded({ extended: false }));
 
-  // CORS — only allow the registered frontend origin
+  // CORS — allow production frontend + Vercel preview deployments + local dev
   const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3001';
+  const allowedOrigins = [
+    frontendUrl,
+    'http://localhost:3001',
+    'http://localhost:3000',
+  ];
   app.enableCors({
-    origin: frontendUrl,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (curl, Postman, server-to-server)
+      if (!origin) return callback(null, true);
+      // Allow exact matches
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      // Allow any Vercel preview deployment for this project
+      if (/^https:\/\/ryke-[a-z0-9]+-rykeai2026[^.]*\.vercel\.app$/.test(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-internal-key'],
     credentials: true,
