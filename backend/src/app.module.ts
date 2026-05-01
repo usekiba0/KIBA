@@ -85,6 +85,7 @@ import { HealthController } from './common/health/health.controller';
           synchronize: false,
           logging: config.get('NODE_ENV') === 'development',
           ssl: isCloudDb ? { rejectUnauthorized: false } : false,
+          extra: isCloudDb ? { family: 4 } : {},
         };
       },
     }),
