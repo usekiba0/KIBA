@@ -18,11 +18,7 @@ async function bootstrap() {
 
   // CORS — allow production frontend + Vercel preview deployments + local dev
   const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3001';
-  const allowedOrigins = [
-    frontendUrl,
-    'http://localhost:3001',
-    'http://localhost:3000',
-  ];
+  const allowedOrigins = [frontendUrl, 'http://localhost:3001', 'http://localhost:3000'];
   app.enableCors({
     origin: (origin, callback) => {
       // Allow requests with no origin (curl, Postman, server-to-server)
@@ -30,7 +26,8 @@ async function bootstrap() {
       // Allow exact matches
       if (allowedOrigins.includes(origin)) return callback(null, true);
       // Allow any Vercel preview deployment for this project
-      if (/^https:\/\/ryke-[a-z0-9]+-rykeai2026[^.]*\.vercel\.app$/.test(origin)) return callback(null, true);
+      if (/^https:\/\/ryke-[a-z0-9]+-rykeai2026[^.]*\.vercel\.app$/.test(origin))
+        return callback(null, true);
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],

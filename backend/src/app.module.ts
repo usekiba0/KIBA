@@ -102,7 +102,8 @@ import { HealthController } from './common/health/health.controller';
               host: parsed.hostname,
               port: parseInt(parsed.port) || 6379,
               password: parsed.password || undefined,
-              username: parsed.username && parsed.username !== 'default' ? parsed.username : undefined,
+              username:
+                parsed.username && parsed.username !== 'default' ? parsed.username : undefined,
               tls: parsed.protocol === 'rediss:' ? {} : undefined,
             },
           };
@@ -120,7 +121,7 @@ import { HealthController } from './common/health/health.controller';
     // Rate limiting: 60 requests per minute per IP by default
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60000, limit: 60 },
-      { name: 'strict', ttl: 60000, limit: 10 },   // for onboarding endpoints
+      { name: 'strict', ttl: 60000, limit: 10 }, // for onboarding endpoints
     ]),
 
     DataModule,

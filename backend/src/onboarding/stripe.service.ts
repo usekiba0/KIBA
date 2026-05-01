@@ -40,7 +40,10 @@ export class StripeService {
       customer: customerId,
       items: [{ price: priceId }],
       trial_period_days: trialDays,
-      payment_settings: { payment_method_types: ['card'], save_default_payment_method: 'on_subscription' },
+      payment_settings: {
+        payment_method_types: ['card'],
+        save_default_payment_method: 'on_subscription',
+      },
     });
   }
 

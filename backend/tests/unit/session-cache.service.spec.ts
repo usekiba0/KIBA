@@ -3,7 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { getRedisConnectionToken } from '@nestjs-modules/ioredis';
 import { ConfigService } from '@nestjs/config';
 import { SessionCacheService } from '../../src/data/session-cache.service';
-import { Message, MessageRole, MessageType } from '../../src/data/entities/message.entity';
+import { Message, MessageRole } from '../../src/data/entities/message.entity';
 
 describe('SessionCacheService Unit Tests', () => {
   let service: SessionCacheService;
@@ -35,7 +35,10 @@ describe('SessionCacheService Unit Tests', () => {
 
   describe('getSessionWindow', () => {
     it('should return cached messages from Redis without hitting Postgres', async () => {
-      const cached = [{ role: 'user', content: 'Hello' }, { role: 'assistant', content: 'Hi!' }];
+      const cached = [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: 'Hi!' },
+      ];
       mockRedis.get.mockResolvedValue(JSON.stringify(cached));
 
       const result = await service.getSessionWindow('user-1');

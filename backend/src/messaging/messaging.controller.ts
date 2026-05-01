@@ -1,6 +1,4 @@
-import {
-  Controller, Post, Body, UseGuards, Res, Logger, HttpCode,
-} from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Res, Logger, HttpCode } from '@nestjs/common';
 import { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -10,8 +8,8 @@ import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
 import { SendBlueWebhookGuard } from './guards/sendblue-webhook.guard';
 import { TwilioWebhookDto } from './dto/twilio-webhook.dto';
 import { SendBlueWebhookDto } from './dto/sendblue-webhook.dto';
-import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
-import { ConversationSession, SessionStatus } from '../data/entities/conversation-session.entity';
+import { Message } from '../data/entities/message.entity';
+import { ConversationSession } from '../data/entities/conversation-session.entity';
 import { User } from '../data/entities/user.entity';
 import { structuredLog } from '../common/logger';
 
@@ -21,7 +19,8 @@ export class MessagingController {
 
   constructor(
     @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
-    @InjectRepository(ConversationSession) private readonly sessionRepo: Repository<ConversationSession>,
+    @InjectRepository(ConversationSession)
+    private readonly sessionRepo: Repository<ConversationSession>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectQueue('coaching') private readonly coachingQueue: Queue,
   ) {}
@@ -46,7 +45,11 @@ export class MessagingController {
       channel: 'sms',
     });
 
-    structuredLog(this.logger, 'log', { service: 'messaging', operation: 'inbound_sms', from: body.From });
+    structuredLog(this.logger, 'log', {
+      service: 'messaging',
+      operation: 'inbound_sms',
+      from: body.From,
+    });
   }
 
   @Post('imsg')
@@ -63,7 +66,11 @@ export class MessagingController {
       channel: 'imessage',
     });
 
-    structuredLog(this.logger, 'log', { service: 'messaging', operation: 'inbound_imessage', from: body.number });
+    structuredLog(this.logger, 'log', {
+      service: 'messaging',
+      operation: 'inbound_imessage',
+      from: body.number,
+    });
     return { received: true };
   }
 

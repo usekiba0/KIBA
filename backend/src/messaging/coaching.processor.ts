@@ -36,7 +36,9 @@ const TRUSTED_MEDIA_HOSTS = ['api.twilio.com', 'media.twiliocdn.com'];
 function isTrustedMediaUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return TRUSTED_MEDIA_HOSTS.some(h => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`));
+    return TRUSTED_MEDIA_HOSTS.some(
+      (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`),
+    );
   } catch {
     return false;
   }
@@ -49,7 +51,8 @@ export class CoachingProcessor {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
-    @InjectRepository(NutritionalAnalysis) private readonly nutritionRepo: Repository<NutritionalAnalysis>,
+    @InjectRepository(NutritionalAnalysis)
+    private readonly nutritionRepo: Repository<NutritionalAnalysis>,
     @InjectRepository(SessionSummary) private readonly summaryRepo: Repository<SessionSummary>,
     private readonly coachingService: CoachingService,
     private readonly visionService: VisionService,
@@ -69,7 +72,10 @@ export class CoachingProcessor {
     // Look up user
     const user = await this.userRepo.findOne({ where: { phone_number: from } });
     if (!user) {
-      await this.messagingService.send(from, 'Welcome! Sign up at ryke.ai to start your free coaching trial. 🙌');
+      await this.messagingService.send(
+        from,
+        'Welcome! Sign up at ryke.ai to start your free coaching trial. 🙌',
+      );
       return;
     }
 
@@ -107,11 +113,11 @@ export class CoachingProcessor {
 
     // Context reset intent
     const lowerBody = body.toLowerCase();
-    if (RESET_INTENTS.some(intent => lowerBody.includes(intent))) {
+    if (RESET_INTENTS.some((intent) => lowerBody.includes(intent))) {
       await this.sessionCache.invalidateSession(user.id);
       await this.messagingService.send(
         user.phone_number,
-        "Done — fresh start! Your profile and goals are still saved. What would you like to work on today?",
+        'Done — fresh start! Your profile and goals are still saved. What would you like to work on today?',
       );
       return;
     }
@@ -125,14 +131,14 @@ export class CoachingProcessor {
     if (boundary.shouldSummarise) {
       this.summarisationService
         .summariseSession(user.id, boundary.sessionId, SummaryTrigger.SESSION_EXPIRY)
-        .catch(err => this.logger.error(`Summarisation error: ${err}`));
+        .catch((err) => this.logger.error(`Summarisation error: ${err}`));
     }
 
-    // Load session context
-    const { messages: sessionWindow } = await this.sessionCache.getSessionWindow(user.id);
-
     const latestSummary = boundary.isNewSession
-      ? await this.summaryRepo.findOne({ where: { user_id: user.id }, order: { created_at: 'DESC' } })
+      ? await this.summaryRepo.findOne({
+          where: { user_id: user.id },
+          order: { created_at: 'DESC' },
+        })
       : null;
 
     // MMS nutrition analysis — validate media URL to prevent SSRF
@@ -160,7 +166,8 @@ export class CoachingProcessor {
 
       let reply: string;
       if (!nutritionResult.food_identified) {
-        reply = "I couldn't identify a meal in that photo — try a clearer shot with the food in frame? 📸";
+        reply =
+          "I couldn't identify a meal in that photo — try a clearer shot with the food in frame? 📸";
       } else {
         const cal = nutritionResult.total_calories ?? '?';
         const p = nutritionResult.protein_grams ?? '?';
@@ -187,7 +194,10 @@ export class CoachingProcessor {
     });
 
     const { reply, tokenCount } = await this.coachingService.generateReply(
-      user, dbMessages, body, latestSummary?.summary,
+      user,
+      dbMessages,
+      body,
+      latestSummary?.summary,
     );
 
     await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
@@ -207,7 +217,10 @@ export class CoachingProcessor {
     await this.messagingService.send(user.phone_number, reply);
 
     structuredLog(this.logger, 'log', {
-      service: 'coaching', operation: 'reply_sent', userId: user.id, messageId: aiMsg.id,
+      service: 'coaching',
+      operation: 'reply_sent',
+      userId: user.id,
+      messageId: aiMsg.id,
     });
   }
 }

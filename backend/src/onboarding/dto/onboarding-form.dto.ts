@@ -1,8 +1,17 @@
 import {
-  IsString, IsNotEmpty, IsEnum, IsOptional, IsArray,
-  IsNumberString, IsPhoneNumber, MinLength, MaxLength, IsNumber, Min, Max,
+  IsString,
+  IsNotEmpty,
+  IsEnum,
+  IsOptional,
+  IsArray,
+  IsPhoneNumber,
+  MinLength,
+  MaxLength,
+  IsNumber,
+  Min,
+  Max,
 } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import { CoachingFocus } from '../../data/entities/user.entity';
 import { SubscriptionPlan } from '../../data/entities/subscription.entity';
 
