@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RYKE AI — Test Cases Documentation</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#09090b;--s1:#111113;--s2:#0d0d10;--rose:#e11d48;--rl:#fb7185;--v:#8b5cf6;--vl:#a78bfa;--tx:#fafafa;--mt:#a1a1aa;--bd:rgba(225,29,72,0.18);}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);line-height:1.6;}
+.page{max-width:1100px;margin:0 auto;padding:60px 40px;}
+header{text-align:center;padding:60px 40px 40px;border-bottom:1px solid var(--bd);background:radial-gradient(ellipse at 50% 0%,rgba(225,29,72,0.1),transparent 60%);}
+.logo{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:700;margin-bottom:16px;}
+.logo span{color:var(--rl);}
+h1{font-family:'Cormorant Garamond',serif;font-size:clamp(32px,5vw,52px);font-weight:300;letter-spacing:-1.5px;margin-bottom:12px;}
+h1 em{color:var(--v);font-style:italic;}
+.doc-meta{font-size:13px;color:var(--mt);display:flex;gap:32px;justify-content:center;flex-wrap:wrap;margin-top:20px;}
+.tag{display:inline-block;background:rgba(225,29,72,0.1);border:1px solid rgba(225,29,72,0.3);color:var(--rl);padding:4px 14px;border-radius:20px;font-size:11px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:20px;}
+h2{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:600;letter-spacing:-0.5px;margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid rgba(225,29,72,0.15);}
+h2 em{color:var(--v);font-style:italic;}
+p{font-size:14px;color:var(--mt);line-height:1.75;margin-bottom:10px;}
+section{padding:52px 0;border-bottom:1px solid rgba(255,255,255,0.05);}
+.section-tag{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--rl);font-weight:500;margin-bottom:10px;}
+code,pre{font-family:'JetBrains Mono',monospace;}
+code{background:rgba(139,92,246,0.15);padding:2px 7px;border-radius:4px;font-size:12px;color:var(--vl);}
+pre{background:var(--s2);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:20px;font-size:12px;color:#e4e4e7;overflow-x:auto;margin:12px 0;line-height:1.7;}
+
+/* Summary stats */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:24px;}
+.stat{background:var(--s1);border:1px solid var(--bd);border-radius:14px;padding:22px;text-align:center;}
+.stat-num{font-family:'Cormorant Garamond',serif;font-size:44px;font-weight:700;color:var(--rl);line-height:1;margin-bottom:6px;}
+.stat-label{font-size:12px;color:var(--mt);}
+
+/* Test file blocks */
+.test-file{background:var(--s1);border:1px solid var(--bd);border-radius:16px;overflow:hidden;margin-bottom:20px;}
+.file-header{background:linear-gradient(135deg,rgba(225,29,72,0.1),rgba(139,92,246,0.05));padding:18px 22px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.05);}
+.file-path{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--vl);}
+.file-type{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;padding:3px 10px;border-radius:20px;}
+.type-unit{background:rgba(34,197,94,0.15);color:#86efac;border:1px solid rgba(34,197,94,0.25);}
+.type-int{background:rgba(251,191,36,0.15);color:#fde68a;border:1px solid rgba(251,191,36,0.25);}
+.type-contract{background:rgba(139,92,246,0.15);color:var(--vl);border:1px solid rgba(139,92,246,0.25);}
+.type-manual{background:rgba(225,29,72,0.15);color:var(--rl);border:1px solid rgba(225,29,72,0.25);}
+.file-body{padding:18px 22px;}
+.test-group{margin-bottom:20px;}
+.test-group:last-child{margin-bottom:0;}
+.group-name{font-size:14px;font-weight:600;color:var(--tx);margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.group-name::before{content:'';width:3px;height:14px;background:var(--rose);border-radius:2px;display:inline-block;}
+.test-case{display:flex;align-items:flex-start;gap:10px;padding:8px 12px;border-radius:8px;margin-bottom:4px;transition:background 0.15s;}
+.test-case:hover{background:rgba(255,255,255,0.03);}
+.tc-icon{font-size:12px;flex-shrink:0;margin-top:2px;}
+.tc-name{font-size:13px;color:var(--mt);line-height:1.5;}
+.tc-note{font-size:11px;color:#52525b;margin-top:2px;}
+
+/* Manual test scenarios */
+.scenario{background:var(--s1);border:1px solid var(--bd);border-radius:14px;padding:24px;margin-bottom:16px;}
+.scenario-title{font-size:15px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.scenario-num{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:700;color:var(--rose);opacity:0.5;}
+.steps{display:flex;flex-direction:column;gap:8px;margin-top:12px;}
+.step-item{display:flex;gap:10px;align-items:flex-start;}
+.step-dot{width:22px;height:22px;border-radius:50%;background:rgba(225,29,72,0.12);border:1px solid rgba(225,29,72,0.25);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--rl);flex-shrink:0;margin-top:1px;}
+.step-text{font-size:13px;color:var(--mt);line-height:1.6;}
+.expect{background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:8px;padding:8px 12px;margin-top:10px;font-size:12px;color:#86efac;}
+.expect::before{content:'Expected: ';font-weight:600;}
+
+/* Run command boxes */
+.run-box{background:var(--s2);border:1px solid rgba(255,255,255,0.06);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.run-header{padding:10px 16px;background:rgba(225,29,72,0.08);font-size:12px;font-weight:600;color:var(--rl);border-bottom:1px solid rgba(255,255,255,0.05);}
+.run-body{padding:14px 16px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e4e4e7;line-height:1.7;}
+
+/* Coverage table */
+table{width:100%;border-collapse:collapse;margin:16px 0;}
+th{background:linear-gradient(135deg,rgba(225,29,72,0.14),rgba(139,92,246,0.07));padding:10px 14px;text-align:left;font-size:11px;font-weight:600;color:var(--mt);letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--bd);}
+td{padding:10px 14px;font-size:13px;color:var(--mt);border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:top;}
+td:first-child{color:var(--tx);font-weight:500;}
+tr:hover td{background:rgba(225,29,72,0.03);}
+.cov-high{color:#86efac;font-weight:600;}
+.cov-med{color:#fde68a;font-weight:600;}
+.cov-low{color:#fca5a5;font-weight:600;}
+.cov-none{color:#52525b;}
+
+footer{text-align:center;padding:40px;border-top:1px solid var(--bd);margin-top:40px;}
+.footer-text{font-size:12px;color:#52525b;}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Ryke<span>.ai</span></div>
+  <div class="tag">Test Cases Documentation</div>
+  <h1>Automated &amp; Manual <em>Test Suite</em></h1>
+  <p style="font-size:15px;max-width:560px;margin:12px auto 0;color:var(--mt);">Complete reference for all unit, integration, contract, and manual test scenarios — including how to run each suite and what coverage exists.</p>
+  <div class="doc-meta"><span>Version 1.0.0</span><span>April 2026</span><span>Audience: QA · Developers · DevOps</span></div>
+</header>
+<div class="page">
+
+<!-- SUMMARY -->
+<section>
+  <div class="section-tag">At a glance</div>
+  <h2>Test Suite <em>Summary</em></h2>
+  <div class="stats-row">
+    <div class="stat"><div class="stat-num">7</div><div class="stat-label">Test files</div></div>
+    <div class="stat"><div class="stat-num">33</div><div class="stat-label">Automated test cases</div></div>
+    <div class="stat"><div class="stat-num">3</div><div class="stat-label">Test categories</div></div>
+    <div class="stat"><div class="stat-num">12</div><div class="stat-label">Manual scenarios</div></div>
+  </div>
+  <div style="margin-top:24px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
+    <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:16px;">
+      <div style="font-size:12px;font-weight:600;color:#86efac;margin-bottom:4px;">UNIT TESTS</div>
+      <div style="font-size:13px;color:var(--mt);">3 files · 14 cases. Pure Jest with mocked dependencies. No external services. Run offline.</div>
+    </div>
+    <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:12px;padding:16px;">
+      <div style="font-size:12px;font-weight:600;color:#fde68a;margin-bottom:4px;">INTEGRATION TESTS</div>
+      <div style="font-size:13px;color:var(--mt);">2 files · 11 cases. Require live DATABASE_URL + ANTHROPIC_API_KEY. Skip gracefully if not set.</div>
+    </div>
+    <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:12px;padding:16px;">
+      <div style="font-size:12px;font-weight:600;color:var(--vl);margin-bottom:4px;">CONTRACT TESTS</div>
+      <div style="font-size:13px;color:var(--mt);">4 files · 8 cases. Validate API shapes + webhook signatures. Live APIs required for some.</div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW TO RUN -->
+<section>
+  <div class="section-tag">Running tests</div>
+  <h2>How to <em>Run</em></h2>
+  <div class="run-box">
+    <div class="run-header">Unit Tests — Fast, no external deps</div>
+    <div class="run-body">cd backend
+npm test                      # runs all unit tests
+npm test -- --watch           # watch mode
+npm test -- --coverage        # with coverage report</div>
+  </div>
+  <div class="run-box">
+    <div class="run-header">Integration Tests — Require DATABASE_URL + ANTHROPIC_API_KEY</div>
+    <div class="run-body">cd backend
+npm run test:integration       # crisis-detection + onboarding integration</div>
+  </div>
+  <div class="run-box">
+    <div class="run-header">Contract Tests — Require STRIPE_SECRET_KEY + DATABASE_URL</div>
+    <div class="run-body">cd backend
+npm run test:contract          # claude + postgres + twilio + stripe contracts</div>
+  </div>
+  <div class="run-box">
+    <div class="run-header">All Tests</div>
+    <div class="run-body">cd backend
+npm run test:all               # runs all suites sequentially (--runInBand)</div>
+  </div>
+  <p style="margin-top:12px;">Integration and contract tests check for required env vars and skip gracefully with a console warning if they are not set. They will not fail your CI if secrets are unavailable.</p>
+</section>
+
+<!-- UNIT TESTS -->
+<section>
+  <div class="section-tag">Unit tests</div>
+  <h2>Unit Test <em>Cases</em></h2>
+  <p>All unit tests use Jest with full dependency mocking. No network calls. No database. Suitable for pre-commit hooks and offline development.</p>
+
+  <div class="test-file">
+    <div class="file-header">
+      <span class="file-path">tests/unit/coaching.service.spec.ts</span>
+      <span class="file-type type-unit">Unit</span>
+    </div>
+    <div class="file-body">
+      <div class="test-group">
+        <div class="group-name">CoachingService.generateReply()</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Calls Claude API and returns reply text with token count</div><div class="tc-note">Mocks @anthropic-ai/sdk. Verifies return shape: {reply, tokens}.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Includes user name and goals in the system prompt</div><div class="tc-note">Verifies system prompt contains user.name and user.goals.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Includes session summary in system prompt when provided</div><div class="tc-note">Verifies summary appears in prompt when sessionSummary is non-null.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Includes recent messages in the messages array</div><div class="tc-note">Verifies message history is passed to Claude API correctly.</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-file">
+    <div class="file-header">
+      <span class="file-path">tests/unit/crisis.service.spec.ts</span>
+      <span class="file-type type-unit">Unit</span>
+    </div>
+    <div class="file-body">
+      <div class="test-group">
+        <div class="group-name">CrisisService.classify() — Keyword fast-path</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Returns crisis=true for keyword match without API call</div><div class="tc-note">Keyword "want to kill myself" detected. Claude API mock should NOT be called.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Returns crisis=true for "end my life" keyword</div><div class="tc-note">Tests secondary keyword variants.</div></div></div>
+      </div>
+      <div class="test-group">
+        <div class="group-name">CrisisService.classify() — ML classifier path</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Returns crisis=false for normal messages (mocked API response)</div><div class="tc-note">Sends "What should I eat for breakfast?" — API returns confidence 0.02.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Fails safe when API returns malformed JSON</div><div class="tc-note">API returns invalid JSON → should return crisis=true (conservative hold).</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Fails safe when API throws (conservative hold triggered)</div><div class="tc-note">API throws network error → should return crisis=true. Critical safety invariant.</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-file">
+    <div class="file-header">
+      <span class="file-path">tests/unit/session-cache.service.spec.ts</span>
+      <span class="file-type type-unit">Unit</span>
+    </div>
+    <div class="file-body">
+      <div class="test-group">
+        <div class="group-name">getSessionWindow()</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Returns cached messages from Redis without hitting Postgres</div><div class="tc-note">Redis mock returns data → Postgres Repository.find must NOT be called.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Loads from Postgres on cache miss and writes back to Redis</div><div class="tc-note">Redis returns null → loads from DB → calls Redis.setex with correct TTL (14400s = 4hr).</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Returns empty array and does not write to Redis when Postgres has no messages</div><div class="tc-note">Empty DB result → Redis.setex must NOT be called (don't cache empty sessions).</div></div></div>
+      </div>
+      <div class="test-group">
+        <div class="group-name">addMessage()</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Appends to existing Redis window</div><div class="tc-note">Existing 1 message → after addMessage → Redis written with 2 messages.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Creates new window when Redis key is missing (upsert behaviour)</div><div class="tc-note">Redis returns null → creates new window with single message. Prevents silent data loss on eviction.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Trims window to 20 messages (FIFO eviction)</div><div class="tc-note">Existing 20 messages → add 1 → total stays 20 → oldest message (index 0) dropped → newest at index 19.</div></div></div>
+      </div>
+      <div class="test-group">
+        <div class="group-name">invalidateSession()</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Deletes the Redis key with correct key format</div><div class="tc-note">Verifies Redis.del called with "session:user-1".</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- INTEGRATION TESTS -->
+<section>
+  <div class="section-tag">Integration tests</div>
+  <h2>Integration Test <em>Cases</em></h2>
+  <p>These tests hit real external services. They require <code>ANTHROPIC_API_KEY</code> and <code>DATABASE_URL</code> to be set. All skip gracefully if env vars are missing.</p>
+
+  <div class="test-file">
+    <div class="file-header">
+      <span class="file-path">tests/integration/crisis-detection.integration.spec.ts</span>
+      <span class="file-type type-int">Integration</span>
+    </div>
+    <div class="file-body">
+      <div class="test-group">
+        <div class="group-name">Keyword fast-path — no API call required</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Detects explicit suicide keyword without API call</div><div class="tc-note">Input: "I want to kill myself". Expects crisis=true, method=keyword, no Claude API invoked.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Detects self-harm keyword</div><div class="tc-note">Input: "I want to cut myself". Expects crisis=true.</div></div></div>
+      </div>
+      <div class="test-group">
+        <div class="group-name">Normal messages — Claude API required</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Does not flag normal fitness message</div><div class="tc-note">Input: "What exercise should I do today?" — confidence should be &lt; threshold.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Does not flag mild frustration</div><div class="tc-note">Input: "I'm so frustrated with my progress" — should not trigger crisis.</div></div></div>
+      </div>
+      <div class="test-group">
+        <div class="group-name">Fail-safe behaviour</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Returns crisis=true when classifier throws (API down simulation)</div><div class="tc-note">Overrides API client to throw → result must be crisis=true. Never fail silently.</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-file">
+    <div class="file-header">
+      <span class="file-path">tests/integration/onboarding.integration.spec.ts</span>
+      <span class="file-type type-int">Integration</span>
+    </div>
+    <div class="file-body">
+      <div class="test-group">
+        <div class="group-name">POST /v1/onboarding/setup-intent</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Returns a Stripe client_secret for valid input</div><div class="tc-note">Hits real Stripe test API. Expects response shape {client_secret, stripe_customer_id}.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Rejects invalid phone number with 400</div><div class="tc-note">Phone: "not-a-phone". Expects 400 with validation message.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Rejects missing name with 400</div><div class="tc-note">Empty name field. Expects 400.</div></div></div>
+      </div>
+      <div class="test-group">
+        <div class="group-name">Health &amp; Auth checks</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">GET /v1/health returns ok with live DB + Redis</div><div class="tc-note">Expects {status:"ok", checks:{postgres:"ok", redis:"ok"}}.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">GET /v1/users/:id/export returns 403 without internal key</div><div class="tc-note">No x-internal-key header → 403. Verifies guard is active.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">GET /v1/users/:id/export returns 200 with valid internal key</div><div class="tc-note">With correct x-internal-key header → 200 with user data JSON.</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CONTRACT TESTS -->
+<section>
+  <div class="section-tag">Contract tests</div>
+  <h2>Contract Test <em>Cases</em></h2>
+  <p>Contract tests validate that external API shapes match expectations. They catch breaking API changes and verify webhook security before deployment.</p>
+
+  <div class="test-file">
+    <div class="file-header">
+      <span class="file-path">tests/contract/claude.contract.spec.ts</span>
+      <span class="file-type type-contract">Contract</span>
+    </div>
+    <div class="file-body">
+      <div class="test-group">
+        <div class="group-name">Claude API response shapes (requires ANTHROPIC_API_KEY starting with sk-ant-)</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Coaching message format: accepts messages array, returns text block</div><div class="tc-note">Validates response.content[0].type === "text".</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Vision message format: accepts image URL in message content</div><div class="tc-note">Validates multi-modal message structure accepted by API.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Crisis classification: returns valid JSON with crisis, confidence, dimension</div><div class="tc-note">Validates JSON parsing of Claude's structured output matches CrisisResult shape.</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-file">
+    <div class="file-header">
+      <span class="file-path">tests/contract/postgres.contract.spec.ts</span>
+      <span class="file-type type-contract">Contract</span>
+    </div>
+    <div class="file-body">
+      <div class="test-group">
+        <div class="group-name">Schema validation (requires DATABASE_URL)</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">All required tables exist in public schema</div><div class="tc-note">Checks: users, subscriptions, conversation_sessions, messages, nutritional_analyses, crisis_alerts, session_summaries, processed_stripe_events.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">UNIQUE constraint on users.phone_number enforced</div><div class="tc-note">Inserts two users with same phone → second insert should fail with unique violation.</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-file">
+    <div class="file-header">
+      <span class="file-path">tests/contract/stripe.contract.spec.ts</span>
+      <span class="file-type type-contract">Contract</span>
+    </div>
+    <div class="file-body">
+      <div class="test-group">
+        <div class="group-name">Stripe API contracts (requires STRIPE_SECRET_KEY)</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">SetupIntent creation returns client_secret with correct shape</div><div class="tc-note">Creates real test customer + SetupIntent. Verifies id starts with seti_, status is requires_payment_method. Cleans up customer after test.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Webhook constructEvent rejects invalid signatures</div><div class="tc-note">Invalid signature string → must throw. Verifies guard will block tampered webhooks.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Webhook constructEvent accepts valid generated signatures</div><div class="tc-note">Generates test header string → constructEvent must succeed and return event.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Subscription create params structure is valid</div><div class="tc-note">Validates trial_period_days=30 and payment_settings shape match StripeService usage.</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-file">
+    <div class="file-header">
+      <span class="file-path">tests/contract/twilio.contract.spec.ts</span>
+      <span class="file-type type-contract">Contract</span>
+    </div>
+    <div class="file-body">
+      <div class="test-group">
+        <div class="group-name">Twilio webhook shape validation</div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">SMS webhook body has required fields (From, To, Body, SmsMessageSid, NumMedia)</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">MMS webhook body includes MediaUrl0 and MediaContentType0 when NumMedia &gt;= 1</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">TwilioWebhookGuard rejects requests with invalid signatures</div><div class="tc-note">Tampered X-Twilio-Signature → 403 response.</div></div></div>
+        <div class="test-case"><div class="tc-icon">✅</div><div><div class="tc-name">Outbound phone number validated in E.164 format</div><div class="tc-note">Verifies +14155552671 is valid, "15551234567" (no +) is rejected by validator.</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MANUAL SCENARIOS -->
+<section>
+  <div class="section-tag">Manual QA</div>
+  <h2>Manual Test <em>Scenarios</em></h2>
+  <p>These scenarios require a browser, real phone, and the full stack running locally. Run before every significant release.</p>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">01</span>Full Onboarding Flow</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">Open <code>http://localhost:3001</code>. Click "Start Free Trial".</div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text">Step 1: Select "Fitness", enter goal "Build a consistent workout habit".</div></div>
+      <div class="step-item"><div class="step-dot">3</div><div class="step-text">Step 2: Enter height 178, weight 80, age 30.</div></div>
+      <div class="step-item"><div class="step-dot">4</div><div class="step-text">Step 3: Search "Type 2 diabetes" in health conditions — select it. Add "Gluten-free" dietary restriction.</div></div>
+      <div class="step-item"><div class="step-dot">5</div><div class="step-text">Step 4: Enter name and a real mobile number (your test phone).</div></div>
+      <div class="step-item"><div class="step-dot">6</div><div class="step-text">Step 5 (Beta): Click green "Skip Payment (Beta Mode)" button.</div></div>
+    </div>
+    <div class="expect">Success screen shows "Check your phone!". User record appears in Supabase users table. Subscription record with status=trialing created.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">02</span>Inbound SMS Coaching Reply</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">After onboarding: text "I want to start working out but don't know where to begin" to the Twilio number.</div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text">Wait for reply (target &lt;3 seconds).</div></div>
+      <div class="step-item"><div class="step-dot">3</div><div class="step-text">Reply should reference your name and coaching_focus (fitness) from onboarding profile.</div></div>
+    </div>
+    <div class="expect">Personalised coaching reply received within 3 seconds. Message records appear in DB. Redis session updated.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">03</span>Food Photo Analysis (MMS)</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">Text a food photo (MMS) of any meal to the Twilio number.</div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text">Wait for Ryke's macro breakdown reply.</div></div>
+    </div>
+    <div class="expect">Reply includes food identification, calorie estimate, protein/carbs/fat breakdown, and a health recommendation. nutritional_analyses record saved in DB.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">04</span>Crisis Detection — Keyword Trigger</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">Text a crisis keyword phrase to the Twilio number (use a test phone).</div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text">Check for holding message on the test phone within 5 seconds.</div></div>
+      <div class="step-item"><div class="step-dot">3</div><div class="step-text">Check CRISIS_COACH_ALERT_PHONE for coach alert SMS.</div></div>
+      <div class="step-item"><div class="step-dot">4</div><div class="step-text">Verify user.crisis_hold=true in DB. Verify no AI coaching reply was sent.</div></div>
+    </div>
+    <div class="expect">Holding message sent instantly. Coach alert SMS received within 5 minutes. crisis_alerts record created with status=open. All subsequent messages suppressed until resolved.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">05</span>Crisis Resolution</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">With an open crisis alert: call the resolve endpoint with the alert ID from the DB.</div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text"><code>curl -X POST http://localhost:3000/v1/safety/alerts/{alertId}/resolve -H "x-internal-key: YOUR_KEY" -H "Content-Type: application/json" -d '{"resolved_by":"coach"}'</code></div></div>
+    </div>
+    <div class="expect">Returns {resolved: true}. User phone receives follow-up SMS. user.crisis_hold=false. Session status=active. Subsequent messages get AI replies again.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">06</span>Phone Number Auto-Normalisation</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">On Step 4 of onboarding, try each format: "4155552671" (no country code), "+1 (415) 555-2671" (formatted), "(415) 555-2671" (US local format).</div></div>
+    </div>
+    <div class="expect">All formats accepted. Phone stored as E.164 (+14155552671) in DB regardless of input format. Step advances successfully.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">07</span>Session Context Memory</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">Send 5+ messages in a conversation, establishing context (name a food allergy, mention a specific goal).</div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text">Wait 10 minutes (well within 4hr window).</div></div>
+      <div class="step-item"><div class="step-dot">3</div><div class="step-text">Send a follow-up message referencing the earlier context.</div></div>
+    </div>
+    <div class="expect">Ryke replies with awareness of earlier conversation. Redis session key exists. Context not lost between messages.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">08</span>Autocomplete Health Info (Onboarding Step 3)</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">On Step 3, click into the Health Conditions field. Type "diab".</div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text">Verify dropdown shows "Type 1 diabetes", "Type 2 diabetes", "Pre-diabetes".</div></div>
+      <div class="step-item"><div class="step-dot">3</div><div class="step-text">Press ↓ arrow to highlight "Type 2 diabetes", press Enter to select.</div></div>
+      <div class="step-item"><div class="step-dot">4</div><div class="step-text">Type a custom value not in the list. Verify "+ Add" option appears.</div></div>
+      <div class="step-item"><div class="step-dot">5</div><div class="step-text">Backspace on empty input — verifies last tag is removed.</div></div>
+    </div>
+    <div class="expect">Tags appear as pill chips. Arrow navigation works. Custom entries saved. Backspace removes last tag. Same behaviour for Dietary Restrictions and Injuries fields.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">09</span>Marketing Site — Interactive SMS Demo</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">Open <code>http://localhost:3001</code>. Scroll to "Try Ryke right now" section.</div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text">Click prompt chip "What should I eat pre-workout?".</div></div>
+      <div class="step-item"><div class="step-dot">3</div><div class="step-text">Verify typing indicator (3 pulsing dots) appears for ~1.5 seconds.</div></div>
+      <div class="step-item"><div class="step-dot">4</div><div class="step-text">Type a custom message in the input box, press Enter.</div></div>
+    </div>
+    <div class="expect">All chip responses use canned replies. Typing indicator shows correctly. No API calls made. Used chips are greyed out and marked ✓.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">10</span>FAQ Accordion</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">On marketing site, scroll to FAQ section.</div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text">Click first question. Verify it expands.</div></div>
+      <div class="step-item"><div class="step-dot">3</div><div class="step-text">Click a second question. Verify first closes and second opens.</div></div>
+      <div class="step-item"><div class="step-dot">4</div><div class="step-text">Click open question again. Verify it closes.</div></div>
+    </div>
+    <div class="expect">Only one FAQ open at a time. Rose border appears on open item. + rotates to × (45deg). Answers visible and readable.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">11</span>Health Check Endpoint</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">Run: <code>curl http://localhost:3000/v1/health</code></div></div>
+    </div>
+    <div class="expect">Returns <code>{"status":"ok","checks":{"postgres":"ok","redis":"ok"},"timestamp":"..."}</code>. Both services green.</div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-title"><span class="scenario-num">12</span>GDPR Data Export &amp; Delete</div>
+    <div class="steps">
+      <div class="step-item"><div class="step-dot">1</div><div class="step-text">Get a user ID from the DB. Call export: <code>curl http://localhost:3000/v1/users/{userId}/export -H "x-internal-key: KEY"</code></div></div>
+      <div class="step-item"><div class="step-dot">2</div><div class="step-text">Verify response includes user, subscription, messages, nutritional_analyses, session_summaries, crisis_alerts, sessions.</div></div>
+      <div class="step-item"><div class="step-dot">3</div><div class="step-text">Call delete: <code>curl -X DELETE http://localhost:3000/v1/users/{userId} -H "x-internal-key: KEY"</code></div></div>
+      <div class="step-item"><div class="step-dot">4</div><div class="step-text">Verify 204 response. Verify all records removed from all tables.</div></div>
+    </div>
+    <div class="expect">Export returns complete data JSON. Delete returns 204. All Postgres records for userId removed. Stripe subscription cancelled if active.</div>
+  </div>
+</section>
+
+<!-- COVERAGE -->
+<section>
+  <div class="section-tag">Coverage overview</div>
+  <h2>Test Coverage <em>by Area</em></h2>
+  <table>
+    <tr><th>Area</th><th>Unit</th><th>Integration</th><th>Contract</th><th>Manual</th></tr>
+    <tr><td>Crisis detection</td><td class="cov-high">High</td><td class="cov-high">High</td><td class="cov-med">Partial</td><td class="cov-high">Scenario 04</td></tr>
+    <tr><td>Session cache (Redis)</td><td class="cov-high">High</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-med">Scenario 07</td></tr>
+    <tr><td>Onboarding / Stripe</td><td class="cov-none">—</td><td class="cov-med">Partial</td><td class="cov-high">High</td><td class="cov-high">Scenario 01</td></tr>
+    <tr><td>Coaching reply (Claude)</td><td class="cov-high">High</td><td class="cov-none">—</td><td class="cov-high">High</td><td class="cov-high">Scenario 02</td></tr>
+    <tr><td>Vision / food photos</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-med">Partial</td><td class="cov-high">Scenario 03</td></tr>
+    <tr><td>Twilio webhooks</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-high">High</td><td class="cov-high">Scenarios 02–04</td></tr>
+    <tr><td>Postgres schema</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-high">High</td><td class="cov-med">Scenario 01</td></tr>
+    <tr><td>Health check endpoint</td><td class="cov-none">—</td><td class="cov-high">High</td><td class="cov-none">—</td><td class="cov-high">Scenario 11</td></tr>
+    <tr><td>Frontend onboarding form</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-high">Scenarios 01, 06, 08</td></tr>
+    <tr><td>Marketing site components</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-high">Scenarios 09, 10</td></tr>
+    <tr><td>Crisis resolution flow</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-none">—</td><td class="cov-high">Scenario 05</td></tr>
+    <tr><td>GDPR export/delete</td><td class="cov-none">—</td><td class="cov-med">Partial</td><td class="cov-none">—</td><td class="cov-high">Scenario 12</td></tr>
+  </table>
+  <p style="margin-top:12px;">Areas marked — have no automated tests and rely on manual QA. Future work: add frontend component tests (Vitest/Testing Library), E2E Playwright suite, and load testing via k6.</p>
+</section>
+
+</div>
+<footer><div class="footer-text">RYKE AI · Test Cases Documentation · v1.0.0 · April 2026 · Confidential — Internal Use Only</div></footer>
+</body>
+</html>
