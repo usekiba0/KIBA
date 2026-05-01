@@ -25,6 +25,13 @@ function PaymentForm({ clientSecret, formData, onSuccess }: PaymentFormProps) {
     setLoading(true);
     setError('');
 
+    const { error: submitError } = await elements.submit();
+    if (submitError) {
+      setError(submitError.message ?? 'Failed to submit payment details');
+      setLoading(false);
+      return;
+    }
+
     const result = await stripe.confirmSetup({
       elements,
       clientSecret,
