@@ -4,7 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsArray,
-  IsPhoneNumber,
+  Matches,
   MinLength,
   MaxLength,
   IsNumber,
@@ -21,7 +21,7 @@ export class SetupIntentDto {
   @MaxLength(100)
   name: string;
 
-  @IsPhoneNumber()
+  @Matches(/^\+[1-9]\d{6,14}$/, { message: 'phone_number must be E.164 format e.g. +12125551234' })
   phone_number: string;
 }
 
@@ -31,7 +31,7 @@ export class OnboardingFormDto {
   @MaxLength(100)
   name: string;
 
-  @IsPhoneNumber()
+  @Matches(/^\+[1-9]\d{6,14}$/, { message: 'phone_number must be E.164 format e.g. +12125551234' })
   phone_number: string;
 
   @IsEnum(CoachingFocus)
