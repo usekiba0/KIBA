@@ -91,8 +91,9 @@ export default function Step5Payment({ formData, onSuccess, onBack }: Props) {
         formData.phone_number as string,
       );
       setClientSecret(client_secret);
-    } catch {
-      setError('Could not initialise payment. Please try again.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Payment init failed: ${msg}`);
     }
     setLoading(false);
   };
