@@ -44,7 +44,7 @@ export default function OnboardingPage() {
           <div className="success-icon">📱</div>
           <h2>Check your phone!</h2>
           <p>Your coach just texted you. Reply to start your first coaching session.</p>
-          <p className="success-hint">Can't see it? Check that {form.phone_number} is correct and try texting us first.</p>
+          <p className="success-hint">Can&apos;t see it? Check that {form.phone_number} is correct and try texting us first.</p>
         </div>
       </div>
     );

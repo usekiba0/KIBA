@@ -8,7 +8,7 @@
     "start": "node dist/main",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "lint": "eslint \"{src,tests}/**/*.ts\" --fix",
+    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint \"{src,tests}/**/*.ts\" --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "test": "jest --testPathPattern=unit",
     "test:integration": "jest --testPathPattern=integration --runInBand",

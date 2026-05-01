@@ -51,10 +51,8 @@ function FadeIn({ children, delay = 0, style = {} }: { children: React.ReactNode
 
 // ── Colour tokens ────────────────────────────────────────────
 const R = '#e11d48';       // rose primary
-const RD = '#be123c';      // rose dark
 const RL = '#fb7185';      // rose light
 const V = '#8b5cf6';       // violet accent
-const VL = '#a78bfa';      // violet light
 const BG = '#09090b';      // background
 const S1 = '#111113';      // surface 1
 const S2 = '#0d0d10';      // surface 2
