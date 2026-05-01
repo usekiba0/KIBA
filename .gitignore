@@ -54,3 +54,11 @@ redis_data/
 # Test artifacts
 test-results/
 playwright-report/
+
+# Project documents — confidential, local only
+project documents/
+
+# Claude / agents
+.agents/
+.claude/
+skills-lock.json
