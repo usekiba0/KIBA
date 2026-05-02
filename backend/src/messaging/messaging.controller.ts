@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Res, Logger, HttpCode } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Res, Logger, HttpCode, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -27,6 +27,7 @@ export class MessagingController {
 
   @Post('sms')
   @UseGuards(TwilioWebhookGuard)
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false }))
   async handleTwilioSms(@Body() body: TwilioWebhookDto, @Res() res: Response) {
     res.type('text/xml').send('');
 
@@ -55,6 +56,7 @@ export class MessagingController {
   @Post('imsg')
   @UseGuards(SendBlueWebhookGuard)
   @HttpCode(200)
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false }))
   async handleSendBlueWebhook(@Body() body: SendBlueWebhookDto) {
     await this.coachingQueue.add('process-coaching-message', {
       from: body.number,
