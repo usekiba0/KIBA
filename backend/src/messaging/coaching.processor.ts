@@ -82,18 +82,6 @@ export class CoachingProcessor {
     // Update last active
     await this.userRepo.update(user.id, { last_active_at: new Date() });
 
-    // Save inbound message (session_id updated below once session is resolved)
-    const inboundMsg = await this.messageRepo.save({
-      user_id: user.id,
-      session_id: 'pending',
-      role: MessageRole.USER,
-      message_type: numMedia > 0 ? MessageType.MMS : MessageType.TEXT,
-      content: body,
-      media_url: mediaUrls[0] ?? null,
-      media_content_type: mediaContentTypes[0] ?? null,
-      twilio_sid: twilioSid,
-    });
-
     // Crisis hold check — if already flagged, send holding message and stop
     if (user.crisis_hold) {
       await this.messagingService.send(
@@ -103,12 +91,27 @@ export class CoachingProcessor {
       return;
     }
 
+    // Session boundary check (must happen before saving message so we have a real session_id)
+    const boundary = await this.sessionBoundary.checkAndHandle(user.id);
+    await this.sessionBoundary.recordMessage(boundary.sessionId);
+
+    // Save inbound message with real session_id
+    const inboundMsg = await this.messageRepo.save({
+      user_id: user.id,
+      session_id: boundary.sessionId,
+      role: MessageRole.USER,
+      message_type: numMedia > 0 ? MessageType.MMS : MessageType.TEXT,
+      content: body,
+      media_url: mediaUrls[0] ?? null,
+      media_content_type: mediaContentTypes[0] ?? null,
+      twilio_sid: twilioSid,
+    });
+
     // SAFETY-CRITICAL: Await crisis classification before generating any coaching reply.
-    // This ensures no AI response is sent to a crisis message before the hold is set.
     const crisisResult = await this.crisisService.classify(body);
     if (crisisResult.crisis) {
       await this.safetyService.handleCrisisDetection(user.id, inboundMsg.id, crisisResult);
-      return; // SafetyService sends the holding message
+      return;
     }
 
     // Context reset intent
@@ -121,11 +124,6 @@ export class CoachingProcessor {
       );
       return;
     }
-
-    // Session boundary check
-    const boundary = await this.sessionBoundary.checkAndHandle(user.id);
-    await this.messageRepo.update(inboundMsg.id, { session_id: boundary.sessionId });
-    await this.sessionBoundary.recordMessage(boundary.sessionId);
 
     // Queue session summarisation if needed (non-blocking background task)
     if (boundary.shouldSummarise) {
