@@ -216,6 +216,6 @@ export class OnboardingService {
       combined: 'your health journey',
     };
     const focus = focusMap[user.coaching_focus] ?? 'your goals';
-    return `Hey ${user.name}! Welcome to RYKE AI 👋 I'm your personal coach and I live right here in your messages. You mentioned you want to work on ${focus} — I'm ready when you are. What's one thing on your mind today?`;
+    return `Hey ${user.name}! I'm Ryke, your AI coach. Ready to work on ${focus}. What's on your mind today?`;
   }
 }
