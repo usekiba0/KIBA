@@ -5,7 +5,11 @@ import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { ConfigService } from '@nestjs/config';
 import { User, UserStatus } from '../data/entities/user.entity';
-import { Subscription, SubscriptionPlan, SubscriptionStatus } from '../data/entities/subscription.entity';
+import {
+  Subscription,
+  SubscriptionPlan,
+  SubscriptionStatus,
+} from '../data/entities/subscription.entity';
 import { StripeService } from './stripe.service';
 import { OnboardingFormDto } from './dto/onboarding-form.dto';
 import { structuredLog } from '../common/logger';
@@ -111,7 +115,9 @@ export class OnboardingService {
       });
 
       structuredLog(this.logger, 'log', {
-        service: 'onboarding', operation: 'user_created', userId: result.savedUser.id,
+        service: 'onboarding',
+        operation: 'user_created',
+        userId: result.savedUser.id,
       });
 
       return {
@@ -124,14 +130,22 @@ export class OnboardingService {
     } catch (err) {
       // Compensating action: cancel orphaned Stripe subscription/customer if DB write failed
       if (stripeSubscriptionId) {
-        await this.stripeService.cancelSubscription(stripeSubscriptionId).catch(e =>
-          this.logger.error(`Failed to cancel orphaned Stripe subscription ${stripeSubscriptionId}: ${e}`),
-        );
+        await this.stripeService
+          .cancelSubscription(stripeSubscriptionId)
+          .catch((e) =>
+            this.logger.error(
+              `Failed to cancel orphaned Stripe subscription ${stripeSubscriptionId}: ${e}`,
+            ),
+          );
       }
       if (stripeCustomerId) {
-        await this.stripeService.deleteCustomer(stripeCustomerId).catch(e =>
-          this.logger.error(`Failed to delete orphaned Stripe customer ${stripeCustomerId}: ${e}`),
-        );
+        await this.stripeService
+          .deleteCustomer(stripeCustomerId)
+          .catch((e) =>
+            this.logger.error(
+              `Failed to delete orphaned Stripe customer ${stripeCustomerId}: ${e}`,
+            ),
+          );
       }
       throw err;
     }
@@ -172,8 +186,17 @@ export class OnboardingService {
       return { savedUser, trialEnd };
     });
 
+    const welcomeText = this.buildWelcomeMessage(result.savedUser);
+    await this.messagingQueue.add('send-message', {
+      to: result.savedUser.phone_number,
+      body: welcomeText,
+      type: 'welcome',
+    });
+
     structuredLog(this.logger, 'log', {
-      service: 'onboarding', operation: 'user_created_beta', userId: result.savedUser.id,
+      service: 'onboarding',
+      operation: 'user_created_beta',
+      userId: result.savedUser.id,
     });
 
     return {
@@ -181,7 +204,7 @@ export class OnboardingService {
       phone_number: result.savedUser.phone_number,
       subscription_status: SubscriptionStatus.TRIALING,
       trial_end: result.trialEnd,
-      welcome_sms_queued: false,
+      welcome_sms_queued: true,
     };
   }
 
