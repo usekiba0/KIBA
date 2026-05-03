@@ -19,10 +19,7 @@ describe('Crisis Detection Integration', () => {
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        CrisisService,
-        { provide: ConfigService, useValue: mockConfig },
-      ],
+      providers: [CrisisService, { provide: ConfigService, useValue: mockConfig }],
     }).compile();
 
     crisisService = module.get(CrisisService);
@@ -32,7 +29,7 @@ describe('Crisis Detection Integration', () => {
     it('should detect explicit suicide keyword without API call', async () => {
       const result = await crisisService.classify('I want to kill myself');
       expect(result.crisis).toBe(true);
-      expect(result.confidence).toBeGreaterThanOrEqual(0.90);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
       expect(result.method).toBe('keyword');
     });
 
@@ -71,15 +68,12 @@ describe('Crisis Detection Integration', () => {
       };
 
       const failModule = await Test.createTestingModule({
-        providers: [
-          CrisisService,
-          { provide: ConfigService, useValue: badConfig },
-        ],
+        providers: [CrisisService, { provide: ConfigService, useValue: badConfig }],
       }).compile();
 
       const failService = failModule.get(CrisisService);
-      // Non-keyword message that requires ML classification
-      const result = await failService.classify('I am having a really hard time lately');
+      // Message with distress words that bypasses benign fast-path and reaches the API
+      const result = await failService.classify('I feel completely hopeless and empty, nothing helps me anymore');
       // Should fail safe — return crisis:true when API fails
       expect(result.crisis).toBe(true);
       expect(result.dimension).toBe('classifier_unavailable');

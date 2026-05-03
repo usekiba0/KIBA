@@ -107,8 +107,20 @@ export class CoachingProcessor {
       twilio_sid: twilioSid,
     });
 
-    // SAFETY-CRITICAL: Await crisis classification before generating any coaching reply.
-    const crisisResult = await this.crisisService.classify(body);
+    // Phase 1: crisis check + DB fetches in parallel (crisis never waits for DB)
+    const [crisisResult, dbMessages, latestSummary] = await Promise.all([
+      this.crisisService.classify(body),
+      this.messageRepo.find({
+        where: { session_id: boundary.sessionId },
+        order: { created_at: 'ASC' },
+        take: 20,
+      }),
+      boundary.isNewSession
+        ? this.summaryRepo.findOne({ where: { user_id: user.id }, order: { created_at: 'DESC' } })
+        : Promise.resolve(null),
+    ]);
+
+    // SAFETY-CRITICAL: halt before any reply if crisis detected
     if (crisisResult.crisis) {
       await this.safetyService.handleCrisisDetection(user.id, inboundMsg.id, crisisResult);
       return;
@@ -177,31 +189,13 @@ export class CoachingProcessor {
       this.logger.warn(`Rejected untrusted media URL for user ${user.id}: ${mediaUrls[0]}`);
     }
 
-    // Phase 1: fetch context from DB (fast ~0.5s)
-    const [dbMessages, latestSummary] = await Promise.all([
-      this.messageRepo.find({
-        where: { session_id: boundary.sessionId },
-        order: { created_at: 'ASC' },
-        take: 20,
-      }),
-      boundary.isNewSession
-        ? this.summaryRepo.findOne({ where: { user_id: user.id }, order: { created_at: 'DESC' } })
-        : Promise.resolve(null),
-    ]);
-
-    // Phase 2: crisis check + coaching reply in parallel (~5-8s each, now overlapping)
-    // If crisis is detected the coaching reply is discarded — never sent to user.
-    const [crisisResult, coachingResult] = await Promise.all([
-      this.crisisService.classify(body),
-      this.coachingService.generateReply(user, dbMessages, body, latestSummary?.summary),
-    ]);
-
-    if (crisisResult.crisis) {
-      await this.safetyService.handleCrisisDetection(user.id, inboundMsg.id, crisisResult);
-      return;
-    }
-
-    const { reply, tokenCount } = coachingResult;
+    // Phase 2: coaching reply (DB context already fetched in Phase 1)
+    const { reply, tokenCount } = await this.coachingService.generateReply(
+      user,
+      dbMessages,
+      body,
+      latestSummary?.summary,
+    );
     await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
     await this.saveAndSend(user, boundary.sessionId, reply);
   }

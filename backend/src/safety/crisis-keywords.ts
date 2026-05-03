@@ -5,6 +5,7 @@ export const HIGH_RISK_KEYWORDS: string[] = [
   'suicide',
   'suicidal',
   'hurt myself',
+  'hurting myself',
   'self harm',
   'self-harm',
   "can't go on",
@@ -18,5 +19,5 @@ export const HIGH_RISK_KEYWORDS: string[] = [
 
 export function containsHighRiskKeyword(text: string): boolean {
   const lower = text.toLowerCase();
-  return HIGH_RISK_KEYWORDS.some(kw => lower.includes(kw));
+  return HIGH_RISK_KEYWORDS.some((kw) => lower.includes(kw));
 }
