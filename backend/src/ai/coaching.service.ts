@@ -15,12 +15,18 @@ export class CoachingService {
     this.client = new Anthropic({ apiKey: config.getOrThrow('ANTHROPIC_API_KEY') });
   }
 
-  async generateReply(user: User, recentMessages: Message[], incomingText: string, sessionSummary?: string): Promise<{ reply: string; tokenCount: number }> {
-    const systemPrompt = buildSystemPrompt(user, sessionSummary);
+  async generateReply(
+    user: User,
+    recentMessages: Message[],
+    incomingText: string,
+    sessionSummary?: string,
+  ): Promise<{ reply: string; tokenCount: number }> {
+    const betaMode = this.config.get<string>('BETA_MODE') === 'true';
+    const systemPrompt = buildSystemPrompt(user, sessionSummary, betaMode);
     const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
 
-    const history = recentMessages.map(m => ({
-      role: m.role === 'user' ? 'user' as const : 'assistant' as const,
+    const history = recentMessages.map((m) => ({
+      role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
       content: m.content,
     }));
     history.push({ role: 'user', content: incomingText });
@@ -38,10 +44,21 @@ export class CoachingService {
     const totalTokens = inputTokens + outputTokens;
 
     structuredLog(this.logger, 'log', {
-      service: 'ai', operation: 'coaching_reply',
-      userId: user.id, model, inputTokens, outputTokens, totalTokens,
+      service: 'ai',
+      operation: 'coaching_reply',
+      userId: user.id,
+      model,
+      inputTokens,
+      outputTokens,
+      totalTokens,
     });
-    warnTokenBudget(this.logger, { service: 'ai', operation: 'coaching_reply', userId: user.id, inputTokens, outputTokens });
+    warnTokenBudget(this.logger, {
+      service: 'ai',
+      operation: 'coaching_reply',
+      userId: user.id,
+      inputTokens,
+      outputTokens,
+    });
 
     return { reply, tokenCount: totalTokens };
   }
