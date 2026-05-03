@@ -58,6 +58,12 @@ jobs:
         env:
           NODE_ENV: test
 
+      - name: Run database migrations
+        run: npm run migration:run
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://rykeai:rykeai_test@localhost:5432/rykeai_test
+
       - name: Contract tests
         run: npm run test:contract
         env:

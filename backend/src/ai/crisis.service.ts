@@ -51,7 +51,9 @@ export class CrisisService {
         messages: buildCrisisMessages(text),
       });
 
-      const raw = response.content[0].type === 'text' ? response.content[0].text : '{}';
+      const rawText = response.content[0].type === 'text' ? response.content[0].text : '{}';
+      // Strip markdown code fences if Claude wraps the JSON (e.g. ```json ... ```)
+      const raw = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
       let parsed: Record<string, unknown>;
       try {
