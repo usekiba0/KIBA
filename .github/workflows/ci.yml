@@ -94,6 +94,10 @@ jobs:
           CRISIS_COACH_ALERT_EMAIL: test@ryke.ai
           CRISIS_COACH_ALERT_PHONE: '+15550009999'
           SESSION_TIMEOUT_HOURS: '1'
+          APP_BASE_URL: http://localhost:3000
+          FRONTEND_URL: http://localhost:3001
+          STRIPE_PRICE_ID_INDIVIDUAL: price_test_placeholder
+          INTERNAL_API_KEY: test_internal_key_for_ci_use_only_32chars
 
   frontend:
     name: Frontend — Lint + Build
