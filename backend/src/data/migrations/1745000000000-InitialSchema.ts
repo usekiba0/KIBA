@@ -5,17 +5,33 @@ export class InitialSchema1745000000000 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Enums
-    await queryRunner.query(`CREATE TYPE "coaching_focus_enum" AS ENUM('fitness','nutrition','wellness','combined')`);
-    await queryRunner.query(`CREATE TYPE "user_status_enum" AS ENUM('trial','active','paused','cancelled')`);
-    await queryRunner.query(`CREATE TYPE "subscription_plan_enum" AS ENUM('individual','coach_pro','coach_elite')`);
-    await queryRunner.query(`CREATE TYPE "subscription_status_enum" AS ENUM('trialing','active','past_due','cancelled')`);
-    await queryRunner.query(`CREATE TYPE "session_status_enum" AS ENUM('active','completed','crisis_hold')`);
+    await queryRunner.query(
+      `CREATE TYPE "coaching_focus_enum" AS ENUM('fitness','nutrition','wellness','combined')`,
+    );
+    await queryRunner.query(
+      `CREATE TYPE "user_status_enum" AS ENUM('trial','active','paused','cancelled')`,
+    );
+    await queryRunner.query(
+      `CREATE TYPE "subscription_plan_enum" AS ENUM('individual','coach_pro','coach_elite')`,
+    );
+    await queryRunner.query(
+      `CREATE TYPE "subscription_status_enum" AS ENUM('trialing','active','past_due','cancelled')`,
+    );
+    await queryRunner.query(
+      `CREATE TYPE "session_status_enum" AS ENUM('active','completed','crisis_hold')`,
+    );
     await queryRunner.query(`CREATE TYPE "message_role_enum" AS ENUM('user','ai')`);
     await queryRunner.query(`CREATE TYPE "message_type_enum" AS ENUM('text','mms')`);
-    await queryRunner.query(`CREATE TYPE "detection_method_enum" AS ENUM('keyword','ml_classifier','hybrid')`);
+    await queryRunner.query(
+      `CREATE TYPE "detection_method_enum" AS ENUM('keyword','ml_classifier','hybrid')`,
+    );
     await queryRunner.query(`CREATE TYPE "alert_channel_enum" AS ENUM('sms','email')`);
-    await queryRunner.query(`CREATE TYPE "alert_status_enum" AS ENUM('open','acknowledged','resolved')`);
-    await queryRunner.query(`CREATE TYPE "summary_trigger_enum" AS ENUM('session_expiry','message_count','token_budget')`);
+    await queryRunner.query(
+      `CREATE TYPE "alert_status_enum" AS ENUM('open','acknowledged','resolved')`,
+    );
+    await queryRunner.query(
+      `CREATE TYPE "summary_trigger_enum" AS ENUM('session_expiry','message_count','token_budget')`,
+    );
 
     // Users
     await queryRunner.query(`
@@ -77,9 +93,15 @@ export class InitialSchema1745000000000 implements MigrationInterface {
         CONSTRAINT "PK_conversation_sessions" PRIMARY KEY ("id")
       )
     `);
-    await queryRunner.query(`CREATE INDEX "IDX_sessions_user" ON "conversation_sessions" ("user_id")`);
-    await queryRunner.query(`CREATE INDEX "IDX_sessions_status" ON "conversation_sessions" ("status")`);
-    await queryRunner.query(`CREATE INDEX "IDX_sessions_last_message" ON "conversation_sessions" ("last_message_at")`);
+    await queryRunner.query(
+      `CREATE INDEX "IDX_sessions_user" ON "conversation_sessions" ("user_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_sessions_status" ON "conversation_sessions" ("status")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_sessions_last_message" ON "conversation_sessions" ("last_message_at")`,
+    );
 
     // Messages
     await queryRunner.query(`
@@ -100,7 +122,9 @@ export class InitialSchema1745000000000 implements MigrationInterface {
       )
     `);
     await queryRunner.query(`CREATE INDEX "IDX_messages_session" ON "messages" ("session_id")`);
-    await queryRunner.query(`CREATE INDEX "IDX_messages_user_created" ON "messages" ("user_id", "created_at")`);
+    await queryRunner.query(
+      `CREATE INDEX "IDX_messages_user_created" ON "messages" ("user_id", "created_at")`,
+    );
 
     // Nutritional Analyses
     await queryRunner.query(`
@@ -144,8 +168,12 @@ export class InitialSchema1745000000000 implements MigrationInterface {
       )
     `);
     await queryRunner.query(`CREATE INDEX "IDX_crisis_alerts_user" ON "crisis_alerts" ("user_id")`);
-    await queryRunner.query(`CREATE INDEX "IDX_crisis_alerts_status" ON "crisis_alerts" ("status")`);
-    await queryRunner.query(`CREATE INDEX "IDX_crisis_alerts_created" ON "crisis_alerts" ("created_at")`);
+    await queryRunner.query(
+      `CREATE INDEX "IDX_crisis_alerts_status" ON "crisis_alerts" ("status")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_crisis_alerts_created" ON "crisis_alerts" ("created_at")`,
+    );
 
     // Session Summaries
     await queryRunner.query(`
@@ -160,7 +188,13 @@ export class InitialSchema1745000000000 implements MigrationInterface {
         CONSTRAINT "PK_session_summaries" PRIMARY KEY ("id")
       )
     `);
-    await queryRunner.query(`CREATE INDEX "IDX_session_summaries_user" ON "session_summaries" ("user_id")`);
+    await queryRunner.query(
+      `CREATE INDEX "IDX_session_summaries_user" ON "session_summaries" ("user_id")`,
+    );
+
+    // Admin: flag columns on messages
+    await queryRunner.query(`ALTER TABLE "messages" ADD COLUMN IF NOT EXISTS "flagged" boolean NOT NULL DEFAULT false`);
+    await queryRunner.query(`ALTER TABLE "messages" ADD COLUMN IF NOT EXISTS "flag_reason" text`);
 
     // Processed Stripe Events (idempotency)
     await queryRunner.query(`

@@ -1,6 +1,4 @@
-import {
-  Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
 
 export enum MessageRole {
   USER = 'user',
@@ -45,6 +43,12 @@ export class Message {
 
   @Column({ type: 'integer', nullable: true })
   token_count: number | null;
+
+  @Column({ type: 'boolean', default: false })
+  flagged: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  flag_reason: string | null;
 
   @Index()
   @CreateDateColumn()
