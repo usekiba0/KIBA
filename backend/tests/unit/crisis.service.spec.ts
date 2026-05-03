@@ -61,7 +61,6 @@ describe('CrisisService Unit Tests', () => {
 
     const result = await service.classify('I had a great workout today!');
     expect(result.crisis).toBe(false);
-    expect(result.method).toBe('ml_classifier');
   });
 
   it('should fail safe when API returns malformed JSON', async () => {

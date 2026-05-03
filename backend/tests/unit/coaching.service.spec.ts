@@ -35,17 +35,15 @@ describe('CoachingService Unit Tests', () => {
 
   beforeEach(async () => {
     const module = await Test.createTestingModule({
-      providers: [
-        CoachingService,
-        { provide: ConfigService, useValue: mockConfig },
-      ],
+      providers: [CoachingService, { provide: ConfigService, useValue: mockConfig }],
     }).compile();
 
     service = module.get(CoachingService);
   });
 
   it('should call Claude API and return a reply with token count', async () => {
-    const mockReply = 'Great job on the workout! For tomorrow, try adding 5 more minutes to your run. How are you feeling about the progress so far?';
+    const mockReply =
+      'Great job on the workout! For tomorrow, try adding 5 more minutes to your run. How are you feeling about the progress so far?';
 
     (service as any).client = {
       messages: {
@@ -68,7 +66,10 @@ describe('CoachingService Unit Tests', () => {
       messages: {
         create: jest.fn().mockImplementation(async (params: any) => {
           capturedSystem = params.system;
-          return { content: [{ type: 'text', text: 'reply' }], usage: { input_tokens: 100, output_tokens: 10 } };
+          return {
+            content: [{ type: 'text', text: 'reply' }],
+            usage: { input_tokens: 100, output_tokens: 10 },
+          };
         }),
       },
     };
@@ -86,7 +87,10 @@ describe('CoachingService Unit Tests', () => {
       messages: {
         create: jest.fn().mockImplementation(async (params: any) => {
           capturedSystem = params.system;
-          return { content: [{ type: 'text', text: 'reply' }], usage: { input_tokens: 100, output_tokens: 10 } };
+          return {
+            content: [{ type: 'text', text: 'reply' }],
+            usage: { input_tokens: 100, output_tokens: 10 },
+          };
         }),
       },
     };
@@ -102,13 +106,30 @@ describe('CoachingService Unit Tests', () => {
       messages: {
         create: jest.fn().mockImplementation(async (params: any) => {
           capturedMessages = params.messages;
-          return { content: [{ type: 'text', text: 'reply' }], usage: { input_tokens: 100, output_tokens: 10 } };
+          return {
+            content: [{ type: 'text', text: 'reply' }],
+            usage: { input_tokens: 100, output_tokens: 10 },
+          };
         }),
       },
     };
 
     const history: Message[] = [
-      { id: 'm1', session_id: 's1', user_id: 'user-1', role: MessageRole.USER, message_type: MessageType.TEXT, content: 'Previous message', created_at: new Date(), media_url: null, media_content_type: null, twilio_sid: null, token_count: null },
+      {
+        id: 'm1',
+        session_id: 's1',
+        user_id: 'user-1',
+        role: MessageRole.USER,
+        message_type: MessageType.TEXT,
+        content: 'Previous message',
+        created_at: new Date(),
+        media_url: null,
+        media_content_type: null,
+        twilio_sid: null,
+        token_count: null,
+        flagged: false,
+        flag_reason: null,
+      },
     ];
 
     await service.generateReply(testUser, history, 'New message');
