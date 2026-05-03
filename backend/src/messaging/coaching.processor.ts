@@ -125,19 +125,12 @@ export class CoachingProcessor {
       return;
     }
 
-    // Queue session summarisation if needed (non-blocking background task)
+    // Queue session summarisation if needed (non-blocking)
     if (boundary.shouldSummarise) {
       this.summarisationService
         .summariseSession(user.id, boundary.sessionId, SummaryTrigger.SESSION_EXPIRY)
         .catch((err) => this.logger.error(`Summarisation error: ${err}`));
     }
-
-    const latestSummary = boundary.isNewSession
-      ? await this.summaryRepo.findOne({
-          where: { user_id: user.id },
-          order: { created_at: 'DESC' },
-        })
-      : null;
 
     // MMS nutrition analysis — validate media URL to prevent SSRF
     const hasValidImage =
@@ -184,20 +177,31 @@ export class CoachingProcessor {
       this.logger.warn(`Rejected untrusted media URL for user ${user.id}: ${mediaUrls[0]}`);
     }
 
-    // Standard coaching reply
-    const dbMessages = await this.messageRepo.find({
-      where: { session_id: boundary.sessionId },
-      order: { created_at: 'ASC' },
-      take: 20,
-    });
+    // Phase 1: fetch context from DB (fast ~0.5s)
+    const [dbMessages, latestSummary] = await Promise.all([
+      this.messageRepo.find({
+        where: { session_id: boundary.sessionId },
+        order: { created_at: 'ASC' },
+        take: 20,
+      }),
+      boundary.isNewSession
+        ? this.summaryRepo.findOne({ where: { user_id: user.id }, order: { created_at: 'DESC' } })
+        : Promise.resolve(null),
+    ]);
 
-    const { reply, tokenCount } = await this.coachingService.generateReply(
-      user,
-      dbMessages,
-      body,
-      latestSummary?.summary,
-    );
+    // Phase 2: crisis check + coaching reply in parallel (~5-8s each, now overlapping)
+    // If crisis is detected the coaching reply is discarded — never sent to user.
+    const [crisisResult, coachingResult] = await Promise.all([
+      this.crisisService.classify(body),
+      this.coachingService.generateReply(user, dbMessages, body, latestSummary?.summary),
+    ]);
 
+    if (crisisResult.crisis) {
+      await this.safetyService.handleCrisisDetection(user.id, inboundMsg.id, crisisResult);
+      return;
+    }
+
+    const { reply, tokenCount } = coachingResult;
     await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
     await this.saveAndSend(user, boundary.sessionId, reply);
   }
