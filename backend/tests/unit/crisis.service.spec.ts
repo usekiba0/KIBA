@@ -23,10 +23,7 @@ describe('CrisisService Unit Tests', () => {
     }));
 
     const module = await Test.createTestingModule({
-      providers: [
-        CrisisService,
-        { provide: ConfigService, useValue: mockConfig },
-      ],
+      providers: [CrisisService, { provide: ConfigService, useValue: mockConfig }],
     }).compile();
 
     service = module.get(CrisisService);
@@ -51,7 +48,12 @@ describe('CrisisService Unit Tests', () => {
     (service as any).client = {
       messages: {
         create: jest.fn().mockResolvedValue({
-          content: [{ type: 'text', text: '{"crisis":false,"confidence":0.1,"dimension":null,"reasoning":"Normal message"}' }],
+          content: [
+            {
+              type: 'text',
+              text: '{"crisis":false,"confidence":0.1,"dimension":null,"reasoning":"Normal message"}',
+            },
+          ],
           usage: { input_tokens: 50, output_tokens: 20 },
         }),
       },
@@ -72,8 +74,8 @@ describe('CrisisService Unit Tests', () => {
       },
     };
 
-    const result = await service.classify('I am struggling today');
-    // Malformed JSON → non-crisis (low confidence) — keyword didn't match
+    // Use a message with distress vocabulary so it bypasses the benign fast-path and reaches the API
+    const result = await service.classify('I feel completely hopeless and empty inside, nothing helps');
     expect(result.crisis).toBe(false);
     expect(result.confidence).toBe(0.1);
   });
@@ -83,7 +85,8 @@ describe('CrisisService Unit Tests', () => {
       messages: { create: jest.fn().mockRejectedValue(new Error('API unavailable')) },
     };
 
-    const result = await service.classify('I am struggling today');
+    // Use a message with distress vocabulary so it bypasses the benign fast-path and reaches the API
+    const result = await service.classify('I feel completely hopeless and empty inside, nothing helps');
     expect(result.crisis).toBe(true);
     expect(result.dimension).toBe('classifier_unavailable');
   });

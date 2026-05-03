@@ -50,7 +50,7 @@ export default function AdminPage() {
   useEffect(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('adminKey') : '';
     if (saved) { setKey(saved); loadUsers(saved); }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });

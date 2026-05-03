@@ -44,8 +44,7 @@ function PaymentForm({ clientSecret, formData, onSuccess }: PaymentFormProps) {
       return;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const paymentMethodId = (result as any).setupIntent?.payment_method as string | undefined;
+    const paymentMethodId = (result as { setupIntent?: { payment_method?: string } }).setupIntent?.payment_method;
     try {
       await submitOnboarding({ ...formData, stripe_payment_method_id: paymentMethodId });
       onSuccess();
