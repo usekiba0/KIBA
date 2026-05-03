@@ -23,11 +23,21 @@ export class CrisisService {
   }
 
   async classify(text: string): Promise<CrisisResult> {
-    // Fast-path: keyword detection (no API call, immediate)
     const lowerText = text.toLowerCase();
-    const matchedKeyword = HIGH_RISK_KEYWORDS.find(kw => lowerText.includes(kw));
+
+    // Fast-path 1: high-risk keyword → instant crisis (no API call)
+    const matchedKeyword = HIGH_RISK_KEYWORDS.find((kw) => lowerText.includes(kw));
     if (matchedKeyword) {
       return { crisis: true, confidence: 0.95, dimension: 'suicidal_ideation', method: 'keyword' };
+    }
+
+    // Fast-path 2: clearly benign → skip Claude API call entirely
+    // Short fitness/nutrition messages from an AI coaching context are extremely unlikely to be crisis.
+    const isClearlyBenign =
+      text.length < 120 &&
+      !lowerText.match(/\b(die|dead|dying|hurt|pain|suffer|hopeless|worthless|alone|trapped|escape|disappear|numb|empty|broken|give up|can't take|not worth)\b/);
+    if (isClearlyBenign) {
+      return { crisis: false, confidence: 0.05, dimension: null, method: 'keyword' };
     }
 
     const threshold = this.config.get<number>('CRISIS_CONFIDENCE_THRESHOLD', 0.65);
@@ -55,8 +65,10 @@ export class CrisisService {
       const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0;
 
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'crisis_classify',
-        confidence, dimension: parsed.dimension ?? null,
+        service: 'ai',
+        operation: 'crisis_classify',
+        confidence,
+        dimension: parsed.dimension ?? null,
         inputTokens: response.usage.input_tokens,
         cacheReadTokens: (response.usage as any).cache_read_input_tokens ?? 0,
       });
