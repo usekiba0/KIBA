@@ -210,12 +210,12 @@ export class OnboardingService {
 
   private buildWelcomeMessage(user: User): string {
     const focusMap: Record<string, string> = {
-      fitness: 'fitness',
-      nutrition: 'your nutrition',
-      wellness: 'your wellbeing',
-      combined: 'your health journey',
+      fitness: 'fitness and training',
+      nutrition: 'nutrition and healthy eating',
+      wellness: 'your overall wellbeing',
+      combined: 'your full health journey',
     };
     const focus = focusMap[user.coaching_focus] ?? 'your goals';
-    return `Hey ${user.name}! I'm Ryke, your AI coach. Ready to work on ${focus}. What's on your mind today?`;
+    return `Hey ${user.name}! I'm Ryke, your personal AI coach. I'm here to help you with ${focus} — anytime, right here over text. No apps, no logins, just message me whenever you need support. What's been on your mind lately?`;
   }
 }
