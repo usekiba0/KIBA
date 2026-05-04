@@ -38,16 +38,22 @@ export class MessagingService {
   async send(to: string, body: string): Promise<void> {
     const sendBlueKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const sendBlueSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
+    const sendBlueFrom = this.config.get<string>('SENDBLUE_FROM_NUMBER');
 
-    if (sendBlueKeyId && sendBlueSecret) {
+    if (sendBlueKeyId && sendBlueSecret && sendBlueFrom) {
       this.logger.log(`[Send] Checking SendBlue capability for ${to}`);
       const supported = await this.isSendBlueCapable(to, sendBlueKeyId, sendBlueSecret);
       if (supported) {
         this.logger.log(`[Send] Using SendBlue (iMessage) for ${to}`);
-        await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret);
-        return;
+        try {
+          await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret, sendBlueFrom);
+          return;
+        } catch (err) {
+          this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
+        }
+      } else {
+        this.logger.log(`[Send] SendBlue not supported for ${to}, falling back to Twilio`);
       }
-      this.logger.log(`[Send] SendBlue not supported for ${to}, falling back to Twilio`);
     } else {
       this.logger.log(`[Send] No SendBlue credentials — using Twilio for ${to}`);
     }
@@ -71,11 +77,11 @@ export class MessagingService {
     }
   }
 
-  async sendViaSendBlue(to: string, body: string, keyId: string, secret: string): Promise<void> {
+  async sendViaSendBlue(to: string, body: string, keyId: string, secret: string, fromNumber: string): Promise<void> {
     try {
       const response = await axios.post(
         'https://api.sendblue.co/api/send-message',
-        { number: to, content: body },
+        { number: to, content: body, from_number: fromNumber },
         { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret } },
       );
       structuredLog(this.logger, 'log', {

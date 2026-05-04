@@ -42,6 +42,7 @@ import { HealthController } from './common/health/health.controller';
         // SendBlue
         SENDBLUE_API_KEY_ID: Joi.string().optional(),
         SENDBLUE_API_SECRET_KEY: Joi.string().optional(),
+        SENDBLUE_FROM_NUMBER: Joi.string().optional(),
 
         // Stripe
         STRIPE_SECRET_KEY: Joi.string().required(),
