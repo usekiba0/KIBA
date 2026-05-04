@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
@@ -7,9 +7,10 @@ import axios from 'axios';
 import { structuredLog } from '../common/logger';
 
 @Injectable()
-export class MessagingService {
+export class MessagingService implements OnModuleInit {
   private readonly logger = new Logger(MessagingService.name);
   private readonly twilioClient: twilio.Twilio;
+  private sendBlueFrom: string | null = null;
 
   constructor(
     private readonly config: ConfigService,
@@ -19,6 +20,28 @@ export class MessagingService {
       config.getOrThrow('TWILIO_ACCOUNT_SID'),
       config.getOrThrow('TWILIO_AUTH_TOKEN'),
     );
+  }
+
+  async onModuleInit(): Promise<void> {
+    const keyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
+    const secret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
+    if (!keyId || !secret) return;
+
+    try {
+      const response = await axios.get('https://api.sendblue.com/api/lines', {
+        headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret },
+        timeout: 5000,
+      });
+      const lines: { number?: string }[] = response.data?.data ?? [];
+      this.sendBlueFrom = lines[0]?.number ?? null;
+      if (this.sendBlueFrom) {
+        this.logger.log(`[SendBlue] Sender number resolved: ${this.sendBlueFrom}`);
+      } else {
+        this.logger.warn('[SendBlue] No registered lines found — will use Twilio');
+      }
+    } catch (err) {
+      this.logger.warn(`[SendBlue] Could not fetch lines, will use Twilio: ${(err as Error).message}`);
+    }
   }
 
   async queueMessage(to: string, body: string): Promise<void> {
@@ -38,15 +61,14 @@ export class MessagingService {
   async send(to: string, body: string): Promise<void> {
     const sendBlueKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const sendBlueSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
-    const sendBlueFrom = this.config.get<string>('SENDBLUE_FROM_NUMBER');
 
-    if (sendBlueKeyId && sendBlueSecret && sendBlueFrom) {
+    if (sendBlueKeyId && sendBlueSecret && this.sendBlueFrom) {
       this.logger.log(`[Send] Checking SendBlue capability for ${to}`);
       const supported = await this.isSendBlueCapable(to, sendBlueKeyId, sendBlueSecret);
       if (supported) {
         this.logger.log(`[Send] Using SendBlue (iMessage) for ${to}`);
         try {
-          await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret, sendBlueFrom);
+          await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret, this.sendBlueFrom);
           return;
         } catch (err) {
           this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
