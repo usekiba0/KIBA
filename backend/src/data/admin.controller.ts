@@ -1,5 +1,5 @@
-import { Controller, Get, Patch, Param, Body, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { Controller, Get, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { IsBoolean, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
 
@@ -12,10 +12,26 @@ class FlagMessageDto {
   flag_reason?: string;
 }
 
+class UpdateUserStatusDto {
+  @IsEnum(['active', 'paused', 'cancelled'])
+  status: 'active' | 'paused' | 'cancelled';
+}
+
+class ResolveAlertDto {
+  @IsString()
+  @MaxLength(100)
+  resolved_by: string;
+}
+
 @Controller('admin')
 @UseGuards(InternalApiKeyGuard)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
+
+  @Get('dashboard')
+  getDashboard() {
+    return this.adminService.getDashboardStats();
+  }
 
   @Get('users')
   listUsers() {
@@ -27,11 +43,28 @@ export class AdminController {
     return this.adminService.getUserMessages(userId);
   }
 
+  @Get('users/:userId/subscription')
+  getUserSubscription(@Param('userId') userId: string) {
+    return this.adminService.getUserSubscriptionDetail(userId);
+  }
+
+  @Patch('users/:userId/status')
+  updateUserStatus(@Param('userId') userId: string, @Body() dto: UpdateUserStatusDto) {
+    return this.adminService.updateUserStatus(userId, dto.status);
+  }
+
   @Patch('messages/:messageId/flag')
-  flagMessage(
-    @Param('messageId') messageId: string,
-    @Body() dto: FlagMessageDto,
-  ) {
+  flagMessage(@Param('messageId') messageId: string, @Body() dto: FlagMessageDto) {
     return this.adminService.flagMessage(messageId, dto.flagged, dto.flag_reason);
+  }
+
+  @Get('crisis-alerts')
+  listCrisisAlerts(@Query('include_resolved') includeResolved?: string) {
+    return this.adminService.listCrisisAlerts(includeResolved === 'true');
+  }
+
+  @Patch('crisis-alerts/:alertId/resolve')
+  resolveAlert(@Param('alertId') alertId: string, @Body() dto: ResolveAlertDto) {
+    return this.adminService.resolveAlert(alertId, dto.resolved_by);
   }
 }
