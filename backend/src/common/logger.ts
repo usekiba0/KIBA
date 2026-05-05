@@ -13,14 +13,18 @@ export interface LogPayload {
   [key: string]: unknown;
 }
 
-export function structuredLog(logger: Logger, level: 'log' | 'warn' | 'error', payload: LogPayload) {
+export function structuredLog(
+  logger: Logger,
+  level: 'log' | 'warn' | 'error',
+  payload: LogPayload,
+) {
   const message = JSON.stringify({ timestamp: new Date().toISOString(), ...payload });
   logger[level](message);
 }
 
 export function warnTokenBudget(logger: Logger, payload: LogPayload) {
   const total = (payload.inputTokens ?? 0) + (payload.outputTokens ?? 0);
-  if (total > 500) {
+  if (total > 4000) {
     structuredLog(logger, 'warn', {
       ...payload,
       operation: 'token_budget_exceeded',

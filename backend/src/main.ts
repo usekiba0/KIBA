@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import * as express from 'express';
 import helmet from 'helmet';
@@ -46,7 +46,7 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  console.log(`RYKE AI backend running on port ${port}`);
+  new Logger('Bootstrap').log(`RYKE AI backend running on port ${port}`);
 }
 
 bootstrap();

@@ -40,6 +40,7 @@ export class OnboardingFormDto {
   @IsString()
   @IsNotEmpty()
   @MinLength(1)
+  @MaxLength(1000)
   goals: string;
 
   @IsOptional()
@@ -66,15 +67,18 @@ export class OnboardingFormDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @MaxLength(100, { each: true })
   health_conditions?: string[];
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @MaxLength(100, { each: true })
   dietary_restrictions?: string[];
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   injuries?: string;
 
   @IsString()
