@@ -159,12 +159,15 @@ export default function AdminPage() {
 
   async function toggleUserStatus(user: AdminUser) {
     setTogglingUserId(user.id);
-    const newStatus = user.status === 'active' ? 'paused' : 'active';
+    const isBlocking = user.status === 'active' || user.status === 'trial';
+    const newStatus = isBlocking ? 'paused' : 'active';
     try {
       await apiFetch(`/admin/users/${user.id}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus as UserStatus } : u));
       if (selectedUser?.id === user.id) setSelectedUser(u => u ? { ...u, status: newStatus as UserStatus } : u);
-    } catch { /* ignore */ }
+    } catch (err) {
+      alert(`Failed to update user status: ${err instanceof Error ? err.message : 'Server error'}`);
+    }
     setTogglingUserId(null);
   }
 
