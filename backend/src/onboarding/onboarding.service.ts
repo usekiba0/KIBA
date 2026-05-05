@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
@@ -27,25 +27,22 @@ export class OnboardingService {
     private readonly config: ConfigService,
   ) {}
 
+  async checkPhone(phone: string): Promise<{ exists: boolean }> {
+    const existing = await this.userRepo.findOne({ where: { phone_number: phone } });
+    return { exists: !!existing };
+  }
+
   async createSetupIntent(name: string, phoneNumber: string) {
+    const existing = await this.userRepo.findOne({ where: { phone_number: phoneNumber } });
+    if (existing) throw new ConflictException('This phone number is already registered.');
     const customer = await this.stripeService.createCustomer(name, phoneNumber);
     const setupIntent = await this.stripeService.createSetupIntent(customer.id);
     return { client_secret: setupIntent.client_secret, stripe_customer_id: customer.id };
   }
 
   async submit(dto: OnboardingFormDto) {
-    // Idempotent: return existing user if already registered
     const existing = await this.userRepo.findOne({ where: { phone_number: dto.phone_number } });
-    if (existing) {
-      const sub = await this.subRepo.findOne({ where: { user_id: existing.id } });
-      return {
-        user_id: existing.id,
-        phone_number: existing.phone_number,
-        subscription_status: sub?.status ?? SubscriptionStatus.TRIALING,
-        trial_end: sub?.trial_end ?? null,
-        welcome_sms_queued: false,
-      };
-    }
+    if (existing) throw new ConflictException('This phone number is already registered. Please sign in instead.');
 
     const betaMode = this.config.get<string>('BETA_MODE') === 'true';
     const isBetaBypass = betaMode && dto.stripe_payment_method_id === 'pm_beta_bypass';
@@ -57,14 +54,18 @@ export class OnboardingService {
     const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
     const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 30);
 
-    // Create Stripe resources first so we can reference them in the DB transaction.
-    // If the DB transaction fails we cancel the Stripe subscription as compensation.
     let stripeCustomerId: string | null = null;
     let stripeSubscriptionId: string | null = null;
 
     try {
-      const customer = await this.stripeService.createCustomer(dto.name, dto.phone_number);
-      stripeCustomerId = customer.id;
+      // Reuse the customer created during setup-intent — avoids attaching a payment method
+      // from one customer to a different customer (which Stripe rejects with 400).
+      if (dto.stripe_customer_id) {
+        stripeCustomerId = dto.stripe_customer_id;
+      } else {
+        const customer = await this.stripeService.createCustomer(dto.name, dto.phone_number);
+        stripeCustomerId = customer.id;
+      }
 
       const stripeSub = await this.stripeService.createSubscriptionWithTrial(
         customer.id,

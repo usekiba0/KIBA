@@ -37,17 +37,23 @@ function PaymentForm({ clientSecret, formData, onSuccess }: PaymentFormProps) {
       redirect: 'if_required',
     });
     if (result.error) {
-      setError(result.error.message ?? 'Payment failed');
+      setError(result.error.message ?? 'Payment setup failed. Please try a different card.');
       setLoading(false);
       return;
     }
 
     const paymentMethodId = (result as { setupIntent?: { payment_method?: string } }).setupIntent?.payment_method;
+    if (!paymentMethodId) {
+      setError('Could not retrieve payment method. Please try again.');
+      setLoading(false);
+      return;
+    }
+
     try {
       await submitOnboarding({ ...formData, stripe_payment_method_id: paymentMethodId });
       onSuccess();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Submission failed';
+      const msg = err instanceof Error ? err.message : 'Submission failed. Please try again.';
       setError(msg);
     }
     setLoading(false);
@@ -76,6 +82,7 @@ interface Props {
 
 export default function Step5Payment({ formData, onSuccess, onBack }: Props) {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -83,17 +90,22 @@ export default function Step5Payment({ formData, onSuccess, onBack }: Props) {
     setLoading(true);
     setError('');
     try {
-      const { client_secret } = await createSetupIntent(
+      const result = await createSetupIntent(
         formData.name as string,
         formData.phone_number as string,
       );
-      setClientSecret(client_secret);
+      setClientSecret(result.client_secret);
+      setStripeCustomerId(result.stripe_customer_id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(`Payment init failed: ${msg}`);
+      setError(msg);
     }
     setLoading(false);
   };
+
+  const enrichedFormData = stripeCustomerId
+    ? { ...formData, stripe_customer_id: stripeCustomerId }
+    : formData;
 
   return (
     <div className="step">
@@ -115,7 +127,7 @@ export default function Step5Payment({ formData, onSuccess, onBack }: Props) {
         </div>
       ) : (
         <Elements stripe={stripePromise} options={{ clientSecret }}>
-          <PaymentForm clientSecret={clientSecret} formData={formData} onSuccess={onSuccess} />
+          <PaymentForm clientSecret={clientSecret} formData={enrichedFormData} onSuccess={onSuccess} />
         </Elements>
       )}
     </div>

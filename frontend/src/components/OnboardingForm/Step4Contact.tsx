@@ -1,4 +1,7 @@
 'use client';
+import { useState } from 'react';
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/v1';
 
 interface Props {
   data: { name: string; phone_number: string };
@@ -7,14 +10,45 @@ interface Props {
   onBack: () => void;
 }
 
+function normalizePhone(raw: string): string {
+  const stripped = raw.replace(/[\s\-().]/g, '');
+  if (stripped.startsWith('+')) return stripped;
+  const digits = stripped.replace(/\D/g, '');
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return `+${digits}`;
+}
+
 function isValidPhone(phone: string): boolean {
-  // Accept 10+ digits with optional country code prefix — normalised before sending
   const digits = phone.replace(/\D/g, '');
   return digits.length >= 10 && digits.length <= 15;
 }
 
 export default function Step4Contact({ data, onChange, onNext, onBack }: Props) {
+  const [phoneError, setPhoneError] = useState('');
+  const [checking, setChecking] = useState(false);
+
   const phoneValid = isValidPhone(data.phone_number);
+  const nameValid = data.name.trim().length >= 2;
+
+  async function checkPhone() {
+    if (!phoneValid) return;
+    setChecking(true);
+    setPhoneError('');
+    try {
+      const normalized = normalizePhone(data.phone_number);
+      const res = await fetch(`${API}/onboarding/check-phone?phone=${encodeURIComponent(normalized)}`);
+      const json = await res.json() as { exists: boolean };
+      if (json.exists) {
+        setPhoneError('This phone number is already registered. Please use a different number.');
+      }
+    } catch {
+      // ignore network errors — backend will catch duplicates anyway
+    }
+    setChecking(false);
+  }
+
+  const canContinue = nameValid && phoneValid && !phoneError && !checking;
 
   return (
     <div className="step">
@@ -23,26 +57,40 @@ export default function Step4Contact({ data, onChange, onNext, onBack }: Props) 
 
       <label className="field-label">
         Your name
-        <input type="text" className="input" value={data.name}
+        <input
+          type="text"
+          className="input"
+          value={data.name}
           onChange={e => onChange({ name: e.target.value })}
-          placeholder="Alex Johnson" maxLength={100} />
+          placeholder="Alex Johnson"
+          maxLength={100}
+        />
+        {data.name && !nameValid && (
+          <span className="field-error">Name must be at least 2 characters</span>
+        )}
       </label>
 
       <label className="field-label">
         Mobile phone number
-        <input type="tel" className="input" value={data.phone_number}
-          onChange={e => onChange({ phone_number: e.target.value })}
-          placeholder="+1 555 000 1234" />
+        <input
+          type="tel"
+          className="input"
+          value={data.phone_number}
+          onChange={e => { onChange({ phone_number: e.target.value }); setPhoneError(''); }}
+          onBlur={checkPhone}
+          placeholder="+1 555 000 1234"
+        />
         {data.phone_number && !phoneValid && (
           <span className="field-error">Enter at least 10 digits — e.g. (415) 555-0100 or +44 7911 123456</span>
         )}
-        <span className="field-hint">US numbers work with or without +1. iPhone users get iMessages (blue bubbles).</span>
+        {phoneError && <span className="field-error">{phoneError}</span>}
+        {checking && <span className="field-hint">Checking...</span>}
+        {!phoneError && !checking && <span className="field-hint">US numbers work with or without +1. iPhone users get iMessages (blue bubbles).</span>}
       </label>
 
       <div className="btn-row">
         <button className="btn-secondary" onClick={onBack} type="button">← Back</button>
-        <button className="btn-primary" onClick={onNext}
-          disabled={!data.name.trim() || !phoneValid} type="button">
+        <button className="btn-primary" onClick={onNext} disabled={!canContinue} type="button">
           Continue →
         </button>
       </div>

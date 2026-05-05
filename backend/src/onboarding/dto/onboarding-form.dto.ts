@@ -86,6 +86,10 @@ export class OnboardingFormDto {
   stripe_payment_method_id: string;
 
   @IsOptional()
+  @IsString()
+  stripe_customer_id?: string;
+
+  @IsOptional()
   @IsEnum(SubscriptionPlan)
   plan?: SubscriptionPlan;
 }
