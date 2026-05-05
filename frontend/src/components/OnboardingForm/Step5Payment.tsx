@@ -4,8 +4,6 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import { stripePromise } from '../../lib/stripe';
 import { createSetupIntent, submitOnboarding } from '../../lib/api';
 
-const BETA_MODE = process.env.NEXT_PUBLIC_BETA_MODE === 'true';
-
 interface PaymentFormProps {
   clientSecret: string;
   formData: Record<string, unknown>;
@@ -97,18 +95,6 @@ export default function Step5Payment({ formData, onSuccess, onBack }: Props) {
     setLoading(false);
   };
 
-  const betaBypass = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      await submitOnboarding({ ...formData, stripe_payment_method_id: 'pm_beta_bypass' });
-      onSuccess();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Submission failed');
-    }
-    setLoading(false);
-  };
-
   return (
     <div className="step">
       <h2>Start your free trial</h2>
@@ -122,16 +108,9 @@ export default function Step5Payment({ formData, onSuccess, onBack }: Props) {
             <div className="trial-row"><span>Cancel anytime</span><span>✓</span></div>
           </div>
           {error && <p className="field-error">{error}</p>}
-          {BETA_MODE ? (
-            <button className="btn-primary" onClick={betaBypass} disabled={loading} type="button"
-              style={{ width: '100%', marginTop: 16, background: '#059669' }}>
-              {loading ? 'Creating account...' : 'Skip Payment (Beta Mode) →'}
-            </button>
-          ) : (
-            <button className="btn-primary" onClick={initPayment} disabled={loading} type="button" style={{ width: '100%', marginTop: 16 }}>
-              {loading ? 'Loading...' : 'Add Payment Method →'}
-            </button>
-          )}
+          <button className="btn-primary" onClick={initPayment} disabled={loading} type="button" style={{ width: '100%', marginTop: 16 }}>
+            {loading ? 'Loading...' : 'Add Payment Method →'}
+          </button>
           <button className="btn-secondary" onClick={onBack} type="button" style={{ marginTop: 8 }}>← Back</button>
         </div>
       ) : (
