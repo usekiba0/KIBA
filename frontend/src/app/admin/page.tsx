@@ -35,14 +35,24 @@ function money(cents: number) {
   return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0 });
 }
 
-function StatCard({ label, value, sub, highlight }: { label: string; value: string | number; sub?: string; highlight?: 'red' | 'amber' | 'green' }) {
+function StatCard({ label, value, sub, highlight, large }: { label: string; value: string | number; sub?: string; highlight?: 'red' | 'amber' | 'green'; large?: boolean }) {
   const borderColor = highlight === 'red' ? '#ef4444' : highlight === 'amber' ? '#f59e0b' : highlight === 'green' ? '#22c55e' : '#27272a';
-  const bg = highlight === 'red' ? '#1a0a0a' : highlight === 'amber' ? '#1a1200' : '#111113';
+  const bg = highlight === 'red' ? 'linear-gradient(135deg,#1a0a0a,#0f0505)' : highlight === 'amber' ? 'linear-gradient(135deg,#1a1200,#0f0b00)' : highlight === 'green' ? 'linear-gradient(135deg,#0a1a0e,#050f08)' : 'linear-gradient(135deg,#111113,#0d0d10)';
   return (
-    <div style={{ background: bg, border: `1px solid ${borderColor}`, borderRadius: 10, padding: '16px 20px' }}>
-      <div style={{ fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: '#fafafa' }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: '#52525b', marginTop: 4 }}>{sub}</div>}
+    <div style={{ background: bg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: large ? '22px 24px' : '14px 18px', position: 'relative', overflow: 'hidden' }}>
+      {highlight && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: borderColor, opacity: 0.6 }} />}
+      <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: large ? 34 : 24, fontWeight: 700, color: highlight === 'green' ? '#4ade80' : highlight === 'red' ? '#f87171' : highlight === 'amber' ? '#fbbf24' : '#fafafa', lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: '#52525b', marginTop: 6 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function MiniStat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div style={{ fontSize: 20, fontWeight: 700, color }}>{value}</div>
+      <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1 }}>{label}</div>
     </div>
   );
 }
@@ -226,48 +236,132 @@ export default function AdminPage() {
 
       {/* Dashboard Tab */}
       {tab === 'dashboard' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>Overview</div>
-            <button onClick={() => init(key)} style={{ fontSize: 12, color: '#71717a', background: '#18181b', border: '1px solid #27272a', borderRadius: 6, padding: '4px 12px', cursor: 'pointer' }}>Refresh</button>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', background: '#09090b' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#fafafa' }}>Overview</div>
+              <div style={{ fontSize: 13, color: '#52525b', marginTop: 2 }}>Real-time metrics from your database</div>
+            </div>
+            <button onClick={() => init(key)} style={{ fontSize: 12, color: '#a1a1aa', background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              ↻ Refresh
+            </button>
           </div>
-          {loading && <div style={{ color: '#52525b', fontSize: 14 }}>Loading...</div>}
+
+          {loading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#52525b', fontSize: 14 }}>
+              <div style={{ width: 16, height: 16, border: '2px solid #27272a', borderTopColor: '#e11d48', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              Loading...
+            </div>
+          )}
+
           {dashStats && (
-            <>
-              <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Users</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
-                <StatCard label="Total Users" value={dashStats.total_users} />
-                <StatCard label="Active" value={dashStats.active_users} highlight="green" />
-                <StatCard label="Trial" value={dashStats.trial_users} />
-                <StatCard label="Paused" value={dashStats.paused_users} />
-                <StatCard label="Cancelled" value={dashStats.cancelled_users} />
-                <StatCard label="Crisis Hold" value={dashStats.crisis_hold_count} highlight={dashStats.crisis_hold_count > 0 ? 'red' : undefined} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+              {/* Hero row — Revenue */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
+                <StatCard label="MRR" value={money(dashStats.mrr_cents)} sub="monthly recurring revenue" highlight={dashStats.mrr_cents > 0 ? 'green' : undefined} large />
+                <StatCard label="ARR" value={money(dashStats.arr_cents)} sub="annual run rate" large />
+                <StatCard label="Total Users" value={dashStats.total_users} sub="all time" large />
+                <StatCard label="Paid Subscribers" value={dashStats.active_subs} sub="active billing" highlight={dashStats.active_subs > 0 ? 'green' : undefined} large />
               </div>
 
-              <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Revenue</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
-                <StatCard label="MRR" value={money(dashStats.mrr_cents)} sub="monthly recurring" highlight={dashStats.mrr_cents > 0 ? 'green' : undefined} />
-                <StatCard label="ARR" value={money(dashStats.arr_cents)} sub="annual run rate" />
-                <StatCard label="Paid Subscribers" value={dashStats.active_subs} />
-                <StatCard label="Trialing" value={dashStats.trialing_subs} />
-                <StatCard label="Past Due" value={dashStats.past_due_subs} highlight={dashStats.past_due_subs > 0 ? 'amber' : undefined} />
-                <StatCard label="Trial → Paid" value={dashStats.trial_to_paid_count} sub="conversions" />
+              {/* Users + Subscriptions row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                {/* User breakdown card */}
+                <div style={{ background: 'linear-gradient(135deg,#111113,#0d0d10)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
+                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 20 }}>User Breakdown</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-around', marginBottom: 20 }}>
+                    <MiniStat label="Active" value={dashStats.active_users} color="#4ade80" />
+                    <MiniStat label="Trial" value={dashStats.trial_users} color="#60a5fa" />
+                    <MiniStat label="Paused" value={dashStats.paused_users} color="#a1a1aa" />
+                    <MiniStat label="Cancelled" value={dashStats.cancelled_users} color="#52525b" />
+                  </div>
+                  {/* Distribution bar */}
+                  {dashStats.total_users > 0 && (
+                    <div style={{ display: 'flex', height: 6, borderRadius: 4, overflow: 'hidden', gap: 1 }}>
+                      {dashStats.active_users > 0 && <div style={{ flex: dashStats.active_users, background: '#22c55e' }} />}
+                      {dashStats.trial_users > 0 && <div style={{ flex: dashStats.trial_users, background: '#3b82f6' }} />}
+                      {dashStats.paused_users > 0 && <div style={{ flex: dashStats.paused_users, background: '#71717a' }} />}
+                      {dashStats.cancelled_users > 0 && <div style={{ flex: dashStats.cancelled_users, background: '#27272a' }} />}
+                    </div>
+                  )}
+                  {dashStats.crisis_hold_count > 0 && (
+                    <div style={{ marginTop: 14, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 8, fontSize: 13, color: '#f87171', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>⚠</span> {dashStats.crisis_hold_count} user{dashStats.crisis_hold_count > 1 ? 's' : ''} in crisis hold
+                    </div>
+                  )}
+                </div>
+
+                {/* Subscription health card */}
+                <div style={{ background: 'linear-gradient(135deg,#111113,#0d0d10)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
+                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 20 }}>Subscription Health</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {[
+                      { label: 'Trialing', value: dashStats.trialing_subs, color: '#60a5fa' },
+                      { label: 'Active (Paid)', value: dashStats.active_subs, color: '#4ade80' },
+                      { label: 'Past Due', value: dashStats.past_due_subs, color: '#fbbf24' },
+                      { label: 'Cancelled', value: dashStats.cancelled_subs, color: '#52525b' },
+                    ].map(row => (
+                      <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: row.color, flexShrink: 0 }} />
+                        <div style={{ flex: 1, fontSize: 13, color: '#a1a1aa' }}>{row.label}</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: row.color }}>{row.value}</div>
+                      </div>
+                    ))}
+                    <div style={{ borderTop: '1px solid #1f1f23', paddingTop: 12, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                      <span style={{ color: '#52525b' }}>Trial → Paid conversions</span>
+                      <span style={{ color: '#fafafa', fontWeight: 600 }}>{dashStats.trial_to_paid_count}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Activity</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
-                <StatCard label="Messages (24h)" value={dashStats.messages_last_24h} />
-                <StatCard label="Messages (7d)" value={dashStats.messages_last_7d} />
-                <StatCard label="Flagged Total" value={dashStats.flagged_messages_total} highlight={dashStats.flagged_messages_total > 0 ? 'amber' : undefined} />
+              {/* Activity + Crisis row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+                <div style={{ background: 'linear-gradient(135deg,#111113,#0d0d10)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
+                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 16 }}>Message Activity</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, color: '#71717a' }}>Last 24 hours</span>
+                      <span style={{ fontSize: 18, fontWeight: 700, color: '#fafafa' }}>{dashStats.messages_last_24h}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, color: '#71717a' }}>Last 7 days</span>
+                      <span style={{ fontSize: 18, fontWeight: 700, color: '#fafafa' }}>{dashStats.messages_last_7d}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ background: 'linear-gradient(135deg,#111113,#0d0d10)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
+                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 16 }}>AI Quality</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 32, fontWeight: 700, color: dashStats.flagged_messages_total > 0 ? '#fbbf24' : '#4ade80' }}>{dashStats.flagged_messages_total}</div>
+                    <div style={{ fontSize: 13, color: '#52525b' }}>flagged responses</div>
+                    {dashStats.flagged_messages_total === 0 && <div style={{ fontSize: 12, color: '#22c55e', marginTop: 4 }}>All clear</div>}
+                  </div>
+                </div>
+
+                <div style={{ background: dashStats.open_alerts > 0 ? 'linear-gradient(135deg,#1a0a0a,#0f0505)' : 'linear-gradient(135deg,#111113,#0d0d10)', border: `1px solid ${dashStats.open_alerts > 0 ? '#7f1d1d' : '#27272a'}`, borderRadius: 12, padding: '20px 24px', position: 'relative', overflow: 'hidden' }}>
+                  {dashStats.open_alerts > 0 && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: '#ef4444' }} />}
+                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 16 }}>Crisis Alerts</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, color: '#71717a' }}>Open</span>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: dashStats.open_alerts > 0 ? '#f87171' : '#52525b' }}>{dashStats.open_alerts}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, color: '#71717a' }}>Acknowledged</span>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: dashStats.acknowledged_alerts > 0 ? '#fbbf24' : '#52525b' }}>{dashStats.acknowledged_alerts}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #1f1f23', paddingTop: 10 }}>
+                      <span style={{ fontSize: 13, color: '#52525b' }}>Last 30 days</span>
+                      <span style={{ fontSize: 13, color: '#a1a1aa' }}>{dashStats.alerts_last_30d}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Crisis</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-                <StatCard label="Open Alerts" value={dashStats.open_alerts} highlight={dashStats.open_alerts > 0 ? 'red' : undefined} />
-                <StatCard label="Acknowledged" value={dashStats.acknowledged_alerts} highlight={dashStats.acknowledged_alerts > 0 ? 'amber' : undefined} />
-                <StatCard label="Alerts (30d)" value={dashStats.alerts_last_30d} />
-              </div>
-            </>
+            </div>
           )}
         </div>
       )}
