@@ -1,5 +1,5 @@
 import { Controller, Get, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsPhoneNumber, IsString, MaxLength } from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
 
@@ -23,6 +23,17 @@ class ResolveAlertDto {
   resolved_by: string;
 }
 
+class UpdateSettingsDto {
+  @IsOptional()
+  @IsString()
+  coach_alert_phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  coach_alert_email?: string;
+}
+
 @Controller('admin')
 @UseGuards(InternalApiKeyGuard)
 export class AdminController {
@@ -31,6 +42,16 @@ export class AdminController {
   @Get('dashboard')
   getDashboard() {
     return this.adminService.getDashboardStats();
+  }
+
+  @Get('settings')
+  getSettings() {
+    return this.adminService.getSettings();
+  }
+
+  @Patch('settings')
+  updateSettings(@Body() dto: UpdateSettingsDto) {
+    return this.adminService.updateSettings(dto);
   }
 
   @Get('users')

@@ -3,13 +3,14 @@ import { useEffect, useState, useRef } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/v1';
 
-type Tab = 'dashboard' | 'users' | 'crisis';
+type Tab = 'dashboard' | 'users' | 'crisis' | 'settings';
 type UserStatus = 'trial' | 'active' | 'paused' | 'cancelled';
 type SubStatus = 'trialing' | 'active' | 'past_due' | 'cancelled';
 type AlertStatus = 'open' | 'acknowledged' | 'resolved';
 
 interface AdminUserSub { id: string; plan: string; status: SubStatus; trial_end: string; current_period_end: string | null; }
-interface AdminUser { id: string; name: string; phone_number: string; coaching_focus: string; status: UserStatus; crisis_hold: boolean; last_active_at: string | null; registered_at: string; subscription: AdminUserSub | null; }
+interface AdminUser { id: string; name: string; phone_number: string; coaching_focus: string; goals: string; status: UserStatus; crisis_hold: boolean; last_active_at: string | null; registered_at: string; subscription: AdminUserSub | null; }
+interface CoachSettings { coach_alert_phone: string; coach_alert_email: string; }
 interface Message { id: string; session_id: string; role: 'user' | 'ai'; content: string; created_at: string; token_count: number | null; flagged: boolean; flag_reason: string | null; message_type: string; }
 interface UserSubDetail { subscription: { stripe_customer_id: string; stripe_subscription_id: string; plan: string; status: string; trial_start: string; trial_end: string; current_period_end: string | null; created_at: string; } | null; stats: { total_messages: number; user_messages: number; ai_messages: number; flagged_messages: number; total_tokens_used: number; first_message_at: string | null; last_message_at: string | null; }; }
 interface DashStats { total_users: number; active_users: number; trial_users: number; paused_users: number; cancelled_users: number; crisis_hold_count: number; active_subs: number; trialing_subs: number; past_due_subs: number; cancelled_subs: number; trial_to_paid_count: number; mrr_cents: number; arr_cents: number; messages_last_24h: number; messages_last_7d: number; flagged_messages_total: number; open_alerts: number; acknowledged_alerts: number; alerts_last_30d: number; }
@@ -86,6 +87,10 @@ export default function AdminPage() {
   const [resolveInputs, setResolveInputs] = useState<Record<string, string>>({});
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
   const [resolvingAlertId, setResolvingAlertId] = useState<string | null>(null);
+  const [coachSettings, setCoachSettings] = useState<CoachSettings | null>(null);
+  const [settingsForm, setSettingsForm] = useState<CoachSettings>({ coach_alert_phone: '', coach_alert_email: '' });
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -172,6 +177,21 @@ export default function AdminPage() {
   async function handleTabChange(t: Tab) {
     setTab(t);
     if (t === 'crisis' && !crisisLoaded) await loadCrisisAlerts(showResolved);
+    if (t === 'settings' && !coachSettings) {
+      const data = await apiFetch('/admin/settings');
+      setCoachSettings(data);
+      setSettingsForm(data);
+    }
+  }
+
+  async function saveSettings(e: React.FormEvent) {
+    e.preventDefault();
+    setSettingsSaving(true);
+    const data = await apiFetch('/admin/settings', { method: 'PATCH', body: JSON.stringify(settingsForm) });
+    setCoachSettings(data);
+    setSettingsSaved(true);
+    setTimeout(() => setSettingsSaved(false), 3000);
+    setSettingsSaving(false);
   }
 
   async function toggleShowResolved() {
@@ -218,7 +238,7 @@ export default function AdminPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', borderBottom: '1px solid #27272a', background: '#111113', height: 52, flexShrink: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 16 }}>RYKE <span style={{ color: '#e11d48' }}>Admin</span></div>
         <div style={{ display: 'flex', gap: 4 }}>
-          {(['dashboard', 'users', 'crisis'] as Tab[]).map(t => (
+          {(['dashboard', 'users', 'crisis', 'settings'] as Tab[]).map(t => (
             <button key={t} onClick={() => handleTabChange(t)}
               style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: tab === t ? 600 : 400, background: tab === t ? '#27272a' : 'transparent', color: tab === t ? '#fafafa' : '#71717a', position: 'relative' }}>
               {t === 'crisis' ? 'Crisis Alerts' : t.charAt(0).toUpperCase() + t.slice(1)}
@@ -376,17 +396,31 @@ export default function AdminPage() {
             </div>
             {loading && <div style={{ padding: '12px 16px', color: '#71717a', fontSize: 13 }}>Loading...</div>}
             {users.map(u => (
-              <div key={u.id} onClick={() => selectUser(u)}
-                style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #1f1f23', background: selectedUser?.id === u.id ? '#18181b' : 'transparent' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: u.crisis_hold ? '#ef4444' : u.status === 'active' ? '#22c55e' : '#52525b', flexShrink: 0 }} />
-                  <span style={{ fontWeight: 600, fontSize: 13, color: '#fafafa' }}>{u.name}</span>
-                  {u.subscription && <PlanBadge plan={u.subscription.plan} />}
-                  {u.subscription && <SubStatusBadge status={u.subscription.status} />}
-                  {u.crisis_hold && <span style={{ fontSize: 10, background: '#ef4444', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>CRISIS</span>}
+              <div key={u.id} style={{ borderBottom: '1px solid #1f1f23', background: selectedUser?.id === u.id ? '#18181b' : 'transparent' }}>
+                <div onClick={() => selectUser(u)} style={{ padding: '12px 16px', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
+                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: u.crisis_hold ? '#ef4444' : u.status === 'active' ? '#22c55e' : '#52525b', flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, fontSize: 13, color: '#fafafa' }}>{u.name}</span>
+                    {u.subscription && <PlanBadge plan={u.subscription.plan} />}
+                    {u.subscription && <SubStatusBadge status={u.subscription.status} />}
+                    {u.crisis_hold && <span style={{ fontSize: 10, background: '#ef4444', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>CRISIS</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#71717a', paddingLeft: 13 }}>{u.phone_number}</div>
+                  {u.goals && <div style={{ fontSize: 11, color: '#52525b', paddingLeft: 13, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 210 }} title={u.goals}>{u.goals}</div>}
+                  <div style={{ fontSize: 11, color: '#3f3f46', paddingLeft: 13, marginTop: 2 }}>{timeAgo(u.last_active_at)}</div>
                 </div>
-                <div style={{ fontSize: 12, color: '#71717a', paddingLeft: 13 }}>{u.phone_number}</div>
-                <div style={{ fontSize: 11, color: '#52525b', paddingLeft: 13, marginTop: 2 }}>{timeAgo(u.last_active_at)}</div>
+                <div style={{ padding: '0 16px 10px 16px', display: 'flex', gap: 6 }}>
+                  <button onClick={() => selectUser(u)}
+                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #27272a', background: 'transparent', color: '#a1a1aa', cursor: 'pointer' }}>
+                    View Chat
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); toggleUserStatus(u); }} disabled={togglingUserId === u.id}
+                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: 'none', cursor: 'pointer', fontWeight: 600,
+                      background: u.status === 'active' || u.status === 'trial' ? '#3b0a0a' : '#0a1a0e',
+                      color: u.status === 'active' || u.status === 'trial' ? '#f87171' : '#4ade80' }}>
+                    {togglingUserId === u.id ? '...' : u.status === 'active' || u.status === 'trial' ? 'Block' : 'Unblock'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -536,6 +570,63 @@ export default function AdminPage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Settings Tab */}
+      {tab === 'settings' && (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Settings</div>
+          <div style={{ fontSize: 13, color: '#52525b', marginBottom: 28 }}>Configure who gets alerted when a crisis is detected</div>
+
+          <form onSubmit={saveSettings} style={{ maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div style={{ background: '#111113', border: '1px solid #27272a', borderRadius: 12, padding: '24px' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#fafafa', marginBottom: 4 }}>Crisis Coach Contact</div>
+              <div style={{ fontSize: 12, color: '#52525b', marginBottom: 20 }}>
+                When a user sends a distress message, RYKE immediately texts and emails this person.
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: '#71717a', display: 'block', marginBottom: 6 }}>Coach Phone Number (E.164 format, e.g. +12125551234)</label>
+                  <input
+                    value={settingsForm.coach_alert_phone}
+                    onChange={e => setSettingsForm(f => ({ ...f, coach_alert_phone: e.target.value }))}
+                    placeholder="+12125551234"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #3f3f46', background: '#18181b', color: '#fafafa', fontSize: 14, boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#71717a', display: 'block', marginBottom: 6 }}>Coach Email Address</label>
+                  <input
+                    type="email"
+                    value={settingsForm.coach_alert_email}
+                    onChange={e => setSettingsForm(f => ({ ...f, coach_alert_email: e.target.value }))}
+                    placeholder="coach@yourcompany.com"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #3f3f46', background: '#18181b', color: '#fafafa', fontSize: 14, boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ background: '#0a1628', border: '1px solid #1e3a5f', borderRadius: 12, padding: '16px 20px', fontSize: 13, color: '#93c5fd', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>How crisis alerts work</div>
+              When RYKE detects a distress message, it:<br />
+              1. Sends an SMS to the coach phone number above<br />
+              2. Sends an email to the coach email above<br />
+              3. The coach can view the full conversation in the <strong>Users</strong> tab<br />
+              4. The coach contacts the user directly from their own phone<br />
+              5. Once resolved, mark the alert as resolved in the <strong>Crisis Alerts</strong> tab
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button type="submit" disabled={settingsSaving}
+                style={{ padding: '10px 24px', borderRadius: 8, background: 'linear-gradient(135deg,#e11d48,#8b5cf6)', color: '#fff', fontWeight: 600, border: 'none', cursor: 'pointer', fontSize: 14 }}>
+                {settingsSaving ? 'Saving...' : 'Save Settings'}
+              </button>
+              {settingsSaved && <span style={{ fontSize: 13, color: '#4ade80' }}>✓ Saved</span>}
+            </div>
+          </form>
         </div>
       )}
     </div>

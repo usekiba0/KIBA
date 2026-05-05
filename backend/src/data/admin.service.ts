@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { User } from './entities/user.entity';
 import { Message } from './entities/message.entity';
 import { Subscription } from './entities/subscription.entity';
@@ -22,6 +23,7 @@ export class AdminService {
     @InjectRepository(CrisisAlert) private readonly alertRepo: Repository<CrisisAlert>,
     @InjectRepository(ConversationSession) private readonly sessionRepo: Repository<ConversationSession>,
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
   ) {}
 
   async getDashboardStats() {
@@ -104,7 +106,7 @@ export class AdminService {
   async listUsers() {
     const rows = await this.dataSource.query(`
       SELECT
-        u.id, u.name, u.phone_number, u.coaching_focus, u.status,
+        u.id, u.name, u.phone_number, u.coaching_focus, u.goals, u.status,
         u.crisis_hold, u.last_active_at, u.registered_at,
         s.id AS sub_id, s.plan AS sub_plan, s.status AS sub_status,
         s.trial_end, s.current_period_end
@@ -118,6 +120,7 @@ export class AdminService {
       name: r.name,
       phone_number: r.phone_number,
       coaching_focus: r.coaching_focus,
+      goals: r.goals,
       status: r.status,
       crisis_hold: r.crisis_hold,
       last_active_at: r.last_active_at,
@@ -126,6 +129,40 @@ export class AdminService {
         ? { id: r.sub_id, plan: r.sub_plan, status: r.sub_status, trial_end: r.trial_end, current_period_end: r.current_period_end }
         : null,
     }));
+  }
+
+  private async ensureSettingsTable() {
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+  }
+
+  async getSettings() {
+    await this.ensureSettingsTable();
+    const rows: { key: string; value: string }[] = await this.dataSource.query(`SELECT key, value FROM app_settings`);
+    const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    return {
+      coach_alert_phone: map['coach_alert_phone'] ?? this.configService.get<string>('CRISIS_COACH_ALERT_PHONE') ?? '',
+      coach_alert_email: map['coach_alert_email'] ?? this.configService.get<string>('CRISIS_COACH_ALERT_EMAIL') ?? '',
+    };
+  }
+
+  async updateSettings(settings: { coach_alert_phone?: string; coach_alert_email?: string }) {
+    await this.ensureSettingsTable();
+    for (const [key, value] of Object.entries(settings)) {
+      if (value !== undefined) {
+        await this.dataSource.query(
+          `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+          [key, value],
+        );
+      }
+    }
+    return this.getSettings();
   }
 
   async getUserMessages(userId: string) {
