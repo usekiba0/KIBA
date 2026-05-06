@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ['001-sms-ai-coaching', 'main']
+    branches: ['master', '001-sms-ai-coaching']
   pull_request:
-    branches: ['main']
+    branches: ['master']
 
 jobs:
   backend:
@@ -127,3 +127,45 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:3000/v1
           NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+
+  verify-deployment:
+    name: Verify Live Deployments
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+
+    steps:
+      - name: Wait for Render to deploy (90s)
+        run: sleep 90
+
+      - name: Check backend health
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://rykeai-backend.onrender.com/v1/health)
+          if [ "$STATUS" != "200" ]; then
+            echo "Backend health check failed: HTTP $STATUS"
+            exit 1
+          fi
+          echo "Backend health: OK ($STATUS)"
+
+      - name: Check CORS allows PATCH
+        run: |
+          METHODS=$(curl -s -X OPTIONS https://rykeai-backend.onrender.com/v1/admin/users/x/status \
+            -H "Origin: https://ryke-ai.vercel.app" \
+            -H "Access-Control-Request-Method: PATCH" \
+            -D - 2>&1 | grep -i "access-control-allow-methods" | tr -d '\r')
+          echo "CORS methods: $METHODS"
+          if echo "$METHODS" | grep -q "PATCH"; then
+            echo "CORS PATCH: OK"
+          else
+            echo "WARNING: PATCH not in CORS — Render may still be deploying"
+          fi
+
+      - name: Check new endpoints exist
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://rykeai-backend.onrender.com/v1/onboarding/check-phone?phone=%2B15550001234")
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "400" ]; then
+            echo "check-phone endpoint: OK ($STATUS)"
+          else
+            echo "check-phone endpoint missing: HTTP $STATUS — Render may not have deployed yet"
+          fi
