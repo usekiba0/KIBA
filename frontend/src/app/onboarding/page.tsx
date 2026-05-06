@@ -42,9 +42,14 @@ export default function OnboardingPage() {
       <div className="onboarding-container">
         <div className="success-card">
           <div className="success-icon">📱</div>
-          <h2>Check your phone!</h2>
-          <p>Your coach just texted you. Reply to start your first coaching session.</p>
-          <p className="success-hint">Can&apos;t see it? Check that {form.phone_number} is correct and try texting us first.</p>
+          <h2>One last step!</h2>
+          <p>Text the number below from your phone to start your first coaching session. Your AI coach will reply instantly.</p>
+          <div style={{ margin: '24px 0', padding: '20px', background: '#18181b', borderRadius: 12, border: '1px solid #3f3f46', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: '#71717a', marginBottom: 8 }}>Text this number to begin</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#fafafa', letterSpacing: 2 }}>+1 (310) 871-2597</div>
+            <div style={{ fontSize: 12, color: '#52525b', marginTop: 8 }}>iPhone users get iMessage · Android users get SMS</div>
+          </div>
+          <p className="success-hint">Send any message — say hi, ask a question, or share your first goal. Your coach is ready.</p>
         </div>
       </div>
     );
