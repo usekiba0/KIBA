@@ -56,11 +56,20 @@ export class MessagingController {
   @Post('imsg')
   @UseGuards(SendBlueWebhookGuard)
   @HttpCode(200)
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false }))
-  async handleSendBlueWebhook(@Body() body: SendBlueWebhookDto) {
+  async handleSendBlueWebhook(@Body() body: Record<string, unknown>) {
+    this.logger.log(`[SendBlue] Raw webhook payload: ${JSON.stringify(body)}`);
+
+    const from = (body.number ?? body.from_number ?? body.sender) as string;
+    const content = (body.content ?? body.body ?? body.text) as string;
+
+    if (!from || !content) {
+      this.logger.warn(`[SendBlue] Missing from or content — from:${from} content:${content}`);
+      return { received: true };
+    }
+
     await this.coachingQueue.add('process-coaching-message', {
-      from: body.number,
-      body: body.content,
+      from,
+      body: content,
       twilioSid: null,
       numMedia: 0,
       mediaUrls: [],
@@ -71,7 +80,7 @@ export class MessagingController {
     structuredLog(this.logger, 'log', {
       service: 'messaging',
       operation: 'inbound_imessage',
-      from: body.number,
+      from,
     });
     return { received: true };
   }
