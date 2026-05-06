@@ -32,8 +32,8 @@ export class MessagingService implements OnModuleInit {
         headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret },
         timeout: 5000,
       });
-      const lines: { number?: string }[] = response.data?.data ?? [];
-      this.sendBlueFrom = lines[0]?.number ?? null;
+      const numbers: string[] = response.data?.numbers ?? response.data?.data?.map((l: { number?: string }) => l.number) ?? [];
+      this.sendBlueFrom = numbers[0] ?? null;
       if (this.sendBlueFrom) {
         this.logger.log(`[SendBlue] Sender number resolved: ${this.sendBlueFrom}`);
       } else {
