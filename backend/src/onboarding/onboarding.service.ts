@@ -68,7 +68,7 @@ export class OnboardingService {
       }
 
       const stripeSub = await this.stripeService.createSubscriptionWithTrial(
-        customer.id,
+        stripeCustomerId!,
         dto.stripe_payment_method_id,
         priceId,
         trialDays,
