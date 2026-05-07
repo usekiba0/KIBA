@@ -78,7 +78,10 @@ export class VisionService {
   }
 
   private parseResponse(response: Anthropic.Message): NutritionResult {
-    const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+    const raw = response.content[0].type === 'text' ? response.content[0].text : '{}';
+    this.logger.log(`[Vision] raw response: ${raw.substring(0, 300)}`);
+    // Strip markdown code fences Claude sometimes adds despite "ONLY valid JSON" instruction
+    const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     try {
       const parsed = JSON.parse(text);
       return {
