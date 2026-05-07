@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { CrisisAlert } from '../data/entities/crisis-alert.entity';
 import { User } from '../data/entities/user.entity';
+import { Message } from '../data/entities/message.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { AlertChannel } from '../data/entities/crisis-alert.entity';
 import { structuredLog } from '../common/logger';
@@ -18,6 +19,7 @@ export class SafetyProcessor {
   constructor(
     @InjectRepository(CrisisAlert) private readonly alertRepo: Repository<CrisisAlert>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
     private readonly messagingService: MessagingService,
     private readonly config: ConfigService,
   ) {}
@@ -27,21 +29,62 @@ export class SafetyProcessor {
     const alert = await this.alertRepo.findOne({ where: { id: job.data.alertId } });
     if (!alert || alert.coach_alerted) return;
 
-    const user = await this.userRepo.findOne({ where: { id: job.data.userId } });
+    const [user, triggeringMsg] = await Promise.all([
+      this.userRepo.findOne({ where: { id: job.data.userId } }),
+      alert.triggering_message_id
+        ? this.messageRepo.findOne({ where: { id: alert.triggering_message_id } })
+        : Promise.resolve(null),
+    ]);
+
     const userName = user?.name ?? 'Unknown';
     const userPhone = user?.phone_number ?? 'Unknown';
-    const alertBody = `RYKE AI CRISIS ALERT\nUser: ${userName} (${userPhone})\nTime: ${new Date().toISOString()}\nAlert ID: ${job.data.alertId}\n\nPlease respond to this user immediately.`;
+    const age = user?.age ? `, ${user.age}` : '';
+    const focus = user?.coaching_focus ?? 'general';
+    const goals = user?.goals ?? 'not set';
+    const health = user?.health_conditions?.length ? user.health_conditions.join(', ') : 'none reported';
+    const injuries = user?.injuries ?? 'none';
+    const msgSnippet = triggeringMsg?.content
+      ? `"${triggeringMsg.content.substring(0, 120)}${triggeringMsg.content.length > 120 ? '…' : ''}"`
+      : 'Not available';
+    const method = alert.detection_method === 'keyword' ? 'keyword match' : `AI classifier (${Math.round((alert.confidence_score ?? 0) * 100)}% confidence)`;
+    const detectedAt = new Date().toLocaleString('en-GB', { timeZone: 'UTC', hour12: false });
+
+    const smsTxt =
+      `⚠️ RYKE CRISIS ALERT\n` +
+      `${userName}${age} | ${userPhone}\n` +
+      `Health: ${health}\n` +
+      `Message: ${msgSnippet}\n` +
+      `Detected: ${method}\n` +
+      `Their session is paused — please reach out directly.`;
+
+    const emailText =
+      `RYKE AI CRISIS ALERT — ${detectedAt} UTC\n\n` +
+      `USER\n` +
+      `  Name:    ${userName}${age}\n` +
+      `  Phone:   ${userPhone}\n` +
+      `  Focus:   ${focus}\n` +
+      `  Goals:   ${goals}\n` +
+      `  Health:  ${health}\n` +
+      `  Injuries: ${injuries}\n\n` +
+      `TRIGGERING MESSAGE\n` +
+      `  ${msgSnippet}\n\n` +
+      `DETECTION\n` +
+      `  Method:  ${method}\n` +
+      `  Alert ID: ${job.data.alertId}\n\n` +
+      `The user has been sent a holding message and their session is paused. ` +
+      `Please contact them directly on the number above as soon as possible.\n\n` +
+      `Manage this alert → https://rykeai-backend.onrender.com/admin (Crisis tab)`;
 
     // Send SMS alert to coach
     const coachPhone = this.config.get<string>('CRISIS_COACH_ALERT_PHONE');
     if (coachPhone) {
-      await this.messagingService.sendViaTwilio(coachPhone, alertBody);
+      await this.messagingService.sendViaTwilio(coachPhone, smsTxt);
     }
 
     // Send email alert to coach
     const coachEmail = this.config.get<string>('CRISIS_COACH_ALERT_EMAIL');
     if (coachEmail) {
-      await this.sendEmailAlert(coachEmail, alertBody, userName);
+      await this.sendEmailAlert(coachEmail, emailText, userName);
     }
 
     const now = new Date();
@@ -70,7 +113,7 @@ export class SafetyProcessor {
     await transporter.sendMail({
       from: this.config.get('SMTP_FROM', 'RYKE AI Alerts <alerts@ryke.ai>'),
       to,
-      subject: `⚠️ RYKE AI Crisis Alert — ${userName}`,
+      subject: `⚠️ RYKE Crisis Alert — ${userName}`,
       text,
     });
   }
