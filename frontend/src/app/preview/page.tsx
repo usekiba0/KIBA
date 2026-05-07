@@ -49,18 +49,18 @@ function FadeIn({ children, delay = 0, style = {} }: { children: React.ReactNode
 }
 
 // ── Colour tokens — light warm theme ────────────────────────
-const R  = '#c9372b';      // accent coral/brick
-const RL = '#e05444';      // accent lighter
-const V  = '#c9372b';      // same accent (no violet in light theme)
-const BG = '#faf9f7';      // warm off-white background
-const S1 = '#f0ece7';      // card surface
-const S2 = '#e8e3dd';      // alternate section surface
-const TX = '#1a1714';      // near-black text
-const MT = '#78716c';      // muted warm grey
+const R  = '#1a4f35';      // deep forest green
+const RL = '#2d7a58';      // green lighter
+const V  = '#1a4f35';      // same (no violet)
+const BG = '#f5f3ee';      // warm parchment
+const S1 = '#ebe8e1';      // card surface
+const S2 = '#e2ddd6';      // alternate section
+const TX = '#1a1714';      // near-black
+const MT = '#7a7268';      // warm muted
 
-const GRAD = R;            // solid accent, no gradient
-const GLOW = (_a: number) => 'rgba(201,55,43,0.12)';
-const VGLOW = (_a: number) => 'rgba(201,55,43,0.06)';
+const GRAD = R;
+const GLOW = (_a: number) => 'rgba(26,79,53,0.10)';
+const VGLOW = (_a: number) => 'rgba(26,79,53,0.05)';
 
 export default function Preview() {
   const [typingDone, setTypingDone] = useState(false);
@@ -77,8 +77,8 @@ export default function Preview() {
   return (
     <>
       {/* Preview banner */}
-      <div style={{ background: '#1a1714', color: '#faf9f7', textAlign: 'center', padding: '10px 24px', fontSize: 13, fontWeight: 500 }}>
-        Design preview &mdash; <span style={{ color: RL }}>not live</span> &middot; Share this link with the client for feedback
+      <div style={{ background: R, color: '#f5f3ee', textAlign: 'center', padding: '11px 24px', fontSize: 13, fontWeight: 500, letterSpacing: '0.3px' }}>
+        Design preview &mdash; share this link with the client for feedback
       </div>
 
       {/* ══ NAV ══ */}
@@ -95,29 +95,26 @@ export default function Preview() {
       </nav>
 
       {/* ══ HERO ══ */}
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '140px 48px 80px', position: 'relative', overflow: 'hidden', background: BG }}>
-        <div style={{ position: 'absolute', top: '-20%', left: '50%', transform: 'translateX(-50%)', width: '140%', height: '70%', background: `radial-gradient(ellipse at 50% 0%,${GLOW(0.18)} 0%,${VGLOW(0.08)} 40%,transparent 70%)`, pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', inset: 0, backgroundImage: `linear-gradient(${GLOW(0.06)} 1px,transparent 1px),linear-gradient(90deg,${GLOW(0.06)} 1px,transparent 1px)`, backgroundSize: '60px 60px', maskImage: 'radial-gradient(ellipse 90% 90% at 50% 0%,black 0%,transparent 100%)', pointerEvents: 'none' }} />
-
-        <div style={{ maxWidth: 1200, width: '100%', display: 'grid', gridTemplateColumns: '1fr auto', gap: 80, alignItems: 'center', position: 'relative' }}>
+      <div style={{ minHeight: '94vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '120px 48px 80px', background: BG }}>
+        <div style={{ maxWidth: 1200, width: '100%', display: 'grid', gridTemplateColumns: '1fr auto', gap: 80, alignItems: 'center' }}>
           <div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: GLOW(0.1), border: `1px solid ${GLOW(0.35)}`, padding: '8px 18px', borderRadius: 30, fontSize: 12, fontWeight: 500, letterSpacing: '1.5px', textTransform: 'uppercase' as const, color: RL, marginBottom: 36, animation: 'fadeUp 0.8s ease both' }}>
-              <span className="pulse-dot" /> Available 24/7 &middot; Works on any phone
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(26,79,53,0.08)', border: '1px solid rgba(26,79,53,0.2)', padding: '8px 20px', borderRadius: 30, fontSize: 12, fontWeight: 600, letterSpacing: '1.5px', textTransform: 'uppercase' as const, color: R, marginBottom: 36, animation: 'fadeUp 0.8s ease both' }}>
+              <span className="pulse-dot" /> Personal coaching &middot; No app needed
             </div>
             <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(48px,6vw,88px)', fontWeight: 300, lineHeight: 1.05, letterSpacing: '-2.5px', marginBottom: 28, color: TX, animation: 'fadeUp 0.8s ease 0.1s both' }}>
-              The mentor<br />
-              you <em style={{ fontStyle: 'italic', color: V, fontWeight: 400 }}>never</em> had.<br />
-              <strong style={{ fontWeight: 700 }}>The results you</strong><br />
-              <strong style={{ fontWeight: 700 }}>always wanted.</strong>
+              The coach<br />
+              who <em style={{ fontStyle: 'italic', color: R, fontWeight: 400 }}>actually</em> shows up.<br />
+              <strong style={{ fontWeight: 700 }}>Every single</strong><br />
+              <strong style={{ fontWeight: 700 }}>day.</strong>
             </h1>
             <p style={{ fontSize: 18, color: MT, maxWidth: 480, lineHeight: 1.75, marginBottom: 48, fontWeight: 300, animation: 'fadeUp 0.8s ease 0.2s both' }}>
-              AI coaching for fitness, nutrition, and mental wellness &mdash; delivered straight to your messages. No app. No login. Just results.
+              Fitness, nutrition, and wellness coaching delivered straight to your messages. Text like you would a real coach &mdash; no app, no login, no friction.
             </p>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' as const, marginBottom: 48, animation: 'fadeUp 0.8s ease 0.3s both' }}>
-              <Link href="/onboarding" style={{ background: GRAD, color: 'white', padding: '17px 40px', borderRadius: 12, fontSize: 16, fontWeight: 600, textDecoration: 'none', boxShadow: `0 8px 32px ${GLOW(0.45)}`, display: 'inline-block' }}>
+              <Link href="/onboarding" style={{ background: R, color: 'white', padding: '17px 40px', borderRadius: 10, fontSize: 16, fontWeight: 600, textDecoration: 'none', display: 'inline-block' }}>
                 Start Free Trial &rarr;
               </Link>
-              <a href="#how" style={{ background: 'rgba(255,255,255,0.05)', color: '#d4d4d8', padding: '17px 32px', borderRadius: 12, fontSize: 16, fontWeight: 400, textDecoration: 'none', border: '1px solid rgba(255,255,255,0.1)', display: 'inline-block' }}>
+              <a href="#how" style={{ background: 'transparent', color: TX, padding: '17px 32px', borderRadius: 10, fontSize: 16, fontWeight: 400, textDecoration: 'none', border: '1px solid rgba(0,0,0,0.12)', display: 'inline-block' }}>
                 See how it works
               </a>
             </div>
@@ -130,47 +127,31 @@ export default function Preview() {
 
           {/* Phone + floating cards */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
-            <div style={{ position: 'absolute', inset: -40, background: `radial-gradient(ellipse at 50% 50%,${GLOW(0.18)} 0%,transparent 70%)`, borderRadius: '50%', animation: 'slowpulse 4s ease-in-out infinite', pointerEvents: 'none' }} />
-            <div className="float-card" style={{ position: 'absolute', top: -24, right: -60, background: 'rgba(17,17,19,0.96)', backdropFilter: 'blur(16px)', border: `1px solid ${GLOW(0.3)}`, borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', animation: 'floatBadge 3s ease-in-out infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
-              <div style={{ width: 38, height: 38, borderRadius: '50%', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🔥</div>
-              <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>7-day streak!</div><div style={{ fontSize: 11, color: RL }}>Alex &middot; Fitness plan</div></div>
+            <div className="float-card" style={{ position: 'absolute', top: -24, right: -60, background: 'white', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', animation: 'floatBadge 3s ease-in-out infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', background: R, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🔥</div>
+              <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>7-day streak!</div><div style={{ fontSize: 11, color: R }}>Alex &middot; Fitness plan</div></div>
             </div>
-            <div className="float-card" style={{ position: 'absolute', bottom: -20, left: -56, background: 'rgba(17,17,19,0.96)', backdropFilter: 'blur(16px)', border: `1px solid ${GLOW(0.3)}`, borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', animation: 'floatBadge 3s ease-in-out 1.5s infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
-              <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#065f46,#34d399)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🥗</div>
-              <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>Meal logged ✓</div><div style={{ fontSize: 11, color: '#34d399' }}>142 kcal &middot; 18g protein</div></div>
+            <div className="float-card" style={{ position: 'absolute', bottom: -20, left: -56, background: 'white', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', animation: 'floatBadge 3s ease-in-out 1.5s infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#065f46', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🥗</div>
+              <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>Meal logged ✓</div><div style={{ fontSize: 11, color: '#059669' }}>142 kcal &middot; 18g protein</div></div>
             </div>
-            <div style={{ width: 290, background: '#141414', borderRadius: 42, border: '6px solid #222', padding: '22px 16px 30px', boxShadow: `0 0 0 1px ${GLOW(0.25)},0 40px 80px rgba(0,0,0,0.7),0 0 80px ${GLOW(0.1)}`, position: 'relative' }}>
-              <div style={{ width: 80, height: 7, background: '#1f1f1f', borderRadius: 4, margin: '0 auto 18px' }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 14 }}>
-                <div style={{ width: 34, height: 34, borderRadius: '50%', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>R</div>
+            <div style={{ width: 290, background: 'white', borderRadius: 42, border: '6px solid #e8e3dd', padding: '22px 16px 30px', boxShadow: '0 8px 40px rgba(0,0,0,0.10)', position: 'relative' }}>
+              <div style={{ width: 80, height: 7, background: S1, borderRadius: 4, margin: '0 auto 18px' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px 12px', borderBottom: '1px solid rgba(0,0,0,0.07)', marginBottom: 14 }}>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', background: R, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>R</div>
                 <div><div style={{ fontSize: 13, fontWeight: 500, color: TX }}>Ryke</div><div style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Online now</div></div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, minHeight: 200 }}>
                 {MSGS.map((m, i) => (
-                  <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', fontSize: 12, lineHeight: 1.5, maxWidth: '88%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? GRAD : '#222', color: TX, border: m.who === 'ryke' ? `1px solid ${GLOW(0.18)}` : 'none', animation: `msgIn 0.4s ease ${m.delay}s both` }}>{m.text}</div>
+                  <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', fontSize: 12, lineHeight: 1.5, maxWidth: '88%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? R : S1, color: m.who === 'user' ? 'white' : TX, animation: `msgIn 0.4s ease ${m.delay}s both` }}>{m.text}</div>
                 ))}
                 {!typingDone && (
-                  <div style={{ padding: '9px 14px', borderRadius: '16px 16px 16px 4px', background: '#222', border: `1px solid ${GLOW(0.18)}`, alignSelf: 'flex-start', display: 'inline-flex', gap: 4, animation: 'msgIn 0.3s ease 3s both' }}>
+                  <div style={{ padding: '9px 14px', borderRadius: '16px 16px 16px 4px', background: S1, alignSelf: 'flex-start', display: 'inline-flex', gap: 4, animation: 'msgIn 0.3s ease 3s both' }}>
                     {[0, 1, 2].map(i => <span key={i} className="typing-dot" style={{ animationDelay: `${i * 0.2}s` }} />)}
                   </div>
                 )}
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ══ PRESS BAR ══ */}
-      <div style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '28px 48px', overflow: 'hidden' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <div style={{ fontSize: 10, letterSpacing: 3, textTransform: 'uppercase' as const, color: '#3f3f46', textAlign: 'center' as const, marginBottom: 20, fontWeight: 500 }}>As featured in</div>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 48, flexWrap: 'wrap' as const }}>
-            {['TechCrunch', 'Forbes', 'Healthline', "Men's Health", 'Well+Good', 'Business Insider'].map(name => (
-              <div key={name} style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 600, color: '#3f3f46', letterSpacing: '-0.3px', transition: 'color 0.2s' }}
-                onMouseEnter={e => (e.currentTarget.style.color = MT)}
-                onMouseLeave={e => (e.currentTarget.style.color = '#3f3f46')}
-              >{name}</div>
-            ))}
           </div>
         </div>
       </div>
@@ -306,47 +287,6 @@ export default function Preview() {
         </div>
       </div>
 
-      {/* ══ COMPARISON TABLE ══ */}
-      <div style={{ padding: '100px 48px' }}>
-        <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-          <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 60 }}>
-            <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>How we compare</div>
-            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(32px,4vw,56px)', fontWeight: 300, letterSpacing: '-1px', color: TX }}>
-              Ryke wins <em style={{ fontStyle: 'italic', color: V }}>every</em> column.
-            </h2>
-          </div></FadeIn>
-          <FadeIn delay={100}>
-            <div style={{ borderRadius: 20, overflow: 'hidden', border: `1px solid ${GLOW(0.25)}` }}>
-              {/* Header */}
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', background: `linear-gradient(135deg,${GLOW(0.2)},${VGLOW(0.1)})` }}>
-                <div style={{ padding: '18px 24px', fontSize: 13, fontWeight: 600, color: MT }}>Feature</div>
-                {['Ryke.ai', 'MyFitnessPal', 'Noom', 'Personal Trainer'].map(h => (
-                  <div key={h} style={{ padding: '18px 16px', fontSize: 13, fontWeight: 600, color: h === 'Ryke.ai' ? TX : MT, textAlign: 'center' as const }}>{h}</div>
-                ))}
-              </div>
-              {/* Rows */}
-              {[
-                ['Monthly price', '$20', 'Free / $19.99', '$70', '$200–500'],
-                ['24/7 availability', '✦', '✦', '✕', '✕'],
-                ['AI-personalised', '✦', '✕', 'Partial', '✕'],
-                ['No app required', '✦', '✕', '✕', '✓'],
-                ['Mental wellness', '✦', '✕', '✕', 'Partial'],
-                ['Food photo analysis', '✦', '✕', '✕', '✕'],
-                ['Crisis safety net', '✦', '✕', '✕', '✕'],
-                ['SMS-native', '✦', '✕', '✕', '✕'],
-              ].map(([feature, ...vals], ri) => (
-                <div key={feature} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', background: ri % 2 === 0 ? S1 : '#0f0f12', borderTop: `1px solid rgba(255,255,255,0.04)` }}>
-                  <div style={{ padding: '14px 24px', fontSize: 14, color: '#d4d4d8', fontWeight: 400 }}>{feature}</div>
-                  {vals.map((v, vi) => (
-                    <div key={vi} style={{ padding: '14px 16px', textAlign: 'center' as const, fontSize: vi === 0 ? 16 : 14, color: vi === 0 ? (v === '✦' ? RL : TX) : v === '✦' ? RL : v === '✕' ? '#3f3f46' : MT, fontWeight: vi === 0 ? 600 : 400 }}>{v}</div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </FadeIn>
-        </div>
-      </div>
-
       {/* ══ FOR COACHES ══ */}
       <div id="coaches" style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
@@ -375,20 +315,6 @@ export default function Preview() {
             </div>
           </div>
         </div>
-      </div>
-
-      {/* ══ INTEGRATIONS ══ */}
-      <div style={{ padding: '80px 48px', borderBottom: `1px solid ${GLOW(0.1)}` }}>
-        <FadeIn><div style={{ maxWidth: 1100, margin: '0 auto', textAlign: 'center' as const }}>
-          <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Integrations</div>
-          <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(28px,4vw,48px)', fontWeight: 300, letterSpacing: '-1px', marginBottom: 12, color: TX }}>Works with the apps you <em style={{ fontStyle: 'italic', color: V }}>already use</em></h2>
-          <p style={{ fontSize: 15, color: MT, marginBottom: 40, fontWeight: 300 }}>Ryke pulls data from the tools you already use &mdash; so your mentor always has the full picture.</p>
-          <div style={{ display: 'flex', flexWrap: 'wrap' as const, justifyContent: 'center', gap: 12 }}>
-            {['&#8987; Apple Watch', '&#10084;&#65039; Apple Health', '&#127939; Strava', '&#128154; WHOOP', '&#128692; Peloton', '&#8987; Garmin', '&#128141; Oura Ring', '&#128197; Google Calendar', '&#128564; 8 Sleep', '&#129503; Calm', '&#127911; Headspace', '&#8987; Fitbit'].map(app => (
-              <div key={app} style={{ background: S1, border: `1px solid ${GLOW(0.15)}`, borderRadius: 40, padding: '10px 20px', fontSize: 13, color: '#d4d4d8' }} dangerouslySetInnerHTML={{ __html: app }} />
-            ))}
-          </div>
-        </div></FadeIn>
       </div>
 
       {/* ══ PRICING ══ */}
