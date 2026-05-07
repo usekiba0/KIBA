@@ -76,7 +76,7 @@ export default function Preview() {
   ];
 
   return (
-    <>
+    <div style={{ background: BG, color: TX }}>
       {/* preview bar */}
       <div style={{ background: R, color: '#FAFAF8', textAlign: 'center', padding: '10px 24px', fontSize: 13, fontWeight: 500, letterSpacing: '0.3px' }}>
         Design preview &mdash; share this link with your client for feedback
@@ -491,11 +491,11 @@ export default function Preview() {
         @keyframes typingPulse{0%,80%,100%{opacity:.25;transform:scale(.85)}40%{opacity:1;transform:scale(1)}}
         .feat-card{background:${S1};border:1px solid ${GLOW(0.15)};border-radius:18px;padding:32px;transition:all 0.3s;position:relative;overflow:hidden;}
         .feat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:${GRAD};opacity:0;transition:opacity 0.3s;}
-        .feat-card:hover{border-color:${GLOW(0.4)};transform:translateY(-5px);box-shadow:0 20px 48px rgba(0,0,0,0.5);}
+        .feat-card:hover{border-color:rgba(180,83,9,0.3);transform:translateY(-5px);box-shadow:0 12px 32px rgba(0,0,0,0.10);}
         .feat-card:hover::before{opacity:1;}
         .float-card{transition:all 0.3s;}
         @media(max-width:900px){nav ul li:not(:last-child){display:none;}}
       `}</style>
-    </>
+    </div>
   );
 }
