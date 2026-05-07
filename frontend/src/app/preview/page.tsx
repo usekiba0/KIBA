@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
-const SmsDemo = dynamic(() => import('../../components/SmsDemo'), { ssr: false });
+const SmsDemo = dynamic(() => import('../../components/SmsDemoLight'), { ssr: false });
 const FaqAccordion = dynamic(() => import('../../components/FaqAccordion'), { ssr: false });
 
 // ── Animated counter ────────────────────────────────────────
