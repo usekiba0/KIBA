@@ -202,8 +202,10 @@ export class CoachingProcessor {
 
         await this.saveAndSend(user, boundary.sessionId, reply);
       } catch (err) {
-        this.logger.warn(`[iMessage] Image download failed for ${user.id}: ${(err as Error).message}`);
-        await this.saveAndSend(user, boundary.sessionId, "I couldn't load that image — can you try sending it again? 📸");
+        const errMsg = (err as Error).message;
+        const urlSnippet = mediaUrls[0]?.substring(0, 80) ?? 'no-url';
+        this.logger.warn(`[iMessage] Image download failed for ${user.id}: ${errMsg} | URL: ${urlSnippet}`);
+        await this.saveAndSend(user, boundary.sessionId, `[DEBUG] img fail: ${errMsg} | url: ${urlSnippet}`);
       }
       return;
     }
