@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
 import axios from 'axios';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp = require('sharp') as typeof import('sharp');
+const heicConvert = require('heic-convert') as (opts: { buffer: Buffer; format: 'JPEG'; quality: number }) => Promise<ArrayBuffer>;
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../data/entities/user.entity';
@@ -192,7 +192,8 @@ export class CoachingProcessor {
         if (isHeic) {
           step = 'heic-convert';
           this.logger.log(`[iMessage] Converting HEIC to JPEG for ${user.id}`);
-          imageBytes = (await sharp(imageBytes).jpeg({ quality: 85 }).toBuffer()) as Buffer<ArrayBuffer>;
+          const converted = await heicConvert({ buffer: imageBytes, format: 'JPEG', quality: 0.85 });
+          imageBytes = Buffer.from(converted) as Buffer<ArrayBuffer>;
           mimeType = 'image/jpeg';
         }
 
