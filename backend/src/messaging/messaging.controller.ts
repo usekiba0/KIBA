@@ -72,6 +72,11 @@ export class MessagingController {
     // SendBlue doesn't always send content-type; default to jpeg for image detection downstream
     const mediaContentTypes = mediaUrl ? ['image/jpeg'] : [];
 
+    // jobId deduplicates within a 30-second window — prevents double-firing webhooks
+    const contentKey = (content || mediaUrl || '').substring(0, 40).replace(/\W/g, '_');
+    const timeBucket = Math.floor(Date.now() / 30_000);
+    const jobId = `imsg:${from}:${contentKey}:${timeBucket}`;
+
     await this.coachingQueue.add('process-coaching-message', {
       from,
       body: content || '[image]',
@@ -80,7 +85,7 @@ export class MessagingController {
       mediaUrls,
       mediaContentTypes,
       channel: 'imessage',
-    });
+    }, { jobId });
 
     structuredLog(this.logger, 'log', {
       service: 'messaging',

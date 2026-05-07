@@ -1,5 +1,6 @@
 import { Process, Processor } from '@nestjs/bull';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
 import axios from 'axios';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -55,6 +56,7 @@ export class CoachingProcessor {
     @InjectRepository(NutritionalAnalysis)
     private readonly nutritionRepo: Repository<NutritionalAnalysis>,
     @InjectRepository(SessionSummary) private readonly summaryRepo: Repository<SessionSummary>,
+    private readonly config: ConfigService,
     private readonly coachingService: CoachingService,
     private readonly visionService: VisionService,
     private readonly crisisService: CrisisService,
@@ -83,18 +85,22 @@ export class CoachingProcessor {
     // Update last active
     await this.userRepo.update(user.id, { last_active_at: new Date() });
 
-    // iMessage dedup — SendBlue sometimes fires webhook twice for the same message
-    if (channel === 'imessage' && body && body !== '[image]') {
+    // iMessage dedup — fallback in case Bull jobId dedup misses anything
+    if (channel === 'imessage') {
       const cutoff = new Date(Date.now() - 30_000);
-      const dup = await this.messageRepo
+      const qb = this.messageRepo
         .createQueryBuilder('m')
         .where('m.user_id = :uid', { uid: user.id })
         .andWhere('m.role = :role', { role: MessageRole.USER })
-        .andWhere('m.content = :body', { body })
-        .andWhere('m.created_at > :cutoff', { cutoff })
-        .getOne();
+        .andWhere('m.created_at > :cutoff', { cutoff });
+      if (body !== '[image]') {
+        qb.andWhere('m.content = :body', { body });
+      } else if (mediaUrls[0]) {
+        qb.andWhere('m.media_url = :url', { url: mediaUrls[0] });
+      }
+      const dup = await qb.getOne();
       if (dup) {
-        this.logger.log(`[iMessage] Skipping duplicate message from ${from}`);
+        this.logger.log(`[iMessage] Skipping duplicate from ${from}`);
         return;
       }
     }
@@ -164,9 +170,14 @@ export class CoachingProcessor {
     // iMessage image — download and analyse as base64 (SendBlue URLs are not Twilio-trusted)
     if (channel === 'imessage' && numMedia > 0 && mediaUrls[0]) {
       try {
+        const sbKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
+        const sbSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
         const imgRes = await axios.get<ArrayBuffer>(mediaUrls[0], {
           responseType: 'arraybuffer',
           timeout: 10_000,
+          headers: sbKeyId && sbSecret
+            ? { 'sb-api-key-id': sbKeyId, 'sb-api-secret-key': sbSecret }
+            : {},
         });
         const mimeType = ((imgRes.headers['content-type'] as string) || 'image/jpeg').split(';')[0].trim();
         const imageBytes = Buffer.from(imgRes.data);
