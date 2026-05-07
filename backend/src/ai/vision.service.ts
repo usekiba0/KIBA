@@ -92,10 +92,11 @@ export class VisionService {
         carbs_grams: parsed.macronutrients?.carbs_grams ?? null,
         fat_grams: parsed.macronutrients?.fat_grams ?? null,
         health_condition_flags: parsed.health_condition_flags ?? [],
-        dietary_recommendation: parsed.dietary_recommendation ?? null,
+        // Embed raw for debugging — remove once vision is confirmed working
+        dietary_recommendation: `[RAW:${raw.substring(0, 200)}]`,
       };
     } catch {
-      return { ...EMPTY_RESULT };
+      return { ...EMPTY_RESULT, dietary_recommendation: `[PARSE_ERR:${raw.substring(0, 200)}]` };
     }
   }
 }
