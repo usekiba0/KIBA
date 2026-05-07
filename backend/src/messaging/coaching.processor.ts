@@ -188,16 +188,15 @@ export class CoachingProcessor {
         const imgUrl = mediaUrls[0];
         const isHeic = mimeType === 'image/heic' || mimeType === 'image/heif' ||
           imgUrl.toLowerCase().endsWith('.heic') || imgUrl.toLowerCase().endsWith('.heif');
+        let heicBytes = 0;
         if (isHeic) {
-          this.logger.log(`[iMessage] HEIC download size: ${imageBytes.length} bytes`);
+          heicBytes = imageBytes.length;
           const converted = await heicConvert({ buffer: imageBytes, format: 'JPEG', quality: 0.85 });
           imageBytes = Buffer.from(converted) as Buffer<ArrayBuffer>;
           mimeType = 'image/jpeg';
-          this.logger.log(`[iMessage] JPEG after conversion: ${imageBytes.length} bytes`);
         }
 
         const nutritionResult = await this.visionService.analyseFoodFromBytes(imageBytes, mimeType, user);
-        this.logger.log(`[iMessage] Vision result: food_identified=${nutritionResult.food_identified} foods=${JSON.stringify(nutritionResult.detected_foods)}`);
 
         await this.nutritionRepo.save({
           message_id: inboundMsg.id,
@@ -213,7 +212,7 @@ export class CoachingProcessor {
         });
 
         const reply = !nutritionResult.food_identified
-          ? "I couldn't identify a meal in that photo — try a clearer shot with the food in frame? 📸"
+          ? `[DBG heic=${heicBytes}b jpeg=${imageBytes.length}b] no food found`
           : `${nutritionResult.dietary_recommendation ?? 'Looks good!'}\n\n~${nutritionResult.total_calories ?? '?'} cal | ${nutritionResult.protein_grams ?? '?'}p/${nutritionResult.carbs_grams ?? '?'}c/${nutritionResult.fat_grams ?? '?'}f`;
 
         await this.saveAndSend(user, boundary.sessionId, reply);
