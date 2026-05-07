@@ -16,6 +16,12 @@ export interface NutritionResult {
   dietary_recommendation: string | null;
 }
 
+const EMPTY_RESULT: NutritionResult = {
+  food_identified: false, detected_foods: [], total_calories: null,
+  protein_grams: null, carbs_grams: null, fat_grams: null,
+  health_condition_flags: [], dietary_recommendation: null,
+};
+
 @Injectable()
 export class VisionService {
   private readonly logger = new Logger(VisionService.name);
@@ -27,7 +33,6 @@ export class VisionService {
 
   async analyseFood(mediaUrl: string, user: User): Promise<NutritionResult> {
     const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
-
     const response = await this.client.messages.create({
       model,
       max_tokens: 512,
@@ -40,14 +45,40 @@ export class VisionService {
         ],
       }],
     });
-
-    const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
-
     structuredLog(this.logger, 'log', {
       service: 'ai', operation: 'vision_analysis', userId: user.id,
       inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
     });
+    return this.parseResponse(response);
+  }
 
+  async analyseFoodFromBytes(imageBytes: Buffer, mimeType: string, user: User): Promise<NutritionResult> {
+    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const mediaType = (validTypes.includes(mimeType) ? mimeType : 'image/jpeg') as
+      'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+
+    const response = await this.client.messages.create({
+      model,
+      max_tokens: 512,
+      temperature: 0,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBytes.toString('base64') } },
+          { type: 'text', text: buildNutritionPrompt(user) },
+        ],
+      }],
+    });
+    structuredLog(this.logger, 'log', {
+      service: 'ai', operation: 'vision_analysis_imessage', userId: user.id,
+      inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
+    });
+    return this.parseResponse(response);
+  }
+
+  private parseResponse(response: Anthropic.Message): NutritionResult {
+    const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
     try {
       const parsed = JSON.parse(text);
       return {
@@ -61,7 +92,7 @@ export class VisionService {
         dietary_recommendation: parsed.dietary_recommendation ?? null,
       };
     } catch {
-      return { food_identified: false, detected_foods: [], total_calories: null, protein_grams: null, carbs_grams: null, fat_grams: null, health_condition_flags: [], dietary_recommendation: null };
+      return { ...EMPTY_RESULT };
     }
   }
 }

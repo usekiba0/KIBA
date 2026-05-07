@@ -1,6 +1,7 @@
 import { Process, Processor } from '@nestjs/bull';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { Job } from 'bull';
+import axios from 'axios';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../data/entities/user.entity';
@@ -67,7 +68,7 @@ export class CoachingProcessor {
 
   @Process('process-coaching-message')
   async handle(job: Job<CoachingJob>) {
-    const { from, body, twilioSid, numMedia, mediaUrls, mediaContentTypes } = job.data;
+    const { from, body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = job.data;
 
     // Look up user
     const user = await this.userRepo.findOne({ where: { phone_number: from } });
@@ -81,6 +82,22 @@ export class CoachingProcessor {
 
     // Update last active
     await this.userRepo.update(user.id, { last_active_at: new Date() });
+
+    // iMessage dedup — SendBlue sometimes fires webhook twice for the same message
+    if (channel === 'imessage' && body && body !== '[image]') {
+      const cutoff = new Date(Date.now() - 30_000);
+      const dup = await this.messageRepo
+        .createQueryBuilder('m')
+        .where('m.user_id = :uid', { uid: user.id })
+        .andWhere('m.role = :role', { role: MessageRole.USER })
+        .andWhere('m.content = :body', { body })
+        .andWhere('m.created_at > :cutoff', { cutoff })
+        .getOne();
+      if (dup) {
+        this.logger.log(`[iMessage] Skipping duplicate message from ${from}`);
+        return;
+      }
+    }
 
     // Crisis hold check — if already flagged, send holding message and stop
     if (user.crisis_hold) {
@@ -144,8 +161,45 @@ export class CoachingProcessor {
         .catch((err) => this.logger.error(`Summarisation error: ${err}`));
     }
 
-    // MMS nutrition analysis — validate media URL to prevent SSRF
+    // iMessage image — download and analyse as base64 (SendBlue URLs are not Twilio-trusted)
+    if (channel === 'imessage' && numMedia > 0 && mediaUrls[0]) {
+      try {
+        const imgRes = await axios.get<ArrayBuffer>(mediaUrls[0], {
+          responseType: 'arraybuffer',
+          timeout: 10_000,
+        });
+        const mimeType = ((imgRes.headers['content-type'] as string) || 'image/jpeg').split(';')[0].trim();
+        const imageBytes = Buffer.from(imgRes.data);
+        const nutritionResult = await this.visionService.analyseFoodFromBytes(imageBytes, mimeType, user);
+
+        await this.nutritionRepo.save({
+          message_id: inboundMsg.id,
+          user_id: user.id,
+          detected_foods: nutritionResult.detected_foods,
+          total_calories: nutritionResult.total_calories,
+          protein_grams: nutritionResult.protein_grams,
+          carbs_grams: nutritionResult.carbs_grams,
+          fat_grams: nutritionResult.fat_grams,
+          health_flags: nutritionResult.health_condition_flags,
+          recommendation: nutritionResult.dietary_recommendation,
+          food_identified: nutritionResult.food_identified,
+        });
+
+        const reply = !nutritionResult.food_identified
+          ? "I couldn't identify a meal in that photo — try a clearer shot with the food in frame? 📸"
+          : `${nutritionResult.dietary_recommendation ?? 'Looks good!'}\n\n~${nutritionResult.total_calories ?? '?'} cal | ${nutritionResult.protein_grams ?? '?'}p/${nutritionResult.carbs_grams ?? '?'}c/${nutritionResult.fat_grams ?? '?'}f`;
+
+        await this.saveAndSend(user, boundary.sessionId, reply);
+      } catch (err) {
+        this.logger.warn(`[iMessage] Image download failed for ${user.id}: ${(err as Error).message}`);
+        await this.saveAndSend(user, boundary.sessionId, "I couldn't load that image — can you try sending it again? 📸");
+      }
+      return;
+    }
+
+    // MMS nutrition analysis — validate media URL to prevent SSRF (Twilio path only)
     const hasValidImage =
+      channel === 'sms' &&
       numMedia > 0 &&
       mediaContentTypes[0]?.startsWith('image/') &&
       mediaUrls[0] &&

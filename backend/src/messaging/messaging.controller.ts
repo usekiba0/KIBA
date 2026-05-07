@@ -60,20 +60,25 @@ export class MessagingController {
     this.logger.log(`[SendBlue] Raw webhook payload: ${JSON.stringify(body)}`);
 
     const from = (body.number ?? body.from_number ?? body.sender) as string;
-    const content = (body.content ?? body.body ?? body.text) as string;
+    const content = (body.content ?? body.body ?? body.text ?? '') as string;
+    const mediaUrl = (body.media_url ?? body.mediaUrl ?? body.attachment_url) as string | undefined;
 
-    if (!from || !content) {
-      this.logger.warn(`[SendBlue] Missing from or content — from:${from} content:${content}`);
+    if (!from || (!content && !mediaUrl)) {
+      this.logger.warn(`[SendBlue] Missing from or content/media — from:${from}`);
       return { received: true };
     }
 
+    const mediaUrls = mediaUrl ? [mediaUrl] : [];
+    // SendBlue doesn't always send content-type; default to jpeg for image detection downstream
+    const mediaContentTypes = mediaUrl ? ['image/jpeg'] : [];
+
     await this.coachingQueue.add('process-coaching-message', {
       from,
-      body: content,
+      body: content || '[image]',
       twilioSid: null,
-      numMedia: 0,
-      mediaUrls: [],
-      mediaContentTypes: [],
+      numMedia: mediaUrl ? 1 : 0,
+      mediaUrls,
+      mediaContentTypes,
       channel: 'imessage',
     });
 
@@ -81,6 +86,7 @@ export class MessagingController {
       service: 'messaging',
       operation: 'inbound_imessage',
       from,
+      hasMedia: !!mediaUrl,
     });
     return { received: true };
   }
