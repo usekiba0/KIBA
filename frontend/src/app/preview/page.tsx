@@ -52,7 +52,7 @@ function FadeIn({ children, delay = 0, style = {} }: { children: React.ReactNode
 // ── Colour tokens ────────────────────────────────────────────
 const R  = '#B45309';      // amber accent
 const RL = '#D97706';      // amber light
-const V = '#8b5cf6';       // violet accent
+const V  = '#B45309';      // same accent (no violet)
 const BG = '#FAFAF8';      // warm parchment
 const S1 = '#F5F0E8';      // card surface
 const S2 = '#EDE7DC';      // alt section
@@ -85,7 +85,7 @@ export default function Preview() {
 
 
       {/* ══ NAV ══ */}
-      <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 48px', background: `rgba(9,9,11,0.92)`, backdropFilter: 'blur(24px)', borderBottom: `1px solid ${GLOW(0.15)}` }}>
+      <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 48px', background: 'rgba(250,250,248,0.96)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 700, color: TX, letterSpacing: '-0.5px' }}>
           Ryke<span style={{ color: RL }}>.ai</span>
         </div>
@@ -150,7 +150,7 @@ export default function Preview() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, minHeight: 200 }}>
                 {MSGS.map((m, i) => (
-                  <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', fontSize: 12, lineHeight: 1.5, maxWidth: '88%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? GRAD : '#222', color: m.who === 'user' ? 'white' : TX, animation: `msgIn 0.4s ease ${m.delay}s both` }}>{m.text}</div>
+                  <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', fontSize: 12, lineHeight: 1.5, maxWidth: '88%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? GRAD : S1, color: m.who === 'user' ? 'white' : TX, animation: `msgIn 0.4s ease ${m.delay}s both` }}>{m.text}</div>
                 ))}
                 {!typingDone && (
                   <div style={{ padding: '9px 14px', borderRadius: '16px 16px 16px 4px', background: '#F5F0E8', border: `1px solid ${GLOW(0.18)}`, alignSelf: 'flex-start', display: 'inline-flex', gap: 4, animation: 'msgIn 0.3s ease 3s both' }}>
@@ -232,7 +232,7 @@ export default function Preview() {
         <FadeIn delay={200}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: GLOW(0.15), borderRadius: 20, overflow: 'hidden', marginTop: 60, border: `1px solid ${GLOW(0.2)}` }}>
             {[{ n: 24, s: '/7', l: 'Always available' }, { n: 0, s: '', l: 'Apps to download' }, { n: 20, s: '+', l: '$ per month only' }].map(stat => (
-              <div key={stat.l} style={{ background: '#0f0f12', padding: '36px 32px', textAlign: 'center' as const }}>
+              <div key={stat.l} style={{ background: S1, padding: '36px 32px', textAlign: 'center' as const }}>
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 52, fontWeight: 700, color: RL, lineHeight: 1, marginBottom: 8 }}><Counter to={stat.n} suffix={stat.s} /></div>
                 <div style={{ fontSize: 13, color: MT, fontWeight: 300 }}>{stat.l}</div>
               </div>
@@ -288,11 +288,11 @@ export default function Preview() {
           </div></FadeIn>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
             <FadeIn>
-              <div style={{ background: S1, border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, padding: 40 }}>
+              <div style={{ background: S1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: 20, padding: 40 }}>
                 <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: MT, marginBottom: 28, fontWeight: 600 }}>The Old Way</div>
                 {['Real coaching costs $200–$500/month — out of reach for most', 'Health apps are confusing — 90% of people quit within a week', 'Coaches waste hours answering the same questions every day', 'You set goals with no one to hold you accountable', 'Mental health support is siloed from your fitness goals'].map(p => (
                   <div key={p} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
-                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: '#fca5a5' }}>&#10005;</div>
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(239,68,68,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: '#dc2626' }}>&#10005;</div>
                     <p style={{ fontSize: 14, color: MT, lineHeight: 1.6 }}>{p}</p>
                   </div>
                 ))}
@@ -343,7 +343,7 @@ export default function Preview() {
                 ['Crisis safety net', '✦', '✕', '✕', '✕'],
                 ['SMS-native', '✦', '✕', '✕', '✕'],
               ].map(([feature, ...vals], ri) => (
-                <div key={feature} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', background: ri % 2 === 0 ? S1 : '#0f0f12', borderTop: `1px solid rgba(255,255,255,0.04)` }}>
+                <div key={feature} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', background: ri % 2 === 0 ? S1 : BG, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
                   <div style={{ padding: '14px 24px', fontSize: 14, color: TX, fontWeight: 400 }}>{feature}</div>
                   {vals.map((v, vi) => (
                     <div key={vi} style={{ padding: '14px 16px', textAlign: 'center' as const, fontSize: vi === 0 ? 16 : 14, color: vi === 0 ? (v === '✦' ? RL : TX) : v === '✦' ? RL : v === '✕' ? '#3f3f46' : MT, fontWeight: vi === 0 ? 600 : 400 }}>{v}</div>
@@ -422,7 +422,7 @@ export default function Preview() {
                 <ul style={{ listStyle: 'none', marginBottom: 36, display: 'flex', flexDirection: 'column' as const, gap: 11 }}>
                   {p.features.map(f => <li key={f} style={{ fontSize: 14, color: MT, display: 'flex', alignItems: 'center', gap: 10, fontWeight: 300 }}><span style={{ color: RL, fontSize: 10, flexShrink: 0 }}>&#10086;</span>{f}</li>)}
                 </ul>
-                <Link href={p.href as string} style={{ display: 'block', width: '100%', padding: '14px', borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' as const, background: p.featured ? GRAD : 'transparent', color: p.featured ? 'white' : '#d4d4d8', border: p.featured ? 'none' : `1px solid ${GLOW(0.3)}`, boxSizing: 'border-box' as const, boxShadow: p.featured ? `0 4px 16px ${GLOW(0.4)}` : 'none' }}>
+                <Link href={p.href as string} style={{ display: 'block', width: '100%', padding: '14px', borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' as const, background: p.featured ? GRAD : 'transparent', color: p.featured ? 'white' : TX, border: p.featured ? 'none' : '1px solid rgba(0,0,0,0.15)', boxSizing: 'border-box' as const, boxShadow: p.featured ? `0 4px 16px ${GLOW(0.4)}` : 'none' }}>
                   {p.cta} &rarr;
                 </Link>
               </div>
