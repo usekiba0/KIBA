@@ -89,24 +89,22 @@ export class CoachingProcessor {
     // Update last active
     await this.userRepo.update(user.id, { last_active_at: new Date() });
 
-    // iMessage dedup — fallback in case Bull jobId dedup misses anything
-    if (channel === 'imessage') {
-      const cutoff = new Date(Date.now() - 30_000);
-      const qb = this.messageRepo
-        .createQueryBuilder('m')
-        .where('m.user_id = :uid', { uid: user.id })
-        .andWhere('m.role = :role', { role: MessageRole.USER })
-        .andWhere('m.created_at > :cutoff', { cutoff });
-      if (body !== '[image]') {
-        qb.andWhere('m.content = :body', { body });
-      } else if (mediaUrls[0]) {
-        qb.andWhere('m.media_url = :url', { url: mediaUrls[0] });
-      }
-      const dup = await qb.getOne();
-      if (dup) {
-        this.logger.log(`[iMessage] Skipping duplicate from ${from}`);
-        return;
-      }
+    // Cross-channel dedup — catches same message arriving via both SMS and iMessage webhooks
+    const cutoff = new Date(Date.now() - 30_000);
+    const qb = this.messageRepo
+      .createQueryBuilder('m')
+      .where('m.user_id = :uid', { uid: user.id })
+      .andWhere('m.role = :role', { role: MessageRole.USER })
+      .andWhere('m.created_at > :cutoff', { cutoff });
+    if (body !== '[image]') {
+      qb.andWhere('m.content = :body', { body });
+    } else if (mediaUrls[0]) {
+      qb.andWhere('m.media_url = :url', { url: mediaUrls[0] });
+    }
+    const dup = await qb.getOne();
+    if (dup) {
+      this.logger.log(`[Dedup] Skipping duplicate from ${from} (channel: ${channel})`);
+      return;
     }
 
     // Crisis hold check — if already flagged, send holding message and stop
