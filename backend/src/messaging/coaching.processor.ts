@@ -3,6 +3,7 @@ import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
 import axios from 'axios';
+import sharp from 'sharp';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../data/entities/user.entity';
@@ -179,8 +180,19 @@ export class CoachingProcessor {
             ? { 'sb-api-key-id': sbKeyId, 'sb-api-secret-key': sbSecret }
             : {},
         });
-        const mimeType = ((imgRes.headers['content-type'] as string) || 'image/jpeg').split(';')[0].trim();
-        const imageBytes = Buffer.from(imgRes.data);
+        let imageBytes = Buffer.from(imgRes.data as ArrayBuffer);
+        let mimeType = ((imgRes.headers['content-type'] as string) || 'image/jpeg').split(';')[0].trim();
+
+        // HEIC is not supported by Claude — convert to JPEG
+        const url = mediaUrls[0];
+        const isHeic = mimeType === 'image/heic' || mimeType === 'image/heif' ||
+          url.toLowerCase().endsWith('.heic') || url.toLowerCase().endsWith('.heif');
+        if (isHeic) {
+          this.logger.log(`[iMessage] Converting HEIC to JPEG for ${user.id}`);
+          imageBytes = (await sharp(imageBytes).jpeg({ quality: 85 }).toBuffer()) as Buffer<ArrayBuffer>;
+          mimeType = 'image/jpeg';
+        }
+
         const nutritionResult = await this.visionService.analyseFoodFromBytes(imageBytes, mimeType, user);
 
         await this.nutritionRepo.save({
@@ -202,10 +214,8 @@ export class CoachingProcessor {
 
         await this.saveAndSend(user, boundary.sessionId, reply);
       } catch (err) {
-        const errMsg = (err as Error).message;
-        const urlSnippet = mediaUrls[0]?.substring(0, 80) ?? 'no-url';
-        this.logger.warn(`[iMessage] Image download failed for ${user.id}: ${errMsg} | URL: ${urlSnippet}`);
-        await this.saveAndSend(user, boundary.sessionId, `[DEBUG] img fail: ${errMsg} | url: ${urlSnippet}`);
+        this.logger.warn(`[iMessage] Image processing failed for ${user.id}: ${(err as Error).message} | URL: ${mediaUrls[0]?.substring(0, 80)}`);
+        await this.saveAndSend(user, boundary.sessionId, "I couldn't process that photo — try sending it as a JPEG if you can, or describe what you ate and I'll help!");
       }
       return;
     }
