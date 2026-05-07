@@ -189,13 +189,15 @@ export class CoachingProcessor {
         const isHeic = mimeType === 'image/heic' || mimeType === 'image/heif' ||
           imgUrl.toLowerCase().endsWith('.heic') || imgUrl.toLowerCase().endsWith('.heif');
         if (isHeic) {
-          this.logger.log(`[iMessage] Converting HEIC to JPEG for ${user.id}`);
+          this.logger.log(`[iMessage] HEIC download size: ${imageBytes.length} bytes`);
           const converted = await heicConvert({ buffer: imageBytes, format: 'JPEG', quality: 0.85 });
           imageBytes = Buffer.from(converted) as Buffer<ArrayBuffer>;
           mimeType = 'image/jpeg';
+          this.logger.log(`[iMessage] JPEG after conversion: ${imageBytes.length} bytes`);
         }
 
         const nutritionResult = await this.visionService.analyseFoodFromBytes(imageBytes, mimeType, user);
+        this.logger.log(`[iMessage] Vision result: food_identified=${nutritionResult.food_identified} foods=${JSON.stringify(nutritionResult.detected_foods)}`);
 
         await this.nutritionRepo.save({
           message_id: inboundMsg.id,
