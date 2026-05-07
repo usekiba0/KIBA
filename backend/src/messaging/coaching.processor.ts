@@ -5,6 +5,8 @@ import { Job } from 'bull';
 import axios from 'axios';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const heicConvert = require('heic-convert') as (opts: { buffer: Buffer; format: 'JPEG'; quality: number }) => Promise<ArrayBuffer>;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const sharp = require('sharp') as typeof import('sharp');
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../data/entities/user.entity';
@@ -188,11 +190,13 @@ export class CoachingProcessor {
         const imgUrl = mediaUrls[0];
         const isHeic = mimeType === 'image/heic' || mimeType === 'image/heif' ||
           imgUrl.toLowerCase().endsWith('.heic') || imgUrl.toLowerCase().endsWith('.heif');
-        let heicBytes = 0;
         if (isHeic) {
-          heicBytes = imageBytes.length;
-          const converted = await heicConvert({ buffer: imageBytes, format: 'JPEG', quality: 0.85 });
-          imageBytes = Buffer.from(converted) as Buffer<ArrayBuffer>;
+          const converted = await heicConvert({ buffer: imageBytes, format: 'JPEG', quality: 1 });
+          // Resize to Claude's optimal max dimension — heic-convert output is full-res iPhone (~2.5MB)
+          imageBytes = (await sharp(Buffer.from(converted))
+            .resize(1568, 1568, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 85 })
+            .toBuffer()) as Buffer<ArrayBuffer>;
           mimeType = 'image/jpeg';
         }
 
@@ -212,7 +216,7 @@ export class CoachingProcessor {
         });
 
         const reply = !nutritionResult.food_identified
-          ? `[DBG heic=${heicBytes}b jpeg=${imageBytes.length}b] no food found`
+          ? "I couldn't identify a meal in that photo — try a clearer shot with the food in frame? 📸"
           : `${nutritionResult.dietary_recommendation ?? 'Looks good!'}\n\n~${nutritionResult.total_calories ?? '?'} cal | ${nutritionResult.protein_grams ?? '?'}p/${nutritionResult.carbs_grams ?? '?'}c/${nutritionResult.fat_grams ?? '?'}f`;
 
         await this.saveAndSend(user, boundary.sessionId, reply);
