@@ -90,7 +90,7 @@ export default function Preview() {
           Ryke<span style={{ color: RL }}>.ai</span>
         </div>
         <ul style={{ display: 'flex', alignItems: 'center', gap: 40, listStyle: 'none' }}>
-          {[['#how', 'How it works'], ['#coaches', 'For Coaches'], ['#pricing', 'Pricing']].map(([h, l]) => (
+          {[['#how', 'How it works'], ['#coaches', 'For Coaches']].map(([h, l]) => (
             <li key={l}><a href={h} style={{ textDecoration: 'none', color: MT, fontSize: 14, transition: 'color 0.2s' }} onMouseEnter={e => (e.currentTarget.style.color = TX)} onMouseLeave={e => (e.currentTarget.style.color = MT)}>{l}</a></li>
           ))}
           <li><Link href="/onboarding" style={{ background: GRAD, color: 'white', padding: '10px 24px', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', boxShadow: `0 4px 14px ${GLOW(0.4)}`, display: 'inline-block' }}>Start Free Trial</Link></li>
@@ -398,38 +398,6 @@ export default function Preview() {
           </div>
         </div></FadeIn>
       </div>
-
-      {/* ══ PRICING ══ */}
-      <section id="pricing" style={{ padding: '100px 48px', maxWidth: 1200, margin: '0 auto' }}>
-        <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 64 }}>
-          <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Simple pricing</div>
-          <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,64px)', fontWeight: 300, letterSpacing: '-1px', color: TX }}>
-            Start free. <em style={{ fontStyle: 'italic', color: V }}>Scale when</em> <strong style={{ fontWeight: 700 }}>you&apos;re ready.</strong>
-          </h2>
-        </div></FadeIn>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 20, alignItems: 'start' }}>
-          {[
-            { label: 'Individual', price: 20, period: 'per month · cancel anytime', features: ['Unlimited texts with Ryke AI', 'Fitness, nutrition & wellness', 'Food photo analysis (MMS)', 'Daily check-ins & reminders', 'Mental health support', 'Crisis detection & safety net'], cta: 'Start Free Trial', href: '/onboarding', featured: false },
-            { label: 'Coach Pro', price: 99, period: 'per month · up to 30 clients', features: ['Your own branded SMS number', 'AI trained in your voice & style', 'Smart scheduling for all clients', 'Coach dashboard & analytics', 'Human handoff alerts', 'Client progress tracking', 'Response delay settings'], cta: 'Start Free Trial', href: '/onboarding', featured: true, badge: 'Most Popular' },
-            { label: 'Coach Elite', price: 149, period: 'per month · unlimited clients', features: ['Everything in Coach Pro', 'Unlimited client seats', 'Multiple AI personas', 'Priority support', 'Custom branding', 'Early access to new features'], cta: 'Contact Us', href: 'mailto:hello@ryke.ai', featured: false },
-          ].map((p, i) => (
-            <FadeIn key={p.label} delay={i * 100}>
-              <div style={{ background: p.featured ? `linear-gradient(135deg,${GLOW(0.18)},${VGLOW(0.08)})` : S1, border: p.featured ? `1px solid ${R}` : `1px solid ${GLOW(0.2)}`, borderRadius: 22, padding: '44px 34px', position: 'relative', transform: p.featured ? 'scale(1.04)' : 'none', boxShadow: p.featured ? `0 0 50px ${GLOW(0.2)}` : 'none' }}>
-                {p.badge && <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', background: GRAD, color: 'white', fontSize: 11, fontWeight: 600, padding: '4px 18px', borderRadius: 20, letterSpacing: 1, textTransform: 'uppercase' as const, whiteSpace: 'nowrap' as const }}>{p.badge}</div>}
-                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: MT, marginBottom: 16 }}>{p.label}</div>
-                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 56, fontWeight: 700, lineHeight: 1, marginBottom: 4, letterSpacing: '-2px', color: TX }}><sup style={{ fontSize: 24, verticalAlign: 'top', marginTop: 12, display: 'inline-block' }}>$</sup>{p.price}</div>
-                <div style={{ fontSize: 13, color: MT, marginBottom: 32 }}>{p.period}</div>
-                <ul style={{ listStyle: 'none', marginBottom: 36, display: 'flex', flexDirection: 'column' as const, gap: 11 }}>
-                  {p.features.map(f => <li key={f} style={{ fontSize: 14, color: MT, display: 'flex', alignItems: 'center', gap: 10, fontWeight: 300 }}><span style={{ color: RL, fontSize: 10, flexShrink: 0 }}>&#10086;</span>{f}</li>)}
-                </ul>
-                <Link href={p.href as string} style={{ display: 'block', width: '100%', padding: '14px', borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' as const, background: p.featured ? GRAD : 'transparent', color: p.featured ? 'white' : TX, border: p.featured ? 'none' : '1px solid rgba(0,0,0,0.15)', boxSizing: 'border-box' as const, boxShadow: p.featured ? `0 4px 16px ${GLOW(0.4)}` : 'none' }}>
-                  {p.cta} &rarr;
-                </Link>
-              </div>
-            </FadeIn>
-          ))}
-        </div>
-      </section>
 
       {/* ══ FAQ ══ */}
       <div style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
