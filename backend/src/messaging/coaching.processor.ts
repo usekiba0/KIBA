@@ -170,6 +170,7 @@ export class CoachingProcessor {
 
     // iMessage image — download and analyse as base64 (SendBlue URLs are not Twilio-trusted)
     if (channel === 'imessage' && numMedia > 0 && mediaUrls[0]) {
+      let step = 'download';
       try {
         const sbKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
         const sbSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
@@ -184,15 +185,17 @@ export class CoachingProcessor {
         let mimeType = ((imgRes.headers['content-type'] as string) || 'image/jpeg').split(';')[0].trim();
 
         // HEIC is not supported by Claude — convert to JPEG
-        const url = mediaUrls[0];
+        const imgUrl = mediaUrls[0];
         const isHeic = mimeType === 'image/heic' || mimeType === 'image/heif' ||
-          url.toLowerCase().endsWith('.heic') || url.toLowerCase().endsWith('.heif');
+          imgUrl.toLowerCase().endsWith('.heic') || imgUrl.toLowerCase().endsWith('.heif');
         if (isHeic) {
+          step = 'heic-convert';
           this.logger.log(`[iMessage] Converting HEIC to JPEG for ${user.id}`);
           imageBytes = (await sharp(imageBytes).jpeg({ quality: 85 }).toBuffer()) as Buffer<ArrayBuffer>;
           mimeType = 'image/jpeg';
         }
 
+        step = 'vision';
         const nutritionResult = await this.visionService.analyseFoodFromBytes(imageBytes, mimeType, user);
 
         await this.nutritionRepo.save({
@@ -214,8 +217,9 @@ export class CoachingProcessor {
 
         await this.saveAndSend(user, boundary.sessionId, reply);
       } catch (err) {
-        this.logger.warn(`[iMessage] Image processing failed for ${user.id}: ${(err as Error).message} | URL: ${mediaUrls[0]?.substring(0, 80)}`);
-        await this.saveAndSend(user, boundary.sessionId, "I couldn't process that photo — try sending it as a JPEG if you can, or describe what you ate and I'll help!");
+        const errMsg = (err as Error).message.substring(0, 120);
+        this.logger.warn(`[iMessage] Image failed at [${step}] for ${user.id}: ${errMsg}`);
+        await this.saveAndSend(user, boundary.sessionId, `[DEBUG:${step}] ${errMsg}`);
       }
       return;
     }
