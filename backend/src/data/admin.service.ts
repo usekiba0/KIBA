@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { User } from './entities/user.entity';
 import { Message } from './entities/message.entity';
 import { Subscription } from './entities/subscription.entity';
-import { CrisisAlert } from './entities/crisis-alert.entity';
+import { CrisisAlert, AlertStatus } from './entities/crisis-alert.entity';
 import { ConversationSession } from './entities/conversation-session.entity';
 
 const PLAN_PRICE_CENTS: Record<string, number> = {
@@ -229,21 +229,17 @@ export class AdminService {
   }
 
   async resolveAlert(alertId: string, resolvedBy: string) {
-    await this.dataSource.transaction(async (em) => {
-      const rows = await em.query(
-        `UPDATE crisis_alerts SET status = 'resolved', resolved_by = $1, resolved_at = NOW()
-         WHERE id = $2 RETURNING user_id`,
-        [resolvedBy, alertId],
-      );
-      if (rows.length > 0) {
-        const userId = rows[0].user_id;
-        await em.query(`UPDATE users SET crisis_hold = false WHERE id = $1`, [userId]);
-        await em.query(
-          `UPDATE conversation_sessions SET status = 'active' WHERE user_id = $1 AND status = 'crisis_hold'`,
-          [userId],
-        );
-      }
+    const alert = await this.alertRepo.findOneOrFail({ where: { id: alertId } });
+    await this.alertRepo.update(alertId, {
+      status: AlertStatus.RESOLVED,
+      resolved_by: resolvedBy,
+      resolved_at: new Date(),
     });
+    await this.userRepo.update(alert.user_id, { crisis_hold: false });
+    await this.dataSource.query(
+      `UPDATE conversation_sessions SET status = 'active' WHERE user_id = $1 AND status = 'crisis_hold'`,
+      [alert.user_id],
+    );
     return { alert_id: alertId, status: 'resolved', resolved_by: resolvedBy, resolved_at: new Date().toISOString() };
   }
 }
