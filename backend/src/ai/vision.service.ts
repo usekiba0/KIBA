@@ -79,7 +79,6 @@ export class VisionService {
 
   private parseResponse(response: Anthropic.Message): NutritionResult {
     const raw = response.content[0].type === 'text' ? response.content[0].text : '{}';
-    this.logger.log(`[Vision] raw response: ${raw.substring(0, 300)}`);
     // Strip markdown code fences Claude sometimes adds despite "ONLY valid JSON" instruction
     const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     try {
@@ -92,11 +91,10 @@ export class VisionService {
         carbs_grams: parsed.macronutrients?.carbs_grams ?? null,
         fat_grams: parsed.macronutrients?.fat_grams ?? null,
         health_condition_flags: parsed.health_condition_flags ?? [],
-        // Embed raw for debugging — remove once vision is confirmed working
-        dietary_recommendation: `[RAW:${raw.substring(0, 200)}]`,
+        dietary_recommendation: parsed.dietary_recommendation ?? null,
       };
     } catch {
-      return { ...EMPTY_RESULT, dietary_recommendation: `[PARSE_ERR:${raw.substring(0, 200)}]` };
+      return { ...EMPTY_RESULT };
     }
   }
 }
