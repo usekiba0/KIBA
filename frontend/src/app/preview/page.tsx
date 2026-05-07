@@ -61,10 +61,10 @@ export default function Preview() {
   useEffect(() => { const t = setTimeout(() => setTypingDone(true), 3200); return () => clearTimeout(t); }, []);
 
   const MSGS = [
-    { who: 'user', text: '"I've been skipping workouts. Help."', delay: 0.6 },
-    { who: 'ryke', text: '"You're not lazy — you're overwhelmed. Let's fix that. What does your week look like?"', delay: 1.1 },
-    { who: 'user', text: '"Busy every morning but free at 6pm"', delay: 1.9 },
-    { who: 'ryke', text: '"Perfect. 20-min 6PM routine starting tomorrow. No gym needed. You in? 💪"', delay: 2.5 },
+    { who: 'user', text: `“I’ve been skipping workouts. Help.”`, delay: 0.6 },
+    { who: 'ryke', text: `“You’re not lazy — you’re overwhelmed. Let’s fix that. What does your week look like?”`, delay: 1.1 },
+    { who: 'user', text: `“Busy every morning but free at 6pm”`, delay: 1.9 },
+    { who: 'ryke', text: `“Perfect. 20-min 6PM routine starting tomorrow. No gym needed. You in? 💪”`, delay: 2.5 },
   ];
 
   return (
@@ -297,9 +297,9 @@ export default function Preview() {
               <a href="#pricing" style={{ display: 'inline-block', background: AC, color: 'white', padding: '14px 32px', borderRadius: 10, fontSize: 15, fontWeight: 600, textDecoration: 'none' }}>See Coach Plans &rarr;</a>
             </FadeIn>
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
-              {[['01', 'Your style, your voice', 'Ryke learns your coaching tone and energy — every text sounds exactly like you.'],
-                ['02', 'Smart scheduling', 'Clients text to book. Ryke negotiates, confirms, and sends reminders — you never touch a calendar.'],
-                ['03', 'Human handoff', 'Get alerted the moment a client needs real support. Jump in instantly — they always feel taken care of.']
+              {[['01', 'Your style, your voice', `Ryke learns your coaching tone and energy — every text sounds exactly like you.`],
+                ['02', 'Smart scheduling', `Clients text to book. Ryke negotiates, confirms, and sends reminders — you never touch a calendar.`],
+                ['03', 'Human handoff', `Get alerted the moment a client needs real support. Jump in instantly — they always feel taken care of.`]
               ].map(([n, t, d], i) => (
                 <FadeIn key={n} delay={i * 100}>
                   <div style={{ background: BG, border: `1px solid ${BD}`, borderRadius: 16, padding: 28 }}>
