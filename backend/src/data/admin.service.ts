@@ -169,7 +169,7 @@ export class AdminService {
     return this.messageRepo.find({
       where: { user_id: userId },
       order: { created_at: 'ASC' },
-      select: ['id', 'session_id', 'role', 'content', 'created_at', 'token_count', 'flagged', 'flag_reason', 'message_type'],
+      select: ['id', 'session_id', 'role', 'content', 'media_url', 'created_at', 'token_count', 'flagged', 'flag_reason', 'message_type'],
     });
   }
 

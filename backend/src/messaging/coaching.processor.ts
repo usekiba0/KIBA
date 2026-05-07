@@ -171,7 +171,6 @@ export class CoachingProcessor {
 
     // iMessage image — download and analyse as base64 (SendBlue URLs are not Twilio-trusted)
     if (channel === 'imessage' && numMedia > 0 && mediaUrls[0]) {
-      let step = 'download';
       try {
         const sbKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
         const sbSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
@@ -190,14 +189,12 @@ export class CoachingProcessor {
         const isHeic = mimeType === 'image/heic' || mimeType === 'image/heif' ||
           imgUrl.toLowerCase().endsWith('.heic') || imgUrl.toLowerCase().endsWith('.heif');
         if (isHeic) {
-          step = 'heic-convert';
           this.logger.log(`[iMessage] Converting HEIC to JPEG for ${user.id}`);
           const converted = await heicConvert({ buffer: imageBytes, format: 'JPEG', quality: 0.85 });
           imageBytes = Buffer.from(converted) as Buffer<ArrayBuffer>;
           mimeType = 'image/jpeg';
         }
 
-        step = 'vision';
         const nutritionResult = await this.visionService.analyseFoodFromBytes(imageBytes, mimeType, user);
 
         await this.nutritionRepo.save({
@@ -219,9 +216,8 @@ export class CoachingProcessor {
 
         await this.saveAndSend(user, boundary.sessionId, reply);
       } catch (err) {
-        const errMsg = (err as Error).message.substring(0, 120);
-        this.logger.warn(`[iMessage] Image failed at [${step}] for ${user.id}: ${errMsg}`);
-        await this.saveAndSend(user, boundary.sessionId, `[DEBUG:${step}] ${errMsg}`);
+        this.logger.warn(`[iMessage] Image processing failed for ${user.id}: ${(err as Error).message}`);
+        await this.saveAndSend(user, boundary.sessionId, "I couldn't process that photo — try sending it again? 📸");
       }
       return;
     }
