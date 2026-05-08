@@ -10,6 +10,8 @@ import {
   SubscriptionPlan,
   SubscriptionStatus,
 } from '../data/entities/subscription.entity';
+import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
+import { Goal } from '../data/entities/goal.entity';
 import { StripeService } from './stripe.service';
 import { OnboardingFormDto } from './dto/onboarding-form.dto';
 import { structuredLog } from '../common/logger';
@@ -104,15 +106,40 @@ export class OnboardingService {
         });
         await manager.save(Subscription, sub);
 
+        const profile = manager.create(PsychologicalProfile, {
+          user_id: savedUser.id,
+          fears: dto.fears,
+          avoidance_patterns: dto.avoidance_patterns,
+          comparison_figure: dto.comparison_figure,
+          public_failure_scenario: dto.public_failure_scenario,
+          typical_failure_moment: dto.typical_failure_moment,
+          pressure_preference: dto.pressure_preference,
+        });
+        await manager.save(PsychologicalProfile, profile);
+
+        const goal = manager.create(Goal, {
+          user_id: savedUser.id,
+          description: dto.goal_description,
+          timeline: dto.goal_timeline,
+          current_status: dto.current_status,
+          difficulty_level: 3,
+        });
+        await manager.save(Goal, goal);
+
         return { savedUser, trialEnd };
       });
 
       // Queue welcome message (outside transaction — non-critical)
-      const welcomeText = this.buildWelcomeMessage(result.savedUser);
+      const welcomeText = this.buildWelcomeMessage(result.savedUser, dto);
       await this.messagingQueue.add('send-message', {
         to: result.savedUser.phone_number,
         body: welcomeText,
         type: 'welcome',
+      });
+
+      // Queue plan generation
+      await this.messagingQueue.add('plan-generation', {
+        userId: result.savedUser.id,
       });
 
       structuredLog(this.logger, 'log', {
@@ -187,7 +214,7 @@ export class OnboardingService {
       return { savedUser, trialEnd };
     });
 
-    const welcomeText = this.buildWelcomeMessage(result.savedUser);
+    const welcomeText = this.buildWelcomeMessage(result.savedUser, dto);
     await this.messagingQueue.add('send-message', {
       to: result.savedUser.phone_number,
       body: welcomeText,
@@ -209,14 +236,12 @@ export class OnboardingService {
     };
   }
 
-  private buildWelcomeMessage(user: User): string {
-    const focusMap: Record<string, string> = {
-      fitness: 'fitness and training',
-      nutrition: 'nutrition and healthy eating',
-      wellness: 'your overall wellbeing',
-      combined: 'your full health journey',
-    };
-    const focus = focusMap[user.coaching_focus] ?? 'your goals';
-    return `Hey ${user.name}! I'm Kiba, your personal AI coach. I'm here to help you with ${focus} — anytime, right here over text. No apps, no logins, just message me whenever you need support. What's been on your mind lately?`;
+  private buildWelcomeMessage(user: User, dto: OnboardingFormDto): string {
+    const goal = dto.goal_description ?? dto.goals ?? 'your goal';
+    const fear = dto.fears;
+    if (fear) {
+      return `Hey ${user.name}! I'm Kiba — your accountability system. You said you want to ${goal}. You also said you fear ${fear}. That fear is exactly why you need a system, not just motivation. Let's build your plan. Reply YES to get started.`;
+    }
+    return `Hey ${user.name}! I'm Kiba — your accountability system. Your goal: ${goal}. I'm here to make sure you actually do it. Reply YES to get started.`;
   }
 }
