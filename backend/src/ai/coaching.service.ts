@@ -1,8 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, MoreThanOrEqual } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { User } from '../data/entities/user.entity';
 import { Message } from '../data/entities/message.entity';
+import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
+import { ExecutionScore } from '../data/entities/execution-score.entity';
+import { Strike } from '../data/entities/strike.entity';
 import { buildSystemPrompt } from './prompts/coaching.prompt';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
@@ -11,7 +16,15 @@ export class CoachingService {
   private readonly logger = new Logger(CoachingService.name);
   private readonly client: Anthropic;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    @InjectRepository(PsychologicalProfile)
+    private readonly profileRepo: Repository<PsychologicalProfile>,
+    @InjectRepository(ExecutionScore)
+    private readonly scoreRepo: Repository<ExecutionScore>,
+    @InjectRepository(Strike)
+    private readonly strikeRepo: Repository<Strike>,
+  ) {
     this.client = new Anthropic({ apiKey: config.getOrThrow('ANTHROPIC_API_KEY') });
   }
 
@@ -21,9 +34,24 @@ export class CoachingService {
     incomingText: string,
     sessionSummary?: string,
   ): Promise<{ reply: string; tokenCount: number }> {
-    const betaMode = this.config.get<string>('BETA_MODE') === 'true';
-    const systemPrompt = buildSystemPrompt(user, sessionSummary, betaMode);
+    const [profile, latestScore, strikeCount] = await Promise.all([
+      this.profileRepo.findOne({ where: { user_id: user.id } }),
+      this.scoreRepo.findOne({
+        where: { user_id: user.id },
+        order: { snapshot_date: 'DESC' },
+      }),
+      this.strikeRepo.count({
+        where: {
+          user_id: user.id,
+          created_at: MoreThanOrEqual(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+        },
+      }),
+    ]);
+
     const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    const systemPrompt = profile
+      ? buildSystemPrompt(user, profile, latestScore?.current_score ?? 0, strikeCount, sessionSummary)
+      : `You are Kiba — a psychological accountability system. User: ${user.name}. Hold them accountable. 1–4 sentences. End with a required action.`;
 
     const history = recentMessages.map((m) => ({
       role: m.role === 'user' ? ('user' as const) : ('assistant' as const),

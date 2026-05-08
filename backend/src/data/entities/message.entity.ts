@@ -45,6 +45,12 @@ export class Message {
   token_count: number | null;
 
   @Column({ type: 'boolean', default: false })
+  is_checkin_prompt: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  is_proof_submission: boolean;
+
+  @Column({ type: 'boolean', default: false })
   flagged: boolean;
 
   @Column({ type: 'text', nullable: true })

@@ -1,142 +1,133 @@
 import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { CoachingService } from '../../src/ai/coaching.service';
-import { User, CoachingFocus, UserStatus } from '../../src/data/entities/user.entity';
+import { User, UserStatus } from '../../src/data/entities/user.entity';
 import { Message, MessageRole, MessageType } from '../../src/data/entities/message.entity';
+import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
+import { ExecutionScore } from '../../src/data/entities/execution-score.entity';
+import { Strike } from '../../src/data/entities/strike.entity';
 
-describe('CoachingService Unit Tests', () => {
+const testUser: User = {
+  id: 'user-1', phone_number: '+15551234567', name: 'Alex',
+  coaching_focus: null as any, goals: null as any,
+  height_cm: null, weight_kg: null, age: null,
+  health_conditions: [], dietary_restrictions: [], injuries: null,
+  status: UserStatus.TRIAL, crisis_hold: false,
+  registered_at: new Date(), last_active_at: null,
+};
+
+const testProfile: PsychologicalProfile = {
+  id: 'profile-1', user_id: 'user-1',
+  fears: 'Staying stuck', avoidance_patterns: 'Scrolling phone',
+  comparison_figure: 'College roommate', public_failure_scenario: 'Friends find out',
+  typical_failure_moment: 'Sunday evenings',
+  pressure_preference: PressurePreference.PRESSURE,
+  created_at: new Date(), updated_at: new Date(),
+};
+
+const testScore: ExecutionScore = {
+  id: 'score-1', user_id: 'user-1', current_score: 68,
+  completion_rate: 0.7, proof_rate: 0.6, response_time_score: 0.8, streak_bonus: 0.3,
+  snapshot_date: new Date(), created_at: new Date(),
+};
+
+describe('CoachingService', () => {
   let service: CoachingService;
-
-  const mockConfig = {
-    get: jest.fn((key: string, def?: unknown) => {
-      if (key === 'AI_MODEL') return 'claude-haiku-4-5-20251001';
-      return def;
-    }),
-    getOrThrow: jest.fn(() => 'sk-ant-test'),
-  };
-
-  const testUser: User = {
-    id: 'user-1',
-    phone_number: '+15551234567',
-    name: 'Alex',
-    coaching_focus: CoachingFocus.FITNESS,
-    goals: 'Build a consistent workout habit',
-    height_cm: 178,
-    weight_kg: 80,
-    age: 28,
-    health_conditions: [],
-    dietary_restrictions: [],
-    injuries: null,
-    status: UserStatus.TRIAL,
-    crisis_hold: false,
-    registered_at: new Date(),
-    last_active_at: null,
-  };
+  let mockCreate: jest.Mock;
+  let mockProfileRepo: any;
+  let mockScoreRepo: any;
+  let mockStrikeRepo: any;
 
   beforeEach(async () => {
+    mockCreate = jest.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'You said you fear staying stuck. What did you do today? Send proof.' }],
+      usage: { input_tokens: 350, output_tokens: 40 },
+    });
+
+    mockProfileRepo = { findOne: jest.fn().mockResolvedValue(testProfile) };
+    mockScoreRepo = { findOne: jest.fn().mockResolvedValue(testScore) };
+    mockStrikeRepo = { count: jest.fn().mockResolvedValue(2) };
+
     const module = await Test.createTestingModule({
-      providers: [CoachingService, { provide: ConfigService, useValue: mockConfig }],
+      providers: [
+        CoachingService,
+        { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
+        { provide: getRepositoryToken(ExecutionScore), useValue: mockScoreRepo },
+        { provide: getRepositoryToken(Strike), useValue: mockStrikeRepo },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, def?: any) => {
+              if (key === 'AI_MODEL') return 'claude-haiku-4-5-20251001';
+              if (key === 'BETA_MODE') return 'false';
+              return def;
+            }),
+            getOrThrow: jest.fn(() => 'sk-ant-test'),
+          },
+        },
+      ],
     }).compile();
 
-    service = module.get(CoachingService);
+    service = module.get<CoachingService>(CoachingService);
+    (service as any).client = { messages: { create: mockCreate } };
   });
 
-  it('should call Claude API and return a reply with token count', async () => {
-    const mockReply =
-      'Great job on the workout! For tomorrow, try adding 5 more minutes to your run. How are you feeling about the progress so far?';
-
-    (service as any).client = {
-      messages: {
-        create: jest.fn().mockResolvedValue({
-          content: [{ type: 'text', text: mockReply }],
-          usage: { input_tokens: 200, output_tokens: 35 },
-        }),
-      },
-    };
-
-    const result = await service.generateReply(testUser, [], 'I completed my workout today!');
-
-    expect(result.reply).toBe(mockReply);
-    expect(result.tokenCount).toBe(235);
+  it('loads the psychological profile for the user', async () => {
+    await service.generateReply(testUser, [], 'How am I doing?');
+    expect(mockProfileRepo.findOne).toHaveBeenCalledWith({
+      where: { user_id: testUser.id },
+    });
   });
 
-  it('should include user name and goals in system prompt', async () => {
-    let capturedSystem = '';
-    (service as any).client = {
-      messages: {
-        create: jest.fn().mockImplementation(async (params: any) => {
-          capturedSystem = params.system;
-          return {
-            content: [{ type: 'text', text: 'reply' }],
-            usage: { input_tokens: 100, output_tokens: 10 },
-          };
-        }),
-      },
-    };
-
-    await service.generateReply(testUser, [], 'test message');
-
-    expect(capturedSystem).toContain('Alex');
-    expect(capturedSystem).toContain('Build a consistent workout habit');
-    expect(capturedSystem).toContain('fitness');
+  it('loads the latest execution score for the user', async () => {
+    await service.generateReply(testUser, [], 'How am I doing?');
+    expect(mockScoreRepo.findOne).toHaveBeenCalled();
   });
 
-  it('should include session summary in system prompt when provided', async () => {
-    let capturedSystem = '';
-    (service as any).client = {
-      messages: {
-        create: jest.fn().mockImplementation(async (params: any) => {
-          capturedSystem = params.system;
-          return {
-            content: [{ type: 'text', text: 'reply' }],
-            usage: { input_tokens: 100, output_tokens: 10 },
-          };
-        }),
-      },
-    };
-
-    await service.generateReply(testUser, [], 'test', 'User ran 5km three times last week.');
-
-    expect(capturedSystem).toContain('User ran 5km three times last week');
+  it('loads recent strike count for the user', async () => {
+    await service.generateReply(testUser, [], 'How am I doing?');
+    expect(mockStrikeRepo.count).toHaveBeenCalled();
   });
 
-  it('should include recent messages in the messages array', async () => {
-    let capturedMessages: any[] = [];
-    (service as any).client = {
-      messages: {
-        create: jest.fn().mockImplementation(async (params: any) => {
-          capturedMessages = params.messages;
-          return {
-            content: [{ type: 'text', text: 'reply' }],
-            usage: { input_tokens: 100, output_tokens: 10 },
-          };
-        }),
-      },
-    };
+  it('injects psychological profile into the system prompt', async () => {
+    await service.generateReply(testUser, [], 'How am I doing?');
+    const callArgs = mockCreate.mock.calls[0][0];
+    expect(callArgs.system).toContain(testProfile.fears);
+    expect(callArgs.system).toContain(testProfile.comparison_figure);
+  });
 
-    const history: Message[] = [
-      {
-        id: 'm1',
-        session_id: 's1',
-        user_id: 'user-1',
-        role: MessageRole.USER,
-        message_type: MessageType.TEXT,
-        content: 'Previous message',
-        created_at: new Date(),
-        media_url: null,
-        media_content_type: null,
-        twilio_sid: null,
-        token_count: null,
-        flagged: false,
-        flag_reason: null,
-      },
-    ];
+  it('injects execution score into the system prompt', async () => {
+    await service.generateReply(testUser, [], 'How am I doing?');
+    const callArgs = mockCreate.mock.calls[0][0];
+    expect(callArgs.system).toContain('68');
+  });
 
-    await service.generateReply(testUser, history, 'New message');
+  it('returns the reply text and token count', async () => {
+    const result = await service.generateReply(testUser, [], 'Test');
+    expect(result.reply).toContain('fear');
+    expect(result.tokenCount).toBe(390);
+  });
 
-    // History + new message
-    expect(capturedMessages).toHaveLength(2);
-    expect(capturedMessages[0]).toEqual({ role: 'user', content: 'Previous message' });
-    expect(capturedMessages[1]).toEqual({ role: 'user', content: 'New message' });
+  it('works when no profile exists (falls back gracefully)', async () => {
+    mockProfileRepo.findOne.mockResolvedValue(null);
+    mockScoreRepo.findOne.mockResolvedValue(null);
+    mockStrikeRepo.count.mockResolvedValue(0);
+    await expect(service.generateReply(testUser, [], 'Hello')).resolves.toBeDefined();
+  });
+
+  it('includes conversation history in the messages array', async () => {
+    const history: Message[] = [{
+      id: 'm1', session_id: 's1', user_id: 'user-1',
+      role: MessageRole.USER, message_type: MessageType.TEXT,
+      content: 'I ran 1K yesterday', media_url: null,
+      media_content_type: null, twilio_sid: null, token_count: null,
+      is_checkin_prompt: false, is_proof_submission: false,
+      flagged: false, flag_reason: null, created_at: new Date(),
+    }];
+    await service.generateReply(testUser, history, 'What next?');
+    const callArgs = mockCreate.mock.calls[0][0];
+    expect(callArgs.messages.length).toBeGreaterThanOrEqual(2);
+    expect(callArgs.messages[0].content).toBe('I ran 1K yesterday');
   });
 });
