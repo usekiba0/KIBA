@@ -14,6 +14,7 @@ import {
 import { Type } from 'class-transformer';
 import { CoachingFocus } from '../../data/entities/user.entity';
 import { SubscriptionPlan } from '../../data/entities/subscription.entity';
+import { PressurePreference } from '../../data/entities/psychological-profile.entity';
 
 export class SetupIntentDto {
   @IsString()
@@ -26,6 +27,7 @@ export class SetupIntentDto {
 }
 
 export class OnboardingFormDto {
+  // ── Identity ──────────────────────────────────────────────────────────────
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -34,14 +36,64 @@ export class OnboardingFormDto {
   @Matches(/^\+[1-9]\d{6,14}$/, { message: 'phone_number must be E.164 format e.g. +12125551234' })
   phone_number: string;
 
-  @IsEnum(CoachingFocus)
-  coaching_focus: CoachingFocus;
+  // ── Goal ──────────────────────────────────────────────────────────────────
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  goal_description: string;
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(1)
+  @MaxLength(100)
+  goal_timeline: string;
+
+  @IsString()
+  @IsNotEmpty()
   @MaxLength(1000)
-  goals: string;
+  current_status: string;
+
+  // ── Psychological intake ──────────────────────────────────────────────────
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  fears: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  avoidance_patterns: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  comparison_figure: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  public_failure_scenario: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  typical_failure_moment: string;
+
+  @IsEnum(PressurePreference)
+  pressure_preference: PressurePreference;
+
+  // ── Check-in preference ───────────────────────────────────────────────────
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'checkin_time must be HH:MM format e.g. 08:00' })
+  checkin_time: string;
+
+  // ── Legacy fitness fields (optional, kept for backwards compat) ───────────
+  @IsOptional()
+  @IsEnum(CoachingFocus)
+  coaching_focus?: CoachingFocus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  goals?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -81,6 +133,7 @@ export class OnboardingFormDto {
   @MaxLength(500)
   injuries?: string;
 
+  // ── Payment ───────────────────────────────────────────────────────────────
   @IsString()
   @IsNotEmpty()
   stripe_payment_method_id: string;
