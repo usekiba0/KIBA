@@ -3,28 +3,28 @@ import { useState } from 'react';
 
 const FAQS = [
   {
-    q: 'Does Ryke work on Android?',
-    a: 'Yes — Ryke works on any phone that can send and receive SMS. Android users get standard SMS/MMS. iPhone users automatically receive iMessages (blue bubbles) via our SendBlue integration, so the experience is native on both platforms.',
+    q: 'Does Kiba work on Android?',
+    a: 'Yes — Kiba works on any phone that can send and receive SMS. Android users get standard SMS. iPhone users automatically receive iMessages (blue bubbles) via our SendBlue integration, so the experience is native on both platforms.',
   },
   {
     q: 'What happens when my free trial ends?',
-    a: "Nothing changes abruptly. Your trial lasts a full 30 days. The day before it ends, Ryke will text you a reminder. After that, your card is charged $20/month and coaching continues uninterrupted. You can cancel anytime — just text 'CANCEL' to Ryke.",
+    a: "Nothing changes abruptly. Your trial lasts a full 30 days. The day before it ends, Kiba will text you a reminder. After that, your card is charged and accountability continues uninterrupted. You can cancel anytime — just text 'CANCEL' to Kiba.",
   },
   {
     q: 'Is my conversation private?',
     a: 'Absolutely. Your messages are encrypted in transit and at rest. We never sell your data, share it with third parties, or use it to train AI models. You can request a full export or deletion of your data at any time.',
   },
   {
-    q: 'How is Ryke different from just asking ChatGPT?',
-    a: "ChatGPT has no memory of you between sessions and gives generic answers. Ryke knows your goals, body metrics, health conditions, and history from day one — and proactively checks in on you. It's a coach, not a chatbot.",
+    q: 'How is Kiba different from just setting a reminder?',
+    a: "Reminders are passive — you can ignore them. Kiba uses your own words against you. It knows what you said you wanted, what you said you were afraid of, and who you said you were falling behind. It demands proof, not promises.",
   },
   {
-    q: 'Can I text Ryke at 2am?',
-    a: "Yes — Ryke is available 24 hours a day, 7 days a week. There's no off-hours, no waiting room, no scheduling. Text whenever you need support, motivation, a meal idea, or someone to talk to. Ryke is always there.",
+    q: 'Can Kiba text me at 2am?',
+    a: "Yes — Kiba is available 24 hours a day, 7 days a week. If you committed to a task and haven't reported back, Kiba will follow up. There is no off-hours. There is no snooze.",
   },
   {
     q: 'What if I need a real human coach?',
-    a: "Ryke is built to work alongside human coaches, not replace them. If you ever need a live human, Ryke will flag it and connect you. Our Coach Pro and Elite plans let professional coaches deploy Ryke under their brand — so your AI and human support stay in sync.",
+    a: "Kiba is not a replacement for human coaching — it is a layer of accountability that runs 24/7. For users who want escalation to a live coach, that option is available on Pro and Elite plans.",
   },
 ];
 

@@ -58,7 +58,7 @@ export default function OnboardingPage() {
   return (
     <div className="onboarding-container">
       <div className="onboarding-card">
-        <div className="logo-small">RYKE <span>AI</span></div>
+        <div className="logo-small">KIBA <span>AI</span></div>
         <div className="progress-bar">
           <div className="progress-track">
             <div className="progress-track-fill" style={{ width: `${(step / (STEPS.length - 1)) * 100}%` }} />

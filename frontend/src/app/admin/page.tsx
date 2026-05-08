@@ -220,7 +220,7 @@ export default function AdminPage() {
     return (
       <div style={{ minHeight: '100vh', background: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <form onSubmit={handleLogin} style={{ background: '#111113', border: '1px solid #27272a', borderRadius: 16, padding: 40, width: 340 }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#fafafa', marginBottom: 8 }}>RYKE <span style={{ color: '#e11d48' }}>Admin</span></div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: '#fafafa', marginBottom: 8 }}>KIBA <span style={{ color: '#e11d48' }}>Admin</span></div>
           <div style={{ fontSize: 13, color: '#71717a', marginBottom: 24 }}>Enter your internal API key to continue</div>
           <input type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder="Internal API key"
             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #3f3f46', background: '#18181b', color: '#fafafa', fontSize: 14, boxSizing: 'border-box', marginBottom: 12 }} />
@@ -239,7 +239,7 @@ export default function AdminPage() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#09090b', color: '#fafafa', fontFamily: 'DM Sans, sans-serif' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', borderBottom: '1px solid #27272a', background: '#111113', height: 52, flexShrink: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: 16 }}>RYKE <span style={{ color: '#e11d48' }}>Admin</span></div>
+        <div style={{ fontWeight: 700, fontSize: 16 }}>KIBA <span style={{ color: '#e11d48' }}>Admin</span></div>
         <div style={{ display: 'flex', gap: 4 }}>
           {(['dashboard', 'users', 'crisis', 'settings'] as Tab[]).map(t => (
             <button key={t} onClick={() => handleTabChange(t)}
@@ -590,7 +590,7 @@ export default function AdminPage() {
             <div style={{ background: '#111113', border: '1px solid #27272a', borderRadius: 12, padding: '24px' }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#fafafa', marginBottom: 4 }}>Crisis Coach Contact</div>
               <div style={{ fontSize: 12, color: '#52525b', marginBottom: 20 }}>
-                When a user sends a distress message, RYKE immediately texts and emails this person.
+                When a user sends a distress message, KIBA immediately texts and emails this person.
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

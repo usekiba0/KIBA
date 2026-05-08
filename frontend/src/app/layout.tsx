@@ -3,8 +3,8 @@ import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Ryke.ai — The mentor you never had.',
-  description: 'SMS-first AI coaching for fitness, nutrition, and mental wellness. No app. No login. Just results.',
+  title: 'Kiba — The system that makes ignoring your goals impossible.',
+  description: 'AI-powered accountability system. Deep psychological pressure, proof-based check-ins, and zero tolerance for silent failure.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

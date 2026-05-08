@@ -1,304 +1,212 @@
-<!--
-SYNC IMPACT REPORT
-==================
-Version change: 1.1.0 → 1.2.0  (MINOR — 3 new principles, finalized tech stack, AI behavior
-                                  constraints, engineering principles, development timeline)
-Modified principles:
-  - IX. Human-like & Action-Oriented AI — expanded with strict AI behavior constraints
-  - VIII. YAGNI & MVP-First — expanded with 4–8 week timeline constraint
-Added principles:
-  - XII. API-First & Strict Separation of Concerns
-  - XIII. Webhook-Driven & Stateless Messaging
-  - XIV. Zero-Friction Onboarding
-Added sections:
-  - Engineering Principles (as subsection of Development Workflow)
-  - AI Behavior Constraints (as subsection of principle IX)
-  - Out of Scope Enforced list updated (mobile apps, multi-channel)
-Modified sections:
-  - Confirmed Tech Stack — finalized (Node.js/TypeScript, NestJS/Express, Redis added,
-    Vercel + AWS split, Docker preferred)
-  - Phase 1 MVP Scope Boundary — out-of-scope expanded
-Removed TODOs:
-  - TODO(TECH_STACK_BACKEND) resolved — Node.js (TypeScript) confirmed
-Remaining TODOs:
-  - TODO(RATIFICATION_OWNER): Confirm ratifying authority
-Templates requiring updates:
-  ✅ .specify/templates/plan-template.md  — new gates + engineering principles
-  ✅ .specify/templates/spec-template.md  — zero-friction onboarding + AI behavior
-  ✅ .specify/templates/tasks-template.md — separation of concerns reflected in task layers
-==================
--->
+# KIBA Constitution
 
-# RYKE AI Constitution
+**Version**: 1.0.0 | **Created**: 2026-05-09
+
+---
 
 ## Vision
 
-RYKE AI is an SMS-first AI coaching platform that delivers fitness, nutrition, and mental wellness
-guidance through real-time text conversations. It serves two audiences: end users seeking
-affordable, always-available coaching, and coaches who want to automate and scale client
-engagement — all without a mobile app.
+KIBA is an SMS-first psychological accountability system that makes ignoring your goals impossible. It is not a productivity tool, a habit tracker, or a chatbot. KIBA operates on a core truth: users fail due to ego protection, not lack of knowledge. When friction hits, people avoid exposure rather than execute. KIBA removes the ability to silently fail.
 
-## Phase 1 MVP Scope Boundary
+KIBA combines deep psychological profiling, pressure-based messaging, proof submission, and consequence systems to force execution through structured accountability loops.
 
-### In Scope (MVP — Phase 1 only)
+## Positioning (NON-NEGOTIABLE)
 
-- User sign-up via Next.js landing page (phone number capture)
-- Welcome SMS sent automatically on registration via Twilio
-- SMS-based AI coaching conversations (fitness, nutrition, mental wellness)
-- Conversational context maintained per user session (PostgreSQL + optional Redis)
-- Human-like, action-oriented, single-question-at-a-time AI responses
-- Basic user data and conversation history storage
+- **NOT**: AI productivity tool
+- **NOT**: Habit tracker
+- **NOT**: Motivational chatbot
+- **YES**: A system that makes ignoring goals impossible
 
-### Out of Scope (Enforced — MUST NOT be built in Phase 1)
+All product, copy, and feature decisions MUST align with this positioning.
 
-- Native mobile apps (iOS, Android)
-- Wearable device integrations (Apple Watch, Fitbit, WHOOP, Oura, etc.)
-- Advanced coach dashboard and visual analytics
-- Voice/style personalisation model training
-- Calorie estimation from photos (MMS vision)
-- Human handoff alert dashboard (Phase 2)
-- Response delay configuration UI (Phase 2)
-- Smart scheduling engine (Phase 2)
-- Mental health crisis escalation pipeline (Phase 2)
-- Multi-channel support (WhatsApp, email, push notifications)
-- Complex analytics or reporting
+## Phase 1 MVP Scope
 
-> **Rule**: Any task or PR that references out-of-scope items MUST be blocked and deferred to the
-> Phase 2 backlog. Architecture MUST remain simple and modular so Phase 2 can layer on top without
-> rewrites.
+### In Scope
 
-## Confirmed Tech Stack
+- Psychological onboarding (deep intake: fears, comparisons, failure patterns, pressure preference)
+- Goal creation with timeline and current status
+- AI-generated structured action plan (milestones, weekly breakdown, daily tasks)
+- Daily check-in system (AI prompts daily, user confirms task completion)
+- Proof submission via SMS/MMS (photo, text confirmation)
+- Strike tracking (missed tasks logged, ego-based pressure escalation)
+- Execution score (0–100 performance metric)
+- Anti-ghosting system (user must acknowledge miss or reset — no silent failure)
+- Dynamic tone system (adapts delivery style, maintains pressure regardless)
+- Crisis detection and coach alert (safety net for distress signals)
+- Web onboarding form (goal, timeline, psychological intake, payment)
+- Stripe subscription with 30-day free trial
 
-| Layer | Technology | Decision |
-|---|---|---|
-| Backend Language | Node.js — TypeScript | Confirmed |
-| Backend Framework | Express or NestJS | NestJS preferred for modularity; Express if team speed is priority |
-| AI Engine | OpenAI GPT-4o / Claude API | Prompt-controlled conversational engine |
-| Messaging | Twilio SMS API | Inbound/outbound via webhooks |
-| Database | PostgreSQL | Users, sessions, message history |
-| Cache | Redis | Conversation state, quick retrieval (optional for MVP, recommended) |
-| Frontend | Next.js | Landing page + onboarding only |
-| Frontend Hosting | Vercel | Static/SSR Next.js deployment |
-| Backend Hosting | AWS (EC2 / Lambda + RDS) | Scalable backend services |
-| Containerization | Docker | Preferred for MVP; not mandatory if it slows delivery |
+### Out of Scope (Phase 1)
 
-**Backend → Messaging → AI → DB** are strict layers; no cross-layer direct calls allowed.
+- Money Mode (financial stakes / commitment contracts)
+- 1v1 Challenge Mode (social competition)
+- Social Proof Cards (shareable wins)
+- Gamification badges and levels
+- Voice-based interaction
+- Wearable integrations
+- Native mobile apps
+- Coach dashboard with visual analytics
+- Multi-channel support (WhatsApp, email push)
 
 ## Core Principles
 
-### I. SMS-First, No-App Interface (NON-NEGOTIABLE)
+### I. Pressure Over Motivation (NON-NEGOTIABLE)
 
-All user-facing coaching interactions MUST be delivered exclusively over SMS.
-No native mobile app and no web portal for the coaching experience in Phase 1.
+KIBA operates on pressure, not encouragement. Every system decision MUST prioritize accountability over comfort.
 
-- Every coaching feature MUST be expressible as a text exchange.
-- System responses MUST be concise enough to read in a single SMS thread.
-- Onboarding, reminders, check-ins, and health guidance MUST function without
-  any app installation on the user's device.
-- The Next.js landing page is for sign-up only; it MUST NOT replicate the
-  coaching experience.
-- Multi-channel support (WhatsApp, email) is OUT OF SCOPE for Phase 1.
+- AI responses MUST reference the user's own stated fears, comparisons, and failure patterns.
+- Generic motivational messages are PROHIBITED.
+- Pressure MUST be maintained consistently — not just when users fail.
+- Tone adapts (casual vs professional) but intensity does NOT soften without cause.
 
-### II. AI Personalization — Voice & Style Adaptation
+### II. No Silent Failure (NON-NEGOTIABLE)
 
-The AI MUST adapt to each user's communication style, tone, and wellness preferences
-using their conversation history as context.
+Users MUST NOT be able to disappear. Every missed task MUST trigger a response.
 
-- Responses MUST reflect the user's preferred language register (casual, formal, motivational).
-- Personalization data MUST be scoped per user and MUST NOT bleed across accounts.
-- Users MUST be able to reset or review their personalization context on request.
-- **Phase 1**: Personalization via rolling conversation history window only.
-  Deep voice-model training is a Phase 2 feature.
+- Missed check-in → immediate follow-up message within a configurable window.
+- User MUST acknowledge the miss or accept a recovery task before resuming normal flow.
+- Anti-ghost recovery MUST assign a replacement task instantly.
+- Strikes MUST be logged and referenced in future messages.
 
-### III. Safety-First & Human Handoff (NON-NEGOTIABLE)
+### III. Psychological Personalization
 
-Automated AI responses MUST never replace human judgment in crisis or
-high-risk mental health situations.
+KIBA MUST use onboarding intake data to inject emotional triggers into every accountability message.
 
-- System MUST detect predefined risk signals (distress keywords, crisis language,
-  repeated negative sentiment) and trigger an immediate alert.
-- Coach MUST be notified within a configurable SLA (default: 5 minutes) of a
-  risk signal being detected.
-- System MUST send a supportive holding message to the user while awaiting response.
-- Human handoff logic MUST be present in every deployment and MUST NOT be
-  disabled by configuration.
-- **Phase 1**: Basic crisis keyword detection with coach email/SMS alert only.
-  Full handoff dashboard is Phase 2.
+- Onboarding MUST capture: what the user hates about their current situation, what they are avoiding, who they compare themselves to, what would embarrass them publicly if they failed, when they typically fail, and whether they prefer pressure or encouragement.
+- AI MUST reference this data throughout the coaching lifecycle — not just at onboarding.
+- Messages MUST feel personal and unavoidable, not templated.
 
-### IV. Vision-Powered Nutrition Analysis
+**Example:**
+- Generic: "Did you go to the gym?"
+- KIBA: "You said you're tired of being behind your friends. Skipping today is exactly how that happens. Send proof now."
 
-System MUST support calorie and macro-nutrient estimation from user-submitted
-food photos sent via MMS.
+### IV. Proof-Based Accountability
 
-- **Phase 1**: OUT OF SCOPE. Deferred to Phase 2.
+Claims without evidence are not accepted. KIBA demands proof, not promises.
 
-### V. Coach Observability & Analytics
+- Users MUST submit proof of task completion (photo, timestamp, or specific confirmation).
+- AI MUST prompt for proof on high-commitment tasks.
+- Proof submission MUST be tracked per task and factored into the Execution Score.
+- Phase 1 proof = photo MMS or explicit text confirmation. Advanced verification (integrations) = Phase 2.
 
-All user interactions, health events, and AI decisions MUST be observable.
+### V. Execution Score System
 
-- System MUST emit structured logs for every inbound message, AI response,
-  scheduled action, and handoff event.
-- **Phase 1**: Structured logging only. Visual dashboard is Phase 2.
+Every user has a 0–100 Execution Score visible to them at all times.
 
-### VI. Privacy & Health Data Security (NON-NEGOTIABLE)
+- Score tracks: task completion rate, response time to check-ins, proof submission rate, consistency streaks.
+- Score MUST be referenced in AI messages to gamify accountability seriously.
+- High performers receive escalating challenges; low performers receive increased pressure.
+- Score resets are allowed but MUST be logged and referenced.
 
-All personal and health data MUST be protected to HIPAA-adjacent standards.
+### VI. Adaptive Difficulty
 
-- All data MUST be encrypted in transit (TLS 1.2+) and at rest (AES-256 or equivalent).
-- Health data MUST never be sold, shared with third parties, or used for training
-  without explicit, auditable user consent.
+KIBA MUST adjust plan difficulty based on user behavior — not user request.
+
+- Miss 2–3 days → reduce task difficulty automatically.
+- Consistent completion → increase challenge.
+- Inactive for 48+ hours → escalate pressure and trigger anti-ghost recovery.
+- Users MUST NOT be able to manually reduce their own difficulty without a streak reset.
+
+### VII. Safety-First & Crisis Handling (NON-NEGOTIABLE)
+
+Pressure MUST never escalate into genuine harm. Crisis detection is mandatory in every deployment.
+
+- System MUST detect distress signals (crisis language, repeated negative sentiment, explicit distress keywords).
+- Coach MUST be alerted within 5 minutes via SMS and email.
+- User MUST receive a supportive holding message immediately when crisis is detected.
+- AI pressure tone MUST be suspended during an active crisis flag.
+- Crisis detection MUST NOT be disabled by configuration or feature flag.
+
+### VIII. SMS-First Interface (NON-NEGOTIABLE)
+
+All user-facing accountability interactions MUST be delivered over SMS.
+
+- Every feature MUST be expressible as a text exchange.
+- No native mobile app in Phase 1.
+- The Next.js web app is for onboarding and dashboard only.
+- Coaching and accountability flow over SMS exclusively.
+
+### IX. AI Behavior — Sharp, Direct, Human
+
+Every AI response MUST sound like a trusted but uncompromising accountability partner.
+
+**Required:**
+- Short: 1–4 sentences, SMS-appropriate length.
+- Context-aware: reference the user's own words, goals, and history.
+- Direct: no hedging, no over-qualification, no motivational filler.
+- Action-demanding: every message ends with a specific required action or confirmation.
+- At most ONE question per response.
+
+**Prohibited:**
+- Generic encouragement without context.
+- Bullet-point style responses.
+- Responses that allow the user to disengage without consequence.
+- Multiple questions in one message.
+
+### X. Privacy & Data Security (NON-NEGOTIABLE)
+
+Psychological intake data is sensitive. It MUST be protected at the highest level.
+
+- All data encrypted in transit (TLS 1.2+) and at rest (AES-256).
+- Psychological intake data MUST never be sold or shared with third parties.
 - Users MUST be able to request full data export or deletion at any time.
-- Secrets and credentials MUST be managed via environment variables or a secrets
-  manager; MUST NOT be hardcoded or committed to source control.
+- Secrets and credentials MUST use environment variables only — never hardcoded.
 
-### VII. Extensible Architecture — Wearables-Ready
+### XI. MVP-First Delivery (NON-NEGOTIABLE)
 
-Data models and service interfaces MUST be designed to support future wearable
-integrations without breaking schema changes.
+The smallest working system that delivers accountability value ships first.
 
-- Health metric entities MUST use source-agnostic schemas (no device-specific fields
-  at the top level).
-- Integration adapter interfaces MUST be defined even if not implemented in Phase 1.
-- **Phase 1**: Schema design + adapter interfaces only. No active wearable connections.
+- Phase 2 features (Money Mode, Challenge Mode, Social Cards) MUST NOT be built in Phase 1.
+- No microservices unless clearly necessary.
+- Over-engineering and premature abstraction are constitution violations.
+- Every PR MUST justify scope against MVP delivery.
 
-### VIII. YAGNI & MVP-First Delivery (NON-NEGOTIABLE)
+### XII. Separation of Concerns
 
-The smallest working system that delivers user value MUST always be preferred.
-The Phase 1 MVP MUST be buildable and shippable within **4–8 weeks**.
+Three mandatory layers — no cross-layer shortcuts:
 
-- Features outside Phase 1 scope MUST NOT be built, even if easy to add.
-- No microservices unless clearly necessary — a modular monolith is the default.
-- No premature integrations (wearables, dashboards, scheduling engine = Phase 2).
-- Over-engineering, premature abstraction, and speculative generality are
-  constitution violations.
-- Every PR MUST justify its scope against the 4–8 week MVP delivery constraint.
+1. **Messaging Layer** — Twilio inbound/outbound. No business logic or AI calls.
+2. **AI Processing Layer** — Prompt construction, context, response. No direct DB writes or Twilio calls.
+3. **Data Layer** — PostgreSQL + Redis persistence. No messaging or AI logic.
 
-### IX. Human-like & Action-Oriented AI
+### XIII. Token-Efficient AI
 
-Every AI response MUST sound natural, conversational, and include one concrete
-actionable next step. AI MUST feel like a real coach, not a chatbot.
-
-**Response behavior (strict):**
-- MUST be short: typically 1–4 sentences, always SMS-appropriate length.
-- MUST be context-aware: reference what the user said, not a generic template.
-- MUST be human-like: no bullet lists, no robotic phrasing, no clinical language.
-- MUST ask only ONE question per response — never overwhelm with multiple asks.
-- MUST end with a clear next step (a plan, a reminder, a specific action).
-- Tone MUST adapt to emotional state: encouraging when struggling, energetic when
-  motivated, calm and grounding during stress signals.
-
-**Prohibited patterns:**
-- Generic responses that ignore user context.
-- Bullet-point style answers in conversational turns.
-- Responses that ask two or more questions at once.
-- Responses without an actionable element.
-
-### X. Test-First Quality — Predefined Test Cases
-
-Tests MUST be written and approved before implementation begins.
-No feature ships without passing its predefined test cases.
-
-- Every user story MUST have Given/When/Then acceptance scenarios before any code.
-- Red-Green-Refactor cycle is mandatory.
-- Contract tests MUST exist for every external integration (Twilio, AI API, PostgreSQL).
-- Integration tests MUST cover: inbound SMS → AI processing → outbound SMS.
-- A feature is NOT done until all predefined tests pass in CI.
-
-### XI. Token-Efficient AI
-
-AI prompts MUST be optimized to minimize token consumption without sacrificing quality.
+Prompts MUST be optimized. Psychological context is injected surgically, not dumped wholesale.
 
 - System prompts MUST be concise and role-scoped.
-- Conversation history passed to the AI MUST use a sliding window or summary
-  compression — minimum context needed for coherent replies only.
-- Redundant instructions MUST NOT be repeated on every turn; use system-level context.
-- Token usage per turn MUST be logged; spikes trigger a prompt-engineering review.
-- Prompt templates MUST be reviewed for token cost before deployment.
+- Conversation history uses sliding window or summary compression.
+- Token usage MUST be logged per turn; spikes trigger prompt review.
 
-### XII. API-First & Strict Separation of Concerns
+## Tech Stack
 
-All services MUST be modular, reusable, and communicate via defined API contracts.
-No layer MUST directly call another layer's internals.
+| Layer | Technology |
+|---|---|
+| Backend | Node.js / TypeScript / NestJS |
+| AI Engine | Anthropic Claude API |
+| Messaging | Twilio SMS + SendBlue iMessage |
+| Database | PostgreSQL |
+| Cache / Queue | Redis (Upstash) |
+| Frontend | Next.js |
+| Frontend Hosting | Vercel |
+| Backend Hosting | Render |
 
-**Three mandatory layers — no cross-layer shortcuts:**
-
-1. **Messaging Layer** — Handles all Twilio inbound/outbound communication.
-   Responsible for: receiving webhooks, sending SMS, message queuing.
-   MUST NOT contain business logic or AI calls.
-
-2. **AI Processing Layer** — Handles all AI provider interactions.
-   Responsible for: prompt construction, context management, response parsing.
-   MUST NOT call Twilio directly or write to the database.
-
-3. **Data Layer** — Handles all persistence (PostgreSQL, Redis).
-   Responsible for: user records, conversation history, session state.
-   MUST NOT contain messaging or AI logic.
-
-- All inter-layer communication MUST go through service interfaces or internal APIs.
-- New features MUST be addable to one layer without modifying the others.
-
-### XIII. Webhook-Driven & Stateless Messaging
-
-The messaging system MUST be event-driven via Twilio webhooks. Services MUST be
-stateless; conversation state MUST be persisted externally.
-
-- Inbound SMS MUST trigger a webhook that the backend processes asynchronously.
-- Services MUST NOT hold conversation state in memory between requests.
-- All conversation state MUST be stored in PostgreSQL or Redis.
-- Webhook endpoints MUST validate Twilio signatures before processing.
-- Failed webhook processing MUST be retried with exponential back-off.
-- Outbound SMS MUST be queued and sent via the Messaging Layer only.
-
-### XIV. Zero-Friction Onboarding (NON-NEGOTIABLE)
-
-From phone number entry to first AI response MUST require zero extra steps for the user.
-
-- User submits phone number on the landing page → welcome SMS arrives within 30 seconds.
-- No email confirmation, no password, no app download, no additional form fields required.
-- The welcome SMS MUST immediately invite the user to start a conversation.
-- Onboarding flow MUST be completable on any phone — smartphone or basic SMS-capable device.
-- Any friction introduced in onboarding MUST be justified and reviewed against this principle.
-
-## Delivery & Operational Constraints
-
-- **Timeline**: Phase 1 MVP MUST ship within 4–8 weeks of development start.
-- **Availability**: SMS delivery SLA default target is 99.5% uptime for message processing.
-- **Scale**: Architecture MUST support horizontal scaling of message workers without code changes.
-- **Cost tracking**: Per-message AI token cost and Twilio SMS cost MUST be logged and operator-visible.
-- **Response delay**: Configurable per-user AI response delay windows are a Phase 2 feature.
-
-## Development Workflow & Quality Gates
+## Delivery & Quality Gates
 
 All features MUST pass these gates before merge:
 
-1. **SMS-First Gate** — Every coaching output must be deliverable as SMS. Flag any feature
-   requiring a browser/app (landing page sign-up is the sole exception).
-2. **Safety Gate** — Mental health or distress features MUST include handoff logic +
-   integration test exercising the handoff path.
-3. **Privacy Gate** — Features handling health/personal data MUST include encryption,
-   access control, and consent mechanism.
-4. **Extensibility Gate** — New health metric entities MUST use source-agnostic schema.
-5. **Observability Gate** — Every new service operation MUST emit a structured log event.
-6. **MVP Scope Gate** — Phase 2+ features MUST be blocked and deferred to backlog.
-7. **Test-First Gate** — PRs MUST include predefined test files. No test = no merge.
-8. **Token-Efficiency Gate** — New AI prompt templates MUST include estimated token count.
-   Prompts exceeding 500 tokens/turn MUST be reviewed and justified.
-9. **Separation of Concerns Gate** — No cross-layer direct calls. Messaging/AI/Data layers
-   MUST remain independently deployable and testable.
-10. **Zero-Friction Gate** — Any onboarding change MUST be tested end-to-end: phone number
-    entry → welcome SMS received in under 30 seconds.
+1. **Pressure Gate** — Does this feature eliminate a silent failure path or increase accountability?
+2. **Personalization Gate** — Does this feature use psychological intake data?
+3. **No-Ghost Gate** — Does this feature allow users to disappear without consequence? If yes, block it.
+4. **Safety Gate** — Any distress/crisis path MUST include handoff logic and integration test.
+5. **Privacy Gate** — Psychological data features MUST include encryption and consent mechanism.
+6. **SMS-First Gate** — Every accountability output deliverable over SMS.
+7. **Test-First Gate** — No feature ships without predefined test cases passing in CI.
+8. **MVP Scope Gate** — Phase 2 features blocked and deferred.
+9. **Token-Efficiency Gate** — New AI prompts include estimated token count.
+10. **Separation of Concerns Gate** — No cross-layer direct calls.
 
 ## Governance
 
-- This constitution supersedes all other practices, style guides, and ad-hoc decisions.
-- NON-NEGOTIABLE principles (I, III, VI, VIII, XIV) MUST NOT be disabled by any feature
-  flag, configuration, or deployment option.
-- Amendments require: written rationale, version increment per semver rules, migration plan
-  for affected specs/tasks, and explicit lead architect approval.
-- All PRs MUST include a Constitution Check section confirming gate compliance.
-- Complexity beyond the smallest viable change MUST be justified in the plan's
-  Complexity Tracking table.
-- TODO(RATIFICATION_OWNER): Confirm ratifying authority (Sophia Renard / lead architect)
-  before v1.2.0 is considered formally ratified.
-
-**Version**: 1.2.0 | **Ratified**: 2026-04-28 | **Last Amended**: 2026-04-28
+- This constitution supersedes all other practices and ad-hoc decisions.
+- NON-NEGOTIABLE principles MUST NOT be disabled by feature flag or configuration.
+- Amendments require written rationale, version increment, and lead architect approval.
