@@ -8,6 +8,13 @@ import { NutritionalAnalysis } from './entities/nutritional-analysis.entity';
 import { CrisisAlert } from './entities/crisis-alert.entity';
 import { SessionSummary } from './entities/session-summary.entity';
 import { ProcessedStripeEvent } from './entities/processed-stripe-event.entity';
+import { PsychologicalProfile } from './entities/psychological-profile.entity';
+import { Goal } from './entities/goal.entity';
+import { DailyTask } from './entities/daily-task.entity';
+import { Proof } from './entities/proof.entity';
+import { Strike } from './entities/strike.entity';
+import { ExecutionScore } from './entities/execution-score.entity';
+import { AntiGhostState } from './entities/anti-ghost-state.entity';
 
 dotenv.config();
 
@@ -20,6 +27,7 @@ export const AppDataSource = new DataSource({
   entities: [
     User, Subscription, ConversationSession, Message,
     NutritionalAnalysis, CrisisAlert, SessionSummary, ProcessedStripeEvent,
+    PsychologicalProfile, Goal, DailyTask, Proof, Strike, ExecutionScore, AntiGhostState,
   ],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
   synchronize: false,

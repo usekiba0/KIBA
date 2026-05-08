@@ -1,0 +1,128 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class AddKibaAccountabilitySchema1778277013568 implements MigrationInterface {
+    name = 'AddKibaAccountabilitySchema1778277013568'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`CREATE TYPE "public"."users_coaching_focus_enum" AS ENUM('fitness', 'nutrition', 'wellness', 'combined')`);
+        await queryRunner.query(`CREATE TYPE "public"."users_status_enum" AS ENUM('trial', 'active', 'paused', 'cancelled')`);
+        await queryRunner.query(`CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "phone_number" character varying(20) NOT NULL, "name" character varying(100) NOT NULL, "coaching_focus" "public"."users_coaching_focus_enum" NOT NULL, "goals" text NOT NULL, "height_cm" smallint, "weight_kg" numeric(5,2), "age" smallint, "health_conditions" text array NOT NULL DEFAULT '{}', "dietary_restrictions" text array NOT NULL DEFAULT '{}', "injuries" text, "status" "public"."users_status_enum" NOT NULL DEFAULT 'trial', "crisis_hold" boolean NOT NULL DEFAULT false, "registered_at" TIMESTAMP NOT NULL DEFAULT now(), "last_active_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_17d1817f241f10a3dbafb169fd" ON "users" ("phone_number") `);
+        await queryRunner.query(`CREATE INDEX "IDX_3676155292d72c67cd4e090514" ON "users" ("status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_90144ead7619aced8f4c69d6e4" ON "users" ("last_active_at") `);
+        await queryRunner.query(`CREATE TYPE "public"."subscriptions_plan_enum" AS ENUM('individual', 'coach_pro', 'coach_elite')`);
+        await queryRunner.query(`CREATE TYPE "public"."subscriptions_status_enum" AS ENUM('trialing', 'active', 'past_due', 'cancelled')`);
+        await queryRunner.query(`CREATE TABLE "subscriptions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "stripe_customer_id" character varying(50) NOT NULL, "stripe_subscription_id" character varying(50) NOT NULL, "plan" "public"."subscriptions_plan_enum" NOT NULL, "status" "public"."subscriptions_status_enum" NOT NULL DEFAULT 'trialing', "trial_start" TIMESTAMP WITH TIME ZONE NOT NULL, "trial_end" TIMESTAMP WITH TIME ZONE NOT NULL, "current_period_end" TIMESTAMP WITH TIME ZONE, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_a87248d73155605cf782be9ee5e" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_d0a95ef8a28188364c546eb65c" ON "subscriptions" ("user_id") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_7aa77f6636d26cac1b731cac3a" ON "subscriptions" ("stripe_customer_id") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_3a2d09d943f39912a01831a927" ON "subscriptions" ("stripe_subscription_id") `);
+        await queryRunner.query(`CREATE TYPE "public"."conversation_sessions_status_enum" AS ENUM('active', 'completed', 'crisis_hold')`);
+        await queryRunner.query(`CREATE TABLE "conversation_sessions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "status" "public"."conversation_sessions_status_enum" NOT NULL DEFAULT 'active', "message_count" integer NOT NULL DEFAULT '0', "summary_generated" boolean NOT NULL DEFAULT false, "started_at" TIMESTAMP NOT NULL DEFAULT now(), "last_message_at" TIMESTAMP WITH TIME ZONE, "ended_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_f5da074d9b5bf59ea03eaac4b48" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_9a3cb65b82e40d383930152410" ON "conversation_sessions" ("user_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_1244c77b85944b67a896deca26" ON "conversation_sessions" ("status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_e64086c7f30209aabdaedff86b" ON "conversation_sessions" ("last_message_at") `);
+        await queryRunner.query(`CREATE TYPE "public"."messages_role_enum" AS ENUM('user', 'ai')`);
+        await queryRunner.query(`CREATE TYPE "public"."messages_message_type_enum" AS ENUM('text', 'mms')`);
+        await queryRunner.query(`CREATE TABLE "messages" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "session_id" uuid NOT NULL, "user_id" uuid NOT NULL, "role" "public"."messages_role_enum" NOT NULL, "message_type" "public"."messages_message_type_enum" NOT NULL DEFAULT 'text', "content" text NOT NULL, "media_url" text, "media_content_type" character varying(50), "twilio_sid" character varying(50), "token_count" integer, "flagged" boolean NOT NULL DEFAULT false, "flag_reason" text, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_18325f38ae6de43878487eff986" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_ff71b7760071ed9caba7f02beb" ON "messages" ("session_id") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_a89355853a16fc35f6a0f74d58" ON "messages" ("twilio_sid") `);
+        await queryRunner.query(`CREATE INDEX "IDX_0777b63da90c27d6ed993dc60b" ON "messages" ("created_at") `);
+        await queryRunner.query(`CREATE TABLE "nutritional_analyses" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "message_id" uuid NOT NULL, "user_id" uuid NOT NULL, "detected_foods" text array NOT NULL DEFAULT '{}', "total_calories" smallint, "protein_grams" smallint, "carbs_grams" smallint, "fat_grams" smallint, "health_flags" text array NOT NULL DEFAULT '{}', "recommendation" text, "confidence_score" numeric(4,3), "food_identified" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_91d70eae3772de71c3d9538ea91" UNIQUE ("message_id"), CONSTRAINT "PK_49f29377d1054fd5419da6f582c" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TYPE "public"."crisis_alerts_detection_method_enum" AS ENUM('keyword', 'ml_classifier', 'hybrid')`);
+        await queryRunner.query(`CREATE TYPE "public"."crisis_alerts_coach_alert_channel_enum" AS ENUM('sms', 'email')`);
+        await queryRunner.query(`CREATE TYPE "public"."crisis_alerts_status_enum" AS ENUM('open', 'acknowledged', 'resolved')`);
+        await queryRunner.query(`CREATE TABLE "crisis_alerts" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "triggering_message_id" uuid NOT NULL, "detection_method" "public"."crisis_alerts_detection_method_enum" NOT NULL, "confidence_score" numeric(4,3), "holding_message_sent" boolean NOT NULL DEFAULT false, "holding_message_sent_at" TIMESTAMP WITH TIME ZONE, "coach_alerted" boolean NOT NULL DEFAULT false, "coach_alerted_at" TIMESTAMP WITH TIME ZONE, "coach_alert_channel" "public"."crisis_alerts_coach_alert_channel_enum", "status" "public"."crisis_alerts_status_enum" NOT NULL DEFAULT 'open', "resolved_by" character varying(100), "resolved_at" TIMESTAMP WITH TIME ZONE, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_0d288b959391fc5e57322c461bc" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_40a100c57c0c40cb830386310a" ON "crisis_alerts" ("user_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_74c020ace6a0645f9f9956b28f" ON "crisis_alerts" ("status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_7a60525f244b70281ddf453894" ON "crisis_alerts" ("created_at") `);
+        await queryRunner.query(`CREATE TYPE "public"."session_summaries_trigger_enum" AS ENUM('session_expiry', 'message_count', 'token_budget')`);
+        await queryRunner.query(`CREATE TABLE "session_summaries" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "session_id" uuid NOT NULL, "summary" text NOT NULL, "message_count_summarised" integer NOT NULL, "trigger" "public"."session_summaries_trigger_enum" NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_09917dcbdcc0af877fc75ac3d23" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_46ff00ee1ee2ba283eea27671e" ON "session_summaries" ("user_id") `);
+        await queryRunner.query(`CREATE TABLE "processed_stripe_events" ("stripe_event_id" character varying(50) NOT NULL, "event_type" character varying(100) NOT NULL, "processed_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_cc72de6e11e0ca1dbc491731794" PRIMARY KEY ("stripe_event_id"))`);
+        await queryRunner.query(`CREATE TYPE "public"."psychological_profiles_pressure_preference_enum" AS ENUM('pressure', 'encouragement')`);
+        await queryRunner.query(`CREATE TABLE "psychological_profiles" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "fears" text NOT NULL, "avoidance_patterns" text NOT NULL, "comparison_figure" text NOT NULL, "public_failure_scenario" text NOT NULL, "typical_failure_moment" text NOT NULL, "pressure_preference" "public"."psychological_profiles_pressure_preference_enum" NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_32b50720cb8f7709aeb33d37daf" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_b110c561ef0119c3507393cb9f" ON "psychological_profiles" ("user_id") `);
+        await queryRunner.query(`CREATE TABLE "goals" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "description" text NOT NULL, "timeline" character varying(100) NOT NULL, "current_status" text NOT NULL, "action_plan" jsonb, "difficulty_level" smallint NOT NULL DEFAULT '3', "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_26e17b251afab35580dff769223" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_88b78010581f2d293699d06444" ON "goals" ("user_id") `);
+        await queryRunner.query(`CREATE TYPE "public"."daily_tasks_status_enum" AS ENUM('pending', 'completed', 'missed', 'recovery')`);
+        await queryRunner.query(`CREATE TABLE "daily_tasks" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "goal_id" uuid NOT NULL, "user_id" uuid NOT NULL, "task_description" text NOT NULL, "scheduled_date" date NOT NULL, "status" "public"."daily_tasks_status_enum" NOT NULL DEFAULT 'pending', "proof_id" uuid, "completion_timestamp" TIMESTAMP WITH TIME ZONE, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_141a96e8b2a5f80277d690a4bd8" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_abd57af10f8aa46f6c02a59ef4" ON "daily_tasks" ("goal_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_06b515d49982c8df6fde9306ef" ON "daily_tasks" ("user_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_fb234041b34cee0c583947e481" ON "daily_tasks" ("scheduled_date") `);
+        await queryRunner.query(`CREATE TYPE "public"."proofs_proof_type_enum" AS ENUM('photo', 'text')`);
+        await queryRunner.query(`CREATE TYPE "public"."proofs_validation_status_enum" AS ENUM('pending', 'accepted', 'rejected')`);
+        await queryRunner.query(`CREATE TABLE "proofs" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "task_id" uuid NOT NULL, "user_id" uuid NOT NULL, "proof_type" "public"."proofs_proof_type_enum" NOT NULL, "media_url" text, "content" text, "validation_status" "public"."proofs_validation_status_enum" NOT NULL DEFAULT 'pending', "validated_at" TIMESTAMP WITH TIME ZONE, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_06490e8196a39d54b57090a634c" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_24e1a6224d0f8b1dc56ffdbf89" ON "proofs" ("task_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_50d6b2721bd5b6d55952ab0016" ON "proofs" ("user_id") `);
+        await queryRunner.query(`CREATE TABLE "strikes" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "daily_task_id" uuid NOT NULL, "escalation_level" smallint NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_99327114d7cadcfd184ea78095a" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_eafefbee3b9eb060114bdb5f3f" ON "strikes" ("user_id") `);
+        await queryRunner.query(`CREATE TABLE "execution_scores" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "current_score" smallint NOT NULL, "completion_rate" numeric(5,4) NOT NULL, "proof_rate" numeric(5,4) NOT NULL, "response_time_score" numeric(5,4) NOT NULL, "streak_bonus" numeric(5,4) NOT NULL, "snapshot_date" date NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_477ec65b8da6197099b065abba9" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_79f9d47297bb06143bff9c1b58" ON "execution_scores" ("user_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_481c3304a14ac20153a01e5ae6" ON "execution_scores" ("snapshot_date") `);
+        await queryRunner.query(`CREATE TYPE "public"."anti_ghost_states_state_enum" AS ENUM('active', 'ghost_1', 'ghost_2', 'ghost_3')`);
+        await queryRunner.query(`CREATE TABLE "anti_ghost_states" ("user_id" uuid NOT NULL, "state" "public"."anti_ghost_states_state_enum" NOT NULL DEFAULT 'active', "last_response_at" TIMESTAMP WITH TIME ZONE NOT NULL, "next_escalation_at" TIMESTAMP WITH TIME ZONE, "current_job_id" character varying(255), CONSTRAINT "PK_6bf5608ba58cdcae5a3f4d0639a" PRIMARY KEY ("user_id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_c44e10e29eec4c3f9d63091bf1" ON "anti_ghost_states" ("state") `);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`DROP INDEX "public"."IDX_c44e10e29eec4c3f9d63091bf1"`);
+        await queryRunner.query(`DROP TABLE "anti_ghost_states"`);
+        await queryRunner.query(`DROP TYPE "public"."anti_ghost_states_state_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_481c3304a14ac20153a01e5ae6"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_79f9d47297bb06143bff9c1b58"`);
+        await queryRunner.query(`DROP TABLE "execution_scores"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_eafefbee3b9eb060114bdb5f3f"`);
+        await queryRunner.query(`DROP TABLE "strikes"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_50d6b2721bd5b6d55952ab0016"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_24e1a6224d0f8b1dc56ffdbf89"`);
+        await queryRunner.query(`DROP TABLE "proofs"`);
+        await queryRunner.query(`DROP TYPE "public"."proofs_validation_status_enum"`);
+        await queryRunner.query(`DROP TYPE "public"."proofs_proof_type_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_fb234041b34cee0c583947e481"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_06b515d49982c8df6fde9306ef"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_abd57af10f8aa46f6c02a59ef4"`);
+        await queryRunner.query(`DROP TABLE "daily_tasks"`);
+        await queryRunner.query(`DROP TYPE "public"."daily_tasks_status_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_88b78010581f2d293699d06444"`);
+        await queryRunner.query(`DROP TABLE "goals"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b110c561ef0119c3507393cb9f"`);
+        await queryRunner.query(`DROP TABLE "psychological_profiles"`);
+        await queryRunner.query(`DROP TYPE "public"."psychological_profiles_pressure_preference_enum"`);
+        await queryRunner.query(`DROP TABLE "processed_stripe_events"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_46ff00ee1ee2ba283eea27671e"`);
+        await queryRunner.query(`DROP TABLE "session_summaries"`);
+        await queryRunner.query(`DROP TYPE "public"."session_summaries_trigger_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_7a60525f244b70281ddf453894"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_74c020ace6a0645f9f9956b28f"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_40a100c57c0c40cb830386310a"`);
+        await queryRunner.query(`DROP TABLE "crisis_alerts"`);
+        await queryRunner.query(`DROP TYPE "public"."crisis_alerts_status_enum"`);
+        await queryRunner.query(`DROP TYPE "public"."crisis_alerts_coach_alert_channel_enum"`);
+        await queryRunner.query(`DROP TYPE "public"."crisis_alerts_detection_method_enum"`);
+        await queryRunner.query(`DROP TABLE "nutritional_analyses"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_0777b63da90c27d6ed993dc60b"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_a89355853a16fc35f6a0f74d58"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_ff71b7760071ed9caba7f02beb"`);
+        await queryRunner.query(`DROP TABLE "messages"`);
+        await queryRunner.query(`DROP TYPE "public"."messages_message_type_enum"`);
+        await queryRunner.query(`DROP TYPE "public"."messages_role_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_e64086c7f30209aabdaedff86b"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_1244c77b85944b67a896deca26"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_9a3cb65b82e40d383930152410"`);
+        await queryRunner.query(`DROP TABLE "conversation_sessions"`);
+        await queryRunner.query(`DROP TYPE "public"."conversation_sessions_status_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_3a2d09d943f39912a01831a927"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_7aa77f6636d26cac1b731cac3a"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_d0a95ef8a28188364c546eb65c"`);
+        await queryRunner.query(`DROP TABLE "subscriptions"`);
+        await queryRunner.query(`DROP TYPE "public"."subscriptions_status_enum"`);
+        await queryRunner.query(`DROP TYPE "public"."subscriptions_plan_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_90144ead7619aced8f4c69d6e4"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_3676155292d72c67cd4e090514"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_17d1817f241f10a3dbafb169fd"`);
+        await queryRunner.query(`DROP TABLE "users"`);
+        await queryRunner.query(`DROP TYPE "public"."users_status_enum"`);
+        await queryRunner.query(`DROP TYPE "public"."users_coaching_focus_enum"`);
+    }
+
+}
