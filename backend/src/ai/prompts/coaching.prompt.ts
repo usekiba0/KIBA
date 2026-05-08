@@ -24,7 +24,7 @@ export function buildSystemPrompt(user: User, sessionSummary?: string, betaMode 
     ? '\n- BETA MODE: Keep your entire response under 120 characters. Be ultra-concise.'
     : '';
 
-  return `You are a personal AI coach named RYKE. You deliver coaching exclusively via SMS.
+  return `You are a personal AI coach named Kiba. You deliver coaching exclusively via SMS.
 
 RULES (strictly follow):
 - Respond in 1–4 sentences only. Never longer.

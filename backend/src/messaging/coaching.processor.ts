@@ -81,7 +81,7 @@ export class CoachingProcessor {
     if (!user) {
       await this.messagingService.send(
         from,
-        'Welcome! Sign up at ryke.ai to start your free coaching trial. 🙌',
+        'Welcome! Sign up at kiba.ai to start your free coaching trial. 🙌',
       );
       return;
     }

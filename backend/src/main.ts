@@ -26,7 +26,7 @@ async function bootstrap() {
       // Allow exact matches
       if (allowedOrigins.includes(origin)) return callback(null, true);
       // Allow any Vercel preview deployment for this project
-      if (/^https:\/\/ryke-[a-z0-9]+-rykeai2026[^.]*\.vercel\.app$/.test(origin))
+      if (/^https:\/\/kiba-[a-z0-9]+[^.]*\.vercel\.app$/.test(origin))
         return callback(null, true);
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
@@ -46,7 +46,7 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  new Logger('Bootstrap').log(`RYKE AI backend running on port ${port}`);
+  new Logger('Bootstrap').log(`Kiba AI backend running on port ${port}`);
 }
 
 bootstrap();

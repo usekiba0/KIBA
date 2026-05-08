@@ -50,7 +50,7 @@ export class SafetyProcessor {
     const detectedAt = new Date().toLocaleString('en-GB', { timeZone: 'UTC', hour12: false });
 
     const smsTxt =
-      `⚠️ RYKE CRISIS ALERT\n` +
+      `⚠️ KIBA CRISIS ALERT\n` +
       `${userName}${age} | ${userPhone}\n` +
       `Health: ${health}\n` +
       `Message: ${msgSnippet}\n` +
@@ -58,7 +58,7 @@ export class SafetyProcessor {
       `Their session is paused — please reach out directly.`;
 
     const emailText =
-      `RYKE AI CRISIS ALERT — ${detectedAt} UTC\n\n` +
+      `KIBA AI CRISIS ALERT — ${detectedAt} UTC\n\n` +
       `USER\n` +
       `  Name:    ${userName}${age}\n` +
       `  Phone:   ${userPhone}\n` +
@@ -73,7 +73,7 @@ export class SafetyProcessor {
       `  Alert ID: ${job.data.alertId}\n\n` +
       `The user has been sent a holding message and their session is paused. ` +
       `Please contact them directly on the number above as soon as possible.\n\n` +
-      `Manage this alert → https://rykeai-backend.onrender.com/admin (Crisis tab)`;
+      `Manage this alert → https://kiba-1.onrender.com/admin (Crisis tab)`;
 
     // Send SMS alert to coach
     const coachPhone = this.config.get<string>('CRISIS_COACH_ALERT_PHONE');
@@ -111,9 +111,9 @@ export class SafetyProcessor {
     });
 
     await transporter.sendMail({
-      from: this.config.get('SMTP_FROM', 'RYKE AI Alerts <alerts@ryke.ai>'),
+      from: this.config.get('SMTP_FROM', 'Kiba AI Alerts <alerts@kiba.ai>'),
       to,
-      subject: `⚠️ RYKE Crisis Alert — ${userName}`,
+      subject: `⚠️ Kiba Crisis Alert — ${userName}`,
       text,
     });
   }

@@ -72,7 +72,7 @@ export class StripeWebhookController {
           if (user) {
             await this.messagingQueue.add('send-message', {
               to: user.phone_number,
-              body: `Your RYKE AI coaching is active! Text me anytime to start. 💪`,
+              body: `Your Kiba AI coaching is active! Text me anytime to start. 💪`,
               type: 'subscription_active',
             });
           }
@@ -87,7 +87,7 @@ export class StripeWebhookController {
           if (user) {
             await this.messagingQueue.add('send-message', {
               to: user.phone_number,
-              body: `Your RYKE AI trial ends in 3 days. Your coaching continues automatically — no action needed!`,
+              body: `Your Kiba AI trial ends in 3 days. Your coaching continues automatically — no action needed!`,
               type: 'trial_ending',
             });
           }
@@ -107,7 +107,7 @@ export class StripeWebhookController {
             if (user) {
               await this.messagingQueue.add('send-message', {
                 to: user.phone_number,
-                body: `Your free trial has ended and your RYKE AI coaching continues. Welcome to the team! 🎉`,
+                body: `Your free trial has ended and your Kiba AI coaching continues. Welcome to the team! 🎉`,
                 type: 'trial_ended',
               });
             }
@@ -125,7 +125,7 @@ export class StripeWebhookController {
           if (user) {
             await this.messagingQueue.add('send-message', {
               to: user.phone_number,
-              body: `We couldn't process your RYKE AI payment. Please update your card to keep your coaching active.`,
+              body: `We couldn't process your Kiba AI payment. Please update your card to keep your coaching active.`,
               type: 'payment_failed',
             });
           }
@@ -153,7 +153,7 @@ export class StripeWebhookController {
             await this.userRepo.save(user);
             await this.messagingQueue.add('send-message', {
               to: user.phone_number,
-              body: `Your RYKE AI subscription has ended. Text us any time to reactivate. Take care! 👋`,
+              body: `Your Kiba AI subscription has ended. Text us any time to reactivate. Take care! 👋`,
               type: 'subscription_cancelled',
             });
           }

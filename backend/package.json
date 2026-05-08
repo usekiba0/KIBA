@@ -1,7 +1,7 @@
 {
-  "name": "rykeai-backend",
+  "name": "kiba-backend",
   "version": "0.1.0",
-  "description": "RYKE AI MVP — NestJS backend",
+  "description": "Kiba AI — NestJS backend",
   "private": true,
   "scripts": {
     "build": "nest build",

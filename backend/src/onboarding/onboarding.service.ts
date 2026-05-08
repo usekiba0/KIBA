@@ -217,6 +217,6 @@ export class OnboardingService {
       combined: 'your full health journey',
     };
     const focus = focusMap[user.coaching_focus] ?? 'your goals';
-    return `Hey ${user.name}! I'm Ryke, your personal AI coach. I'm here to help you with ${focus} — anytime, right here over text. No apps, no logins, just message me whenever you need support. What's been on your mind lately?`;
+    return `Hey ${user.name}! I'm Kiba, your personal AI coach. I'm here to help you with ${focus} — anytime, right here over text. No apps, no logins, just message me whenever you need support. What's been on your mind lately?`;
   }
 }

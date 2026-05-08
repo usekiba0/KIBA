@@ -2,9 +2,9 @@
 # Run after every deploy to confirm all environments are live and in sync.
 # Usage: bash scripts/verify-deploy.sh
 
-BACKEND="https://rykeai-backend.onrender.com"
-FRONTEND="https://ryke-ai.vercel.app"
-ORIGIN="https://ryke-ai.vercel.app"
+BACKEND="https://kiba-1.onrender.com"
+FRONTEND="https://kiba-blond.vercel.app"
+ORIGIN="https://kiba-blond.vercel.app"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -19,7 +19,7 @@ FAILED=0
 
 echo ""
 echo "========================================"
-echo "  RYKE AI — Deployment Verification"
+echo "  Kiba AI — Deployment Verification"
 echo "========================================"
 echo ""
 

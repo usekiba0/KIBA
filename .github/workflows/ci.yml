@@ -15,9 +15,9 @@ jobs:
       postgres:
         image: postgres:15-alpine
         env:
-          POSTGRES_DB: rykeai_test
-          POSTGRES_USER: rykeai
-          POSTGRES_PASSWORD: rykeai_test
+          POSTGRES_DB: kiba_test
+          POSTGRES_USER: kiba
+          POSTGRES_PASSWORD: kiba_test
         ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready
@@ -62,13 +62,13 @@ jobs:
         run: npm run migration:run
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://rykeai:rykeai_test@localhost:5432/rykeai_test
+          DATABASE_URL: postgresql://kiba:kiba_test@localhost:5432/kiba_test
 
       - name: Contract tests
         run: npm run test:contract
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://rykeai:rykeai_test@localhost:5432/rykeai_test
+          DATABASE_URL: postgresql://kiba:kiba_test@localhost:5432/kiba_test
           REDIS_HOST: localhost
           REDIS_PORT: 6379
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -80,7 +80,7 @@ jobs:
         run: npm run test:integration
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://rykeai:rykeai_test@localhost:5432/rykeai_test
+          DATABASE_URL: postgresql://kiba:kiba_test@localhost:5432/kiba_test
           REDIS_HOST: localhost
           REDIS_PORT: 6379
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -91,7 +91,7 @@ jobs:
           SENDBLUE_API_SECRET_KEY: ${{ secrets.SENDBLUE_API_SECRET_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          CRISIS_COACH_ALERT_EMAIL: test@ryke.ai
+          CRISIS_COACH_ALERT_EMAIL: test@kiba.ai
           CRISIS_COACH_ALERT_PHONE: '+15550009999'
           SESSION_TIMEOUT_HOURS: '1'
           APP_BASE_URL: http://localhost:3000
@@ -140,7 +140,7 @@ jobs:
 
       - name: Check backend health
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://rykeai-backend.onrender.com/v1/health)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://kiba-1.onrender.com/v1/health)
           if [ "$STATUS" != "200" ]; then
             echo "Backend health check failed: HTTP $STATUS"
             exit 1
@@ -149,8 +149,8 @@ jobs:
 
       - name: Check CORS allows PATCH
         run: |
-          METHODS=$(curl -s -X OPTIONS https://rykeai-backend.onrender.com/v1/admin/users/x/status \
-            -H "Origin: https://ryke-ai.vercel.app" \
+          METHODS=$(curl -s -X OPTIONS https://kiba-1.onrender.com/v1/admin/users/x/status \
+            -H "Origin: https://kiba-blond.vercel.app" \
             -H "Access-Control-Request-Method: PATCH" \
             -D - 2>&1 | grep -i "access-control-allow-methods" | tr -d '\r')
           echo "CORS methods: $METHODS"
@@ -163,7 +163,7 @@ jobs:
       - name: Check new endpoints exist
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://rykeai-backend.onrender.com/v1/onboarding/check-phone?phone=%2B15550001234")
+            "https://kiba-1.onrender.com/v1/onboarding/check-phone?phone=%2B15550001234")
           if [ "$STATUS" = "200" ] || [ "$STATUS" = "400" ]; then
             echo "check-phone endpoint: OK ($STATUS)"
           else
