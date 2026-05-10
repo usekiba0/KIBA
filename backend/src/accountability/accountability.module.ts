@@ -7,16 +7,18 @@ import { Strike } from '../data/entities/strike.entity';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { AntiGhostState } from '../data/entities/anti-ghost-state.entity';
 import { Goal } from '../data/entities/goal.entity';
+import { User } from '../data/entities/user.entity';
 import { ScoreService } from './score.service';
 import { StrikeService } from './strike.service';
 import { AntiGhostService } from './anti-ghost.service';
+import { CheckinService } from './checkin.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DailyTask, Proof, Strike, ExecutionScore, AntiGhostState, Goal]),
+    TypeOrmModule.forFeature([DailyTask, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User]),
     BullModule.registerQueue({ name: 'accountability' }),
   ],
-  providers: [ScoreService, StrikeService, AntiGhostService],
-  exports: [ScoreService, StrikeService, AntiGhostService],
+  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService],
+  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService],
 })
 export class AccountabilityModule {}

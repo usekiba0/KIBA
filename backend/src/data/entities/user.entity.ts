@@ -59,6 +59,9 @@ export class User {
   @Column({ type: 'boolean', default: false })
   crisis_hold: boolean;
 
+  @Column({ type: 'varchar', length: 5, nullable: true })
+  checkin_time: string | null;
+
   @CreateDateColumn()
   registered_at: Date;
 

@@ -14,6 +14,7 @@ const testUser: User = {
   height_cm: null, weight_kg: null, age: null,
   health_conditions: [], dietary_restrictions: [], injuries: null,
   status: UserStatus.TRIAL, crisis_hold: false,
+  checkin_time: '09:00',
   registered_at: new Date(), last_active_at: null,
 };
 

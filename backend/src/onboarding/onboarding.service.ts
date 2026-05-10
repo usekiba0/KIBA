@@ -91,6 +91,7 @@ export class OnboardingService {
           health_conditions: dto.health_conditions ?? [],
           dietary_restrictions: dto.dietary_restrictions ?? [],
           injuries: dto.injuries ?? null,
+          checkin_time: dto.checkin_time ?? null,
           status: UserStatus.TRIAL,
         });
         const savedUser = await manager.save(User, user);
@@ -195,6 +196,7 @@ export class OnboardingService {
         health_conditions: dto.health_conditions ?? [],
         dietary_restrictions: dto.dietary_restrictions ?? [],
         injuries: dto.injuries ?? null,
+        checkin_time: dto.checkin_time ?? null,
         status: UserStatus.TRIAL,
       });
       const savedUser = await manager.save(User, user);
