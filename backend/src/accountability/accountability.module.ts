@@ -13,6 +13,7 @@ import { StrikeService } from './strike.service';
 import { AntiGhostService } from './anti-ghost.service';
 import { CheckinService } from './checkin.service';
 import { CheckinProcessor } from './checkin.processor';
+import { MessageRouterService } from './message-router.service';
 import { MessagingModule } from '../messaging/messaging.module';
 
 @Module({
@@ -21,7 +22,7 @@ import { MessagingModule } from '../messaging/messaging.module';
     BullModule.registerQueue({ name: 'accountability' }),
     MessagingModule,
   ],
-  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor],
-  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor],
+  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService],
+  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService],
 })
 export class AccountabilityModule {}
