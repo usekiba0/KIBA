@@ -12,13 +12,16 @@ import { ScoreService } from './score.service';
 import { StrikeService } from './strike.service';
 import { AntiGhostService } from './anti-ghost.service';
 import { CheckinService } from './checkin.service';
+import { CheckinProcessor } from './checkin.processor';
+import { MessagingModule } from '../messaging/messaging.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DailyTask, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User]),
     BullModule.registerQueue({ name: 'accountability' }),
+    MessagingModule,
   ],
-  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService],
-  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService],
+  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor],
+  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor],
 })
 export class AccountabilityModule {}
