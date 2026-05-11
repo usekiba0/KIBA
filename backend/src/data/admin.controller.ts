@@ -59,6 +59,11 @@ export class AdminController {
     return this.adminService.listUsers();
   }
 
+  @Get('users/:userId')
+  getUserDetail(@Param('userId') userId: string) {
+    return this.adminService.getUserDetail(userId);
+  }
+
   @Get('users/:userId/messages')
   getUserMessages(@Param('userId') userId: string) {
     return this.adminService.getUserMessages(userId);

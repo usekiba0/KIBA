@@ -109,9 +109,23 @@ export class AdminService {
         u.id, u.name, u.phone_number, u.coaching_focus, u.goals, u.status,
         u.crisis_hold, u.last_active_at, u.registered_at,
         s.id AS sub_id, s.plan AS sub_plan, s.status AS sub_status,
-        s.trial_end, s.current_period_end
+        s.trial_end, s.current_period_end,
+        es.current_score AS execution_score,
+        COALESCE(sk.strike_count, 0)::int AS strike_count,
+        CASE WHEN g.action_plan IS NOT NULL THEN 'generated' ELSE 'pending' END AS plan_status
       FROM users u
       LEFT JOIN subscriptions s ON s.user_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT current_score FROM execution_scores
+        WHERE user_id = u.id ORDER BY snapshot_date DESC LIMIT 1
+      ) es ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS strike_count FROM strikes
+        WHERE user_id = u.id AND created_at >= NOW() - INTERVAL '7 days'
+      ) sk ON true
+      LEFT JOIN LATERAL (
+        SELECT action_plan FROM goals WHERE user_id = u.id LIMIT 1
+      ) g ON true
       ORDER BY u.last_active_at DESC NULLS LAST
     `);
 
@@ -125,10 +139,51 @@ export class AdminService {
       crisis_hold: r.crisis_hold,
       last_active_at: r.last_active_at,
       registered_at: r.registered_at,
+      execution_score: r.execution_score ?? null,
+      strike_count: r.strike_count ?? 0,
+      plan_status: r.plan_status ?? 'pending',
       subscription: r.sub_id
         ? { id: r.sub_id, plan: r.sub_plan, status: r.sub_status, trial_end: r.trial_end, current_period_end: r.current_period_end }
         : null,
     }));
+  }
+
+  async getUserDetail(userId: string) {
+    const [userRows, profileRows, goalRows, taskRows, scoreRows, strikeRows] = await Promise.all([
+      this.dataSource.query(
+        `SELECT u.*, s.id AS sub_id, s.plan AS sub_plan, s.status AS sub_status, s.trial_end, s.current_period_end
+         FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id WHERE u.id = $1`, [userId],
+      ),
+      this.dataSource.query(`SELECT * FROM psychological_profiles WHERE user_id = $1`, [userId]),
+      this.dataSource.query(`SELECT * FROM goals WHERE user_id = $1 LIMIT 1`, [userId]),
+      this.dataSource.query(
+        `SELECT * FROM daily_tasks WHERE user_id = $1 ORDER BY scheduled_date DESC LIMIT 30`, [userId],
+      ),
+      this.dataSource.query(
+        `SELECT current_score, snapshot_date FROM execution_scores WHERE user_id = $1 ORDER BY snapshot_date DESC LIMIT 14`, [userId],
+      ),
+      this.dataSource.query(
+        `SELECT COUNT(*)::int AS count FROM strikes WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '7 days'`, [userId],
+      ),
+    ]);
+
+    const u = userRows[0];
+    return {
+      user: u ? {
+        id: u.id, name: u.name, phone_number: u.phone_number,
+        status: u.status, crisis_hold: u.crisis_hold,
+        checkin_time: u.checkin_time, last_active_at: u.last_active_at,
+        registered_at: u.registered_at,
+        subscription: u.sub_id
+          ? { id: u.sub_id, plan: u.sub_plan, status: u.sub_status, trial_end: u.trial_end, current_period_end: u.current_period_end }
+          : null,
+      } : null,
+      psychological_profile: profileRows[0] ?? null,
+      goal: goalRows[0] ?? null,
+      recent_tasks: taskRows,
+      score_history: scoreRows,
+      strike_count_7d: parseInt(strikeRows[0]?.count ?? '0', 10),
+    };
   }
 
   private async ensureSettingsTable() {
