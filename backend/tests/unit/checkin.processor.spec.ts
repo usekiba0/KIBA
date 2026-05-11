@@ -4,6 +4,7 @@ import { getQueueToken } from '@nestjs/bull';
 import { CheckinProcessor } from '../../src/accountability/checkin.processor';
 import { User, UserStatus } from '../../src/data/entities/user.entity';
 import { DailyTask, TaskStatus } from '../../src/data/entities/daily-task.entity';
+import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
 import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
 import { Job } from 'bull';
@@ -45,10 +46,24 @@ const testTask: DailyTask = {
   created_at: new Date(),
 };
 
+const testProfile: PsychologicalProfile = {
+  id: 'profile-1',
+  user_id: 'user-1',
+  fears: 'staying stuck',
+  avoidance_patterns: 'scrolling',
+  comparison_figure: 'college roommate',
+  public_failure_scenario: 'everyone finds out',
+  typical_failure_moment: 'Sunday evenings',
+  pressure_preference: PressurePreference.PRESSURE,
+  created_at: new Date(),
+  updated_at: new Date(),
+};
+
 describe('CheckinProcessor', () => {
   let processor: CheckinProcessor;
   let mockUserRepo: any;
   let mockTaskRepo: any;
+  let mockProfileRepo: any;
   let mockMessagingService: any;
   let mockAntiGhostService: any;
   let mockQueue: any;
@@ -59,6 +74,9 @@ describe('CheckinProcessor', () => {
     };
     mockTaskRepo = {
       findOne: jest.fn().mockResolvedValue(testTask),
+    };
+    mockProfileRepo = {
+      findOne: jest.fn().mockResolvedValue(testProfile),
     };
     mockMessagingService = {
       send: jest.fn().mockResolvedValue(undefined),
@@ -75,6 +93,7 @@ describe('CheckinProcessor', () => {
         CheckinProcessor,
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getRepositoryToken(DailyTask), useValue: mockTaskRepo },
+        { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
         { provide: MessagingService, useValue: mockMessagingService },
         { provide: AntiGhostService, useValue: mockAntiGhostService },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
@@ -97,6 +116,12 @@ describe('CheckinProcessor', () => {
       await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
       const sentBody: string = mockMessagingService.send.mock.calls[0][1];
       expect(sentBody).toContain(testTask.task_description);
+    });
+
+    it('includes the psychological fear in the check-in message', async () => {
+      await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
+      const sentBody: string = mockMessagingService.send.mock.calls[0][1];
+      expect(sentBody).toContain(testProfile.fears);
     });
 
     it('queues a checkin-missed job with 2h delay', async () => {

@@ -6,8 +6,10 @@ import { InjectQueue } from '@nestjs/bull';
 import { Job, Queue } from 'bull';
 import { User } from '../data/entities/user.entity';
 import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
+import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { AntiGhostService } from './anti-ghost.service';
+import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { structuredLog } from '../common/logger';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
@@ -19,6 +21,7 @@ export class CheckinProcessor {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(DailyTask) private readonly taskRepo: Repository<DailyTask>,
+    @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
     private readonly messagingService: MessagingService,
     private readonly antiGhostService: AntiGhostService,
     @InjectQueue('accountability') private readonly queue: Queue,
@@ -34,13 +37,14 @@ export class CheckinProcessor {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const task = await this.taskRepo.findOne({
-      where: { user_id: userId, scheduled_date: today, status: TaskStatus.PENDING },
-    });
+    const [task, profile] = await Promise.all([
+      this.taskRepo.findOne({ where: { user_id: userId, scheduled_date: today, status: TaskStatus.PENDING } }),
+      this.profileRepo.findOne({ where: { user_id: userId } }),
+    ]);
 
     const message = task
-      ? `${user.name} — check in time. Did you do it? "${task.task_description}" — send proof now.`
-      : `${user.name} — check in time. What did you work on today? Send me proof.`;
+      ? buildCheckinMessage(user.name, profile, task.task_description)
+      : buildCheckinMessage(user.name, profile, null);
 
     await this.messagingService.send(user.phone_number, message);
 

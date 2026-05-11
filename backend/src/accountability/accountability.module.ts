@@ -8,6 +8,7 @@ import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { AntiGhostState } from '../data/entities/anti-ghost-state.entity';
 import { Goal } from '../data/entities/goal.entity';
 import { User } from '../data/entities/user.entity';
+import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { ScoreService } from './score.service';
 import { StrikeService } from './strike.service';
 import { AntiGhostService } from './anti-ghost.service';
@@ -19,7 +20,7 @@ import { MessagingModule } from '../messaging/messaging.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DailyTask, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User]),
+    TypeOrmModule.forFeature([DailyTask, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User, PsychologicalProfile]),
     BullModule.registerQueue({ name: 'accountability' }),
     MessagingModule,
   ],
