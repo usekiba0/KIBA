@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
 import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
 import { AntiGhostState, GhostState } from '../../src/data/entities/anti-ghost-state.entity';
+import { User, UserStatus } from '../../src/data/entities/user.entity';
 import { StrikeService } from '../../src/accountability/strike.service';
 
 const userId = 'user-1';
@@ -17,11 +18,23 @@ function makeState(state: GhostState = GhostState.ACTIVE): AntiGhostState {
   };
 }
 
+function makeUser(crisis_hold = false): User {
+  return {
+    id: userId, phone_number: '+15551234567', name: 'Alex',
+    coaching_focus: null as any, goals: null as any, checkin_time: '09:00',
+    height_cm: null, weight_kg: null, age: null,
+    health_conditions: [], dietary_restrictions: [], injuries: null,
+    status: UserStatus.ACTIVE, crisis_hold,
+    registered_at: new Date(), last_active_at: null,
+  };
+}
+
 describe('AntiGhostService', () => {
   let service: AntiGhostService;
   let mockStateRepo: any;
   let mockQueue: any;
   let mockStrikeService: any;
+  let mockUserRepo: any;
 
   beforeEach(async () => {
     mockStateRepo = {
@@ -36,11 +49,15 @@ describe('AntiGhostService', () => {
     mockStrikeService = {
       logStrike: jest.fn().mockResolvedValue({ id: 'strike-1' }),
     };
+    mockUserRepo = {
+      findOne: jest.fn().mockResolvedValue(makeUser(false)),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AntiGhostService,
         { provide: getRepositoryToken(AntiGhostState), useValue: mockStateRepo },
+        { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
         { provide: StrikeService, useValue: mockStrikeService },
       ],
@@ -128,6 +145,23 @@ describe('AntiGhostService', () => {
       await service.onUserResponse(userId);
       const saved = mockStateRepo.save.mock.calls[0][0];
       expect(new Date(saved.last_response_at).getTime()).toBeGreaterThanOrEqual(before);
+    });
+  });
+
+  describe('crisis_hold suppression', () => {
+    it('skips onMissedCheckin entirely when user has crisis_hold = true', async () => {
+      mockUserRepo.findOne.mockResolvedValue(makeUser(true));
+      await service.onMissedCheckin(userId, taskId);
+      expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
+      expect(mockQueue.add).not.toHaveBeenCalled();
+      expect(mockStateRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('skips onEscalate entirely when user has crisis_hold = true', async () => {
+      mockUserRepo.findOne.mockResolvedValue(makeUser(true));
+      await service.onEscalate(userId, taskId, 2);
+      expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
+      expect(mockStateRepo.save).not.toHaveBeenCalled();
     });
   });
 

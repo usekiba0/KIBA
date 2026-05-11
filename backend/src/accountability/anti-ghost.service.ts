@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { AntiGhostState, GhostState } from '../data/entities/anti-ghost-state.entity';
+import { User } from '../data/entities/user.entity';
 import { StrikeService } from './strike.service';
 import { structuredLog } from '../common/logger';
 
@@ -16,11 +17,15 @@ export class AntiGhostService {
 
   constructor(
     @InjectRepository(AntiGhostState) private readonly stateRepo: Repository<AntiGhostState>,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectQueue('accountability') private readonly queue: Queue,
     private readonly strikeService: StrikeService,
   ) {}
 
   async onMissedCheckin(userId: string, taskId: string): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (user?.crisis_hold) return;
+
     await this.strikeService.logStrike(userId, taskId, 1);
 
     const job = await this.queue.add(
@@ -41,6 +46,9 @@ export class AntiGhostService {
   }
 
   async onEscalate(userId: string, taskId: string, level: 2 | 3): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (user?.crisis_hold) return;
+
     await this.strikeService.logStrike(userId, taskId, level);
 
     const nextState = level === 2 ? GhostState.GHOST_2 : GhostState.GHOST_3;
