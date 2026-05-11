@@ -3,10 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
-const SmsDemo = dynamic(() => import('../components/SmsDemo'), { ssr: false });
 const FaqAccordion = dynamic(() => import('../components/FaqAccordion'), { ssr: false });
 
-// ── Animated counter ────────────────────────────────────────
 function Counter({ to, suffix = '', duration = 1800 }: { to: number; suffix?: string; duration?: number }) {
   const [val, setVal] = useState(0);
   const ref = useRef<HTMLSpanElement>(null);
@@ -31,7 +29,6 @@ function Counter({ to, suffix = '', duration = 1800 }: { to: number; suffix?: st
   return <span ref={ref}>{val}{suffix}</span>;
 }
 
-// ── Fade-in on scroll ───────────────────────────────────────
 function FadeIn({ children, delay = 0, style = {} }: { children: React.ReactNode; delay?: number; style?: React.CSSProperties }) {
   const ref = useRef<HTMLDivElement>(null);
   const [vis, setVis] = useState(false);
@@ -49,15 +46,14 @@ function FadeIn({ children, delay = 0, style = {} }: { children: React.ReactNode
   );
 }
 
-// ── Colour tokens ────────────────────────────────────────────
-const R = '#e11d48';       // rose primary
-const RL = '#fb7185';      // rose light
-const V = '#8b5cf6';       // violet accent
-const BG = '#09090b';      // background
-const S1 = '#111113';      // surface 1
-const S2 = '#0d0d10';      // surface 2
-const TX = '#fafafa';      // text
-const MT = '#a1a1aa';      // muted
+const R = '#e11d48';
+const RL = '#fb7185';
+const V = '#8b5cf6';
+const BG = '#09090b';
+const S1 = '#111113';
+const S2 = '#0d0d10';
+const TX = '#fafafa';
+const MT = '#a1a1aa';
 
 const GRAD = `linear-gradient(135deg,${R},${V})`;
 const GLOW = (a: number) => `rgba(225,29,72,${a})`;
@@ -81,35 +77,34 @@ export default function Home() {
     return () => { document.removeEventListener('mousemove', move); document.body.style.cursor = ''; };
   }, []);
 
-  useEffect(() => { const t = setTimeout(() => setTypingDone(true), 3200); return () => clearTimeout(t); }, []);
+  useEffect(() => { const t = setTimeout(() => setTypingDone(true), 3800); return () => clearTimeout(t); }, []);
 
   const MSGS = [
-    { who: 'user', text: '“I’ve been skipping workouts. Help.”', delay: 0.6 },
-    { who: 'ryke', text: '“You’re not lazy — you’re overwhelmed. Let’s fix that. What does your week look like?”', delay: 1.1 },
-    { who: 'user', text: '“Busy every morning but free at 6pm”', delay: 1.9 },
-    { who: 'ryke', text: '“Perfect. 20-min 6PM routine starting tomorrow. No gym needed. You in? 💪”', delay: 2.5 },
+    { who: 'kiba', text: 'Alex — did you complete "Run 5km before work"? Send proof now.', delay: 0.5 },
+    { who: 'kiba', text: 'You said you fear staying stuck. Your college roommate isn\'t waiting around.', delay: 1.2 },
+    { who: 'user', text: '[photo attached]', delay: 2.0 },
+    { who: 'kiba', text: 'Execution score: 78/100. Streak alive. Keep the pressure on.', delay: 2.8 },
   ];
 
   return (
     <>
-      {/* Cursor */}
       <div ref={cursorRef} style={{ width: 10, height: 10, background: R, borderRadius: '50%', position: 'fixed', pointerEvents: 'none', zIndex: 9999, mixBlendMode: 'screen' }} />
       <div ref={followerRef} style={{ width: 32, height: 32, border: `1px solid ${GLOW(0.6)}`, borderRadius: '50%', position: 'fixed', pointerEvents: 'none', zIndex: 9998 }} />
 
-      {/* ══ NAV ══ */}
+      {/* NAV */}
       <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 48px', background: `rgba(9,9,11,0.92)`, backdropFilter: 'blur(24px)', borderBottom: `1px solid ${GLOW(0.15)}` }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 700, color: TX, letterSpacing: '-0.5px' }}>
-          Ryke<span style={{ color: RL }}>.ai</span>
+          Kiba<span style={{ color: RL }}>.ai</span>
         </div>
         <ul style={{ display: 'flex', alignItems: 'center', gap: 40, listStyle: 'none' }}>
-          {[['#how', 'How it works'], ['#coaches', 'For Coaches'], ['#pricing', 'Pricing']].map(([h, l]) => (
+          {[['#how', 'How it works'], ['#proof', 'The System'], ['#pricing', 'Pricing']].map(([h, l]) => (
             <li key={l}><a href={h} style={{ textDecoration: 'none', color: MT, fontSize: 14, transition: 'color 0.2s' }} onMouseEnter={e => (e.currentTarget.style.color = TX)} onMouseLeave={e => (e.currentTarget.style.color = MT)}>{l}</a></li>
           ))}
           <li><Link href="/onboarding" style={{ background: GRAD, color: 'white', padding: '10px 24px', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', boxShadow: `0 4px 14px ${GLOW(0.4)}`, display: 'inline-block' }}>Start Free Trial</Link></li>
         </ul>
       </nav>
 
-      {/* ══ HERO ══ */}
+      {/* HERO */}
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '140px 48px 80px', position: 'relative', overflow: 'hidden', background: BG }}>
         <div style={{ position: 'absolute', top: '-20%', left: '50%', transform: 'translateX(-50%)', width: '140%', height: '70%', background: `radial-gradient(ellipse at 50% 0%,${GLOW(0.18)} 0%,${VGLOW(0.08)} 40%,transparent 70%)`, pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', inset: 0, backgroundImage: `linear-gradient(${GLOW(0.06)} 1px,transparent 1px),linear-gradient(90deg,${GLOW(0.06)} 1px,transparent 1px)`, backgroundSize: '60px 60px', maskImage: 'radial-gradient(ellipse 90% 90% at 50% 0%,black 0%,transparent 100%)', pointerEvents: 'none' }} />
@@ -117,16 +112,16 @@ export default function Home() {
         <div style={{ maxWidth: 1200, width: '100%', display: 'grid', gridTemplateColumns: '1fr auto', gap: 80, alignItems: 'center', position: 'relative' }}>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: GLOW(0.1), border: `1px solid ${GLOW(0.35)}`, padding: '8px 18px', borderRadius: 30, fontSize: 12, fontWeight: 500, letterSpacing: '1.5px', textTransform: 'uppercase' as const, color: RL, marginBottom: 36, animation: 'fadeUp 0.8s ease both' }}>
-              <span className="pulse-dot" /> Powered by Claude AI &middot; Available 24/7
+              <span className="pulse-dot" /> Psychological Accountability &middot; Via SMS
             </div>
             <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(48px,6vw,88px)', fontWeight: 300, lineHeight: 1.05, letterSpacing: '-2.5px', marginBottom: 28, color: TX, animation: 'fadeUp 0.8s ease 0.1s both' }}>
-              The mentor<br />
-              you <em style={{ fontStyle: 'italic', color: V, fontWeight: 400 }}>never</em> had.<br />
-              <strong style={{ fontWeight: 700 }}>The results you</strong><br />
-              <strong style={{ fontWeight: 700 }}>always wanted.</strong>
+              Motivation<br />
+              <em style={{ fontStyle: 'italic', color: V, fontWeight: 400 }}>fails.</em><br />
+              <strong style={{ fontWeight: 700 }}>Pressure</strong><br />
+              <strong style={{ fontWeight: 700 }}>doesn&apos;t.</strong>
             </h1>
             <p style={{ fontSize: 18, color: MT, maxWidth: 480, lineHeight: 1.75, marginBottom: 48, fontWeight: 300, animation: 'fadeUp 0.8s ease 0.2s both' }}>
-              AI coaching for fitness, nutrition, and mental wellness &mdash; delivered straight to your messages. No app. No login. Just results.
+              Kiba is a psychological accountability system that texts you daily check-ins, demands proof of your work, and scores your execution. No sympathy. No excuses. Just results.
             </p>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' as const, marginBottom: 48, animation: 'fadeUp 0.8s ease 0.3s both' }}>
               <Link href="/onboarding" style={{ background: GRAD, color: 'white', padding: '17px 40px', borderRadius: 12, fontSize: 16, fontWeight: 600, textDecoration: 'none', boxShadow: `0 8px 32px ${GLOW(0.45)}`, display: 'inline-block' }}>
@@ -143,29 +138,29 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Phone + floating cards */}
+          {/* Phone mockup */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <div style={{ position: 'absolute', inset: -40, background: `radial-gradient(ellipse at 50% 50%,${GLOW(0.18)} 0%,transparent 70%)`, borderRadius: '50%', animation: 'slowpulse 4s ease-in-out infinite', pointerEvents: 'none' }} />
             <div className="float-card" style={{ position: 'absolute', top: -24, right: -60, background: 'rgba(17,17,19,0.96)', backdropFilter: 'blur(16px)', border: `1px solid ${GLOW(0.3)}`, borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', animation: 'floatBadge 3s ease-in-out infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
               <div style={{ width: 38, height: 38, borderRadius: '50%', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🔥</div>
-              <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>7-day streak!</div><div style={{ fontSize: 11, color: RL }}>Alex &middot; Fitness plan</div></div>
+              <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>14-day streak!</div><div style={{ fontSize: 11, color: RL }}>Alex &middot; Score: 81/100</div></div>
             </div>
             <div className="float-card" style={{ position: 'absolute', bottom: -20, left: -56, background: 'rgba(17,17,19,0.96)', backdropFilter: 'blur(16px)', border: `1px solid ${GLOW(0.3)}`, borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', animation: 'floatBadge 3s ease-in-out 1.5s infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
-              <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#065f46,#34d399)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🥗</div>
-              <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>Meal logged ✓</div><div style={{ fontSize: 11, color: '#34d399' }}>142 kcal &middot; 18g protein</div></div>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#065f46,#34d399)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>✓</div>
+              <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>Proof accepted</div><div style={{ fontSize: 11, color: '#34d399' }}>Task complete</div></div>
             </div>
             <div style={{ width: 290, background: '#141414', borderRadius: 42, border: '6px solid #222', padding: '22px 16px 30px', boxShadow: `0 0 0 1px ${GLOW(0.25)},0 40px 80px rgba(0,0,0,0.7),0 0 80px ${GLOW(0.1)}`, position: 'relative' }}>
               <div style={{ width: 80, height: 7, background: '#1f1f1f', borderRadius: 4, margin: '0 auto 18px' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 14 }}>
-                <div style={{ width: 34, height: 34, borderRadius: '50%', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>R</div>
-                <div><div style={{ fontSize: 13, fontWeight: 500, color: TX }}>Ryke</div><div style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Online now</div></div>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>K</div>
+                <div><div style={{ fontSize: 13, fontWeight: 500, color: TX }}>Kiba</div><div style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Watching</div></div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, minHeight: 200 }}>
                 {MSGS.map((m, i) => (
-                  <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', fontSize: 12, lineHeight: 1.5, maxWidth: '88%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? GRAD : '#222', color: TX, border: m.who === 'ryke' ? `1px solid ${GLOW(0.18)}` : 'none', animation: `msgIn 0.4s ease ${m.delay}s both` }}>{m.text}</div>
+                  <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', fontSize: 11, lineHeight: 1.5, maxWidth: '90%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? GRAD : '#222', color: TX, border: m.who === 'kiba' ? `1px solid ${GLOW(0.18)}` : 'none', animation: `msgIn 0.4s ease ${m.delay}s both` }}>{m.text}</div>
                 ))}
                 {!typingDone && (
-                  <div style={{ padding: '9px 14px', borderRadius: '16px 16px 16px 4px', background: '#222', border: `1px solid ${GLOW(0.18)}`, alignSelf: 'flex-start', display: 'inline-flex', gap: 4, animation: 'msgIn 0.3s ease 3s both' }}>
+                  <div style={{ padding: '9px 14px', borderRadius: '16px 16px 16px 4px', background: '#222', border: `1px solid ${GLOW(0.18)}`, alignSelf: 'flex-start', display: 'inline-flex', gap: 4, animation: 'msgIn 0.3s ease 3.6s both' }}>
                     {[0, 1, 2].map(i => <span key={i} className="typing-dot" style={{ animationDelay: `${i * 0.2}s` }} />)}
                   </div>
                 )}
@@ -175,33 +170,18 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ══ PRESS BAR ══ */}
-      <div style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '28px 48px', overflow: 'hidden' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <div style={{ fontSize: 10, letterSpacing: 3, textTransform: 'uppercase' as const, color: '#3f3f46', textAlign: 'center' as const, marginBottom: 20, fontWeight: 500 }}>As featured in</div>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 48, flexWrap: 'wrap' as const }}>
-            {['TechCrunch', 'Forbes', 'Healthline', "Men's Health", 'Well+Good', 'Business Insider'].map(name => (
-              <div key={name} style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 600, color: '#3f3f46', letterSpacing: '-0.3px', transition: 'color 0.2s' }}
-                onMouseEnter={e => (e.currentTarget.style.color = MT)}
-                onMouseLeave={e => (e.currentTarget.style.color = '#3f3f46')}
-              >{name}</div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ══ HOW IT WORKS ══ */}
+      {/* HOW IT WORKS */}
       <div id="how" style={{ background: S2, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 72 }}>
-            <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Simple by design</div>
-            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,60px)', fontWeight: 300, letterSpacing: '-1.5px', color: TX, lineHeight: 1.1 }}>Up and running in <em style={{ fontStyle: 'italic', color: V }}>minutes.</em></h2>
+            <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>The system</div>
+            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,60px)', fontWeight: 300, letterSpacing: '-1.5px', color: TX, lineHeight: 1.1 }}>Built on <em style={{ fontStyle: 'italic', color: V }}>pressure,</em> not promises.</h2>
           </div></FadeIn>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 32, position: 'relative' }}>
             <div style={{ position: 'absolute', top: 56, left: '18%', right: '18%', height: 1, background: `linear-gradient(90deg,transparent,${GLOW(0.4)},transparent)` }} />
-            {[['01', '📋', 'Tell Ryke your goals', 'Fill in a 2-minute form — your focus, body metrics, health context, and dietary needs. Ryke remembers everything.'],
-              ['02', '💬', 'Ryke texts you first', 'Your welcome message arrives within 30 seconds. Ryke already knows your goals and leads with a first coaching question.'],
-              ['03', '🚀', 'Make progress, daily', 'Text whenever you want — morning, night, mid-workout. Ryke responds, tracks, and adapts to keep you moving forward.']
+            {[['01', '🧠', 'Psych intake', 'You answer questions about your fears, your avoidance patterns, and who you compare yourself to. Kiba uses this against you — constructively.'],
+              ['02', '📲', 'Daily check-ins', 'Every day at your chosen time, Kiba texts you. Did you do the work? Send proof. No reply means you\'re ghosting — and Kiba escalates.'],
+              ['03', '📊', 'Execution score', 'Every action builds your score — completion rate, proof rate, response time, streak. Your accountability in a number. No hiding from it.']
             ].map(([n, icon, title, desc], i) => (
               <FadeIn key={n} delay={i * 150}>
                 <div style={{ background: S1, border: `1px solid ${GLOW(0.15)}`, borderRadius: 20, padding: 36 }}>
@@ -216,21 +196,21 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ══ FEATURES ══ */}
-      <section style={{ padding: '100px 48px', maxWidth: 1200, margin: '0 auto' }}>
+      {/* FEATURES */}
+      <section id="proof" style={{ padding: '100px 48px', maxWidth: 1200, margin: '0 auto' }}>
         <FadeIn><div style={{ marginBottom: 60 }}>
-          <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>What Ryke does</div>
+          <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>What Kiba does</div>
           <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,64px)', fontWeight: 300, lineHeight: 1.1, letterSpacing: '-1px', color: TX }}>
-            Guidance for <em style={{ fontStyle: 'italic', color: V }}>every</em> part<br /><strong style={{ fontWeight: 700 }}>of your life.</strong>
+            Every tool built to<br /><em style={{ fontStyle: 'italic', color: V }}>eliminate</em> <strong style={{ fontWeight: 700 }}>excuses.</strong>
           </h2>
         </div></FadeIn>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 20 }}>
-          {[['💪', 'Fitness & Training', 'Custom workout plans built around your schedule, goals, and equipment. Photo workouts, form tips, progression tracking.'],
-            ['🥗', 'Nutrition & Food Photos', 'Snap a meal and Ryke analyses it instantly — calories, macros, health flags, and coaching tips. All over MMS.'],
-            ['🧠', 'Mental Wellness', 'Daily check-ins, stress management, motivation — with a built-in crisis detection system that keeps you safe.'],
-            ['📅', 'Smart Scheduling', 'Text your availability and Ryke builds your plan, sends reminders, and keeps you accountable every day.'],
-            ['🛡️', 'Safety Net', 'Ryke detects distress signals instantly. A human coach is alerted within 5 minutes. Your safety always comes first.'],
-            ['🔒', 'Private & Secure', 'End-to-end privacy. No data sharing. No ads. Conversations are yours — encrypted and never used to train AI.']
+          {[['⚡', 'Proof-based accountability', 'No check-box. Send a photo or text proof of your completed task. Kiba validates it. Fake it and you\'re only cheating yourself.'],
+            ['👻', 'Anti-ghost system', 'Miss a check-in? Kiba follows up in 2 hours. Then 24 hours. Then 48. Three strikes and your score reflects exactly who you\'ve been.'],
+            ['📈', 'Execution score', 'A real-time score (0–100) based on completion rate, proof rate, response speed, and streak. Your record. Your mirror.'],
+            ['🧠', 'Psychological pressure', 'Kiba knows your fears, your avoidance patterns, your comparison figure. Every message is calibrated to cut through your specific resistance.'],
+            ['📋', 'Adaptive plan', 'Your daily tasks adjust automatically. Score too low? Plan gets easier. Crushing it for 7 days? Kiba makes it harder. No coasting.'],
+            ['🛡️', 'Crisis safety', 'Kiba detects distress. A real human is alerted immediately. Accountability never comes at the cost of your safety.']
           ].map(([icon, title, desc], i) => (
             <FadeIn key={title as string} delay={i * 80}>
               <div className="feat-card">
@@ -243,7 +223,7 @@ export default function Home() {
         </div>
         <FadeIn delay={200}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: GLOW(0.15), borderRadius: 20, overflow: 'hidden', marginTop: 60, border: `1px solid ${GLOW(0.2)}` }}>
-            {[{ n: 24, s: '/7', l: 'Always available' }, { n: 0, s: '', l: 'Apps to download' }, { n: 20, s: '+', l: '$ per month only' }].map(stat => (
+            {[{ n: 24, s: '/7', l: 'Kiba is watching' }, { n: 0, s: '', l: 'Apps to download' }, { n: 20, s: '+', l: '$ per month only' }].map(stat => (
               <div key={stat.l} style={{ background: '#0f0f12', padding: '36px 32px', textAlign: 'center' as const }}>
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 52, fontWeight: 700, color: RL, lineHeight: 1, marginBottom: 8 }}><Counter to={stat.n} suffix={stat.s} /></div>
                 <div style={{ fontSize: 13, color: MT, fontWeight: 300 }}>{stat.l}</div>
@@ -253,29 +233,69 @@ export default function Home() {
         </FadeIn>
       </section>
 
-      {/* ══ INTERACTIVE SMS DEMO ══ */}
+      {/* PROBLEM vs SOLUTION */}
       <div style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
-        <FadeIn><SmsDemo /></FadeIn>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 60 }}>
+            <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Why motivation fails</div>
+            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,60px)', fontWeight: 300, letterSpacing: '-1px', color: TX }}>
+              You know what to do.<br /><em style={{ fontStyle: 'italic', color: V }}>You just don&apos;t</em><br /><strong style={{ fontWeight: 700 }}>do it.</strong>
+            </h2>
+          </div></FadeIn>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <FadeIn>
+              <div style={{ background: S1, border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, padding: 40 }}>
+                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: '#52525b', marginBottom: 28, fontWeight: 600 }}>The motivation trap</div>
+                {['You set the goal. You feel good. You do nothing.',
+                  'Apps send push notifications you swipe away',
+                  'Accountability partners are too polite to actually push you',
+                  'You ghost your own goals — no consequences, no change',
+                  'Months pass. You\'re exactly where you were.'].map(p => (
+                  <div key={p} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: '#fca5a5' }}>✕</div>
+                    <p style={{ fontSize: 14, color: MT, lineHeight: 1.6 }}>{p}</p>
+                  </div>
+                ))}
+              </div>
+            </FadeIn>
+            <FadeIn delay={100}>
+              <div style={{ background: `linear-gradient(135deg,${GLOW(0.12)},${VGLOW(0.06)})`, border: `1px solid ${GLOW(0.35)}`, borderRadius: 20, padding: 40, position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, background: `radial-gradient(circle,${GLOW(0.2)},transparent 70%)`, pointerEvents: 'none' }} />
+                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: RL, marginBottom: 28, fontWeight: 600 }}>The Kiba system</div>
+                {['Kiba knows your psychology — and uses it to cut through resistance',
+                  'Daily check-ins via SMS — no app, no excuse not to respond',
+                  'Proof required. Words mean nothing. Show the work.',
+                  'Ghost Kiba and escalating pressure follows — strikes, score drops',
+                  'Execution score tracks who you actually are, not who you want to be'].map(s => (
+                  <div key={s} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: GLOW(0.2), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: RL }}>✓</div>
+                    <p style={{ fontSize: 14, color: '#e4e4e7', lineHeight: 1.6 }}>{s}</p>
+                  </div>
+                ))}
+              </div>
+            </FadeIn>
+          </div>
+        </div>
       </div>
 
-      {/* ══ TESTIMONIALS ══ */}
+      {/* TESTIMONIALS */}
       <div style={{ padding: '100px 48px' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 60 }}>
             <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Real results</div>
             <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(32px,4vw,56px)', fontWeight: 300, letterSpacing: '-1px', color: TX }}>
-              People who text <em style={{ fontStyle: 'italic', color: V }}>Ryke</em> every day.
+              People who stopped <em style={{ fontStyle: 'italic', color: V }}>making excuses.</em>
             </h2>
           </div></FadeIn>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
-            {[['Alex M.', 'Software engineer, 32', 'I tried every fitness app. None stuck. Ryke is just a text — I don’t even think about it. I’m 18 lbs down in 3 months.'],
-              ['Maya R.', 'Mom of 3, 38', 'I sent Ryke a photo of my dinner and got a full macro breakdown in 10 seconds. It’s like having a nutritionist in my pocket.'],
-              ['Jordan T.', 'Personal trainer, 27', 'I use Ryke Coach Pro for all my clients. It answers their questions at 11pm so I don’t have to. Best investment I’ve made.']
+            {[['Marcus D.', 'Entrepreneur, 34', 'Kiba knew I was scared of staying mediocre. Every text referenced that. I shipped my product in 6 weeks. I had been "planning" it for 2 years.'],
+              ['Priya S.', 'Graduate student, 28', 'I told Kiba I feared falling behind my peers. It brought that up every single day. Uncomfortable. Effective. I submitted my thesis early.'],
+              ['Jordan T.', 'Freelancer, 31', 'I ghosted Kiba for 3 days once. The escalating messages were relentless. I haven\'t ghosted since. My execution score is 84. I am a different person.']
             ].map(([name, role, quote], i) => (
               <FadeIn key={name as string} delay={i * 120}>
                 <div style={{ background: S1, border: `1px solid ${GLOW(0.2)}`, borderRadius: 20, padding: 36 }}>
                   <div style={{ display: 'flex', gap: 3, marginBottom: 20 }}>
-                    {Array.from({ length: 5 }).map((_, i) => <span key={i} style={{ color: '#fbbf24', fontSize: 16 }}>&#9733;</span>)}
+                    {Array.from({ length: 5 }).map((_, j) => <span key={j} style={{ color: '#fbbf24', fontSize: 16 }}>★</span>)}
                   </div>
                   <p style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 300, fontStyle: 'italic', color: '#e4e4e7', lineHeight: 1.65, marginBottom: 24 }}>&ldquo;{quote}&rdquo;</p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -289,162 +309,47 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ══ PROBLEM VS SOLUTION ══ */}
-      <div style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 60 }}>
-            <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Why Ryke</div>
-            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,60px)', fontWeight: 300, letterSpacing: '-1px', color: TX }}>
-              It&apos;s time to <em style={{ fontStyle: 'italic', color: V }}>actually</em><br /><strong style={{ fontWeight: 700 }}>get healthy.</strong>
-            </h2>
-          </div></FadeIn>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-            <FadeIn>
-              <div style={{ background: S1, border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, padding: 40 }}>
-                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: '#52525b', marginBottom: 28, fontWeight: 600 }}>The Old Way</div>
-                {['Real coaching costs $200–$500/month — out of reach for most', 'Health apps are confusing — 90% of people quit within a week', 'Coaches waste hours answering the same questions every day', 'You set goals with no one to hold you accountable', 'Mental health support is siloed from your fitness goals'].map(p => (
-                  <div key={p} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
-                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: '#fca5a5' }}>&#10005;</div>
-                    <p style={{ fontSize: 14, color: MT, lineHeight: 1.6 }}>{p}</p>
-                  </div>
-                ))}
-              </div>
-            </FadeIn>
-            <FadeIn delay={100}>
-              <div style={{ background: `linear-gradient(135deg,${GLOW(0.12)},${VGLOW(0.06)})`, border: `1px solid ${GLOW(0.35)}`, borderRadius: 20, padding: 40, position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, background: `radial-gradient(circle,${GLOW(0.2)},transparent 70%)`, pointerEvents: 'none' }} />
-                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: RL, marginBottom: 28, fontWeight: 600 }}>The Ryke Way</div>
-                {['$20/month — 1/10th of a real coach, same personalisation', 'Just text — no apps, no logins, no learning curve ever', 'AI handles 24/7 client questions in the coach’s own voice', 'Daily check-ins, progress tracking, and accountability built in', 'Fitness + nutrition + mental wellness in one conversation'].map(s => (
-                  <div key={s} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
-                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: GLOW(0.2), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: RL }}>&#10003;</div>
-                    <p style={{ fontSize: 14, color: '#e4e4e7', lineHeight: 1.6 }}>{s}</p>
-                  </div>
-                ))}
-              </div>
-            </FadeIn>
-          </div>
-        </div>
-      </div>
-
-      {/* ══ COMPARISON TABLE ══ */}
-      <div style={{ padding: '100px 48px' }}>
-        <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-          <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 60 }}>
-            <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>How we compare</div>
-            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(32px,4vw,56px)', fontWeight: 300, letterSpacing: '-1px', color: TX }}>
-              Ryke wins <em style={{ fontStyle: 'italic', color: V }}>every</em> column.
+      {/* PRICING */}
+      <section id="pricing" style={{ padding: '100px 48px', background: S2, borderTop: `1px solid ${GLOW(0.1)}` }}>
+        <div style={{ maxWidth: 700, margin: '0 auto' }}>
+          <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 64 }}>
+            <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Simple pricing</div>
+            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,64px)', fontWeight: 300, letterSpacing: '-1px', color: TX }}>
+              One plan. <em style={{ fontStyle: 'italic', color: V }}>No excuses</em> <strong style={{ fontWeight: 700 }}>about cost.</strong>
             </h2>
           </div></FadeIn>
           <FadeIn delay={100}>
-            <div style={{ borderRadius: 20, overflow: 'hidden', border: `1px solid ${GLOW(0.25)}` }}>
-              {/* Header */}
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', background: `linear-gradient(135deg,${GLOW(0.2)},${VGLOW(0.1)})` }}>
-                <div style={{ padding: '18px 24px', fontSize: 13, fontWeight: 600, color: MT }}>Feature</div>
-                {['Ryke.ai', 'MyFitnessPal', 'Noom', 'Personal Trainer'].map(h => (
-                  <div key={h} style={{ padding: '18px 16px', fontSize: 13, fontWeight: 600, color: h === 'Ryke.ai' ? TX : MT, textAlign: 'center' as const }}>{h}</div>
-                ))}
+            <div style={{ background: `linear-gradient(135deg,${GLOW(0.18)},${VGLOW(0.08)})`, border: `1px solid ${R}`, borderRadius: 22, padding: '52px 48px', position: 'relative', boxShadow: `0 0 60px ${GLOW(0.2)}`, textAlign: 'center' as const }}>
+              <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: MT, marginBottom: 16 }}>Individual</div>
+              <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 72, fontWeight: 700, lineHeight: 1, marginBottom: 4, letterSpacing: '-3px', color: TX }}>
+                <sup style={{ fontSize: 28, verticalAlign: 'top', marginTop: 16, display: 'inline-block' }}>$</sup>20
               </div>
-              {/* Rows */}
-              {[
-                ['Monthly price', '$20', 'Free / $19.99', '$70', '$200–500'],
-                ['24/7 availability', '✦', '✦', '✕', '✕'],
-                ['AI-personalised', '✦', '✕', 'Partial', '✕'],
-                ['No app required', '✦', '✕', '✕', '✓'],
-                ['Mental wellness', '✦', '✕', '✕', 'Partial'],
-                ['Food photo analysis', '✦', '✕', '✕', '✕'],
-                ['Crisis safety net', '✦', '✕', '✕', '✕'],
-                ['SMS-native', '✦', '✕', '✕', '✕'],
-              ].map(([feature, ...vals], ri) => (
-                <div key={feature} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', background: ri % 2 === 0 ? S1 : '#0f0f12', borderTop: `1px solid rgba(255,255,255,0.04)` }}>
-                  <div style={{ padding: '14px 24px', fontSize: 14, color: '#d4d4d8', fontWeight: 400 }}>{feature}</div>
-                  {vals.map((v, vi) => (
-                    <div key={vi} style={{ padding: '14px 16px', textAlign: 'center' as const, fontSize: vi === 0 ? 16 : 14, color: vi === 0 ? (v === '✦' ? RL : TX) : v === '✦' ? RL : v === '✕' ? '#3f3f46' : MT, fontWeight: vi === 0 ? 600 : 400 }}>{v}</div>
-                  ))}
-                </div>
-              ))}
+              <div style={{ fontSize: 14, color: MT, marginBottom: 40 }}>per month &middot; 1-month free trial &middot; cancel anytime</div>
+              <ul style={{ listStyle: 'none', marginBottom: 44, display: 'flex', flexDirection: 'column' as const, gap: 13, textAlign: 'left' as const, maxWidth: 360, margin: '0 auto 44px' }}>
+                {['Daily SMS check-ins at your chosen time',
+                  'Proof submission (photo or text)',
+                  'Execution score tracking (0–100)',
+                  'Psychological pressure calibrated to you',
+                  'Anti-ghost escalation system (strikes)',
+                  'Adaptive difficulty plan',
+                  'Crisis detection & human safety net',
+                  'Works on any phone — no app needed'].map(f => (
+                  <li key={f} style={{ fontSize: 15, color: '#e4e4e7', display: 'flex', alignItems: 'center', gap: 12, fontWeight: 300 }}>
+                    <span style={{ color: RL, fontSize: 12, flexShrink: 0 }}>◆</span>{f}
+                  </li>
+                ))}
+              </ul>
+              <Link href="/onboarding" style={{ display: 'inline-block', background: GRAD, color: 'white', padding: '18px 56px', borderRadius: 12, fontSize: 16, fontWeight: 700, textDecoration: 'none', boxShadow: `0 6px 24px ${GLOW(0.5)}`, letterSpacing: '0.3px' }}>
+                Start 1-Month Free Trial &rarr;
+              </Link>
+              <p style={{ fontSize: 13, color: '#3f3f46', marginTop: 16 }}>No credit card required during trial</p>
             </div>
           </FadeIn>
         </div>
-      </div>
-
-      {/* ══ FOR COACHES ══ */}
-      <div id="coaches" style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <FadeIn><div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 16, fontWeight: 500 }}>For fitness coaches</div></FadeIn>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 80, alignItems: 'center' }}>
-            <FadeIn>
-              <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,4vw,56px)', fontWeight: 300, lineHeight: 1.1, letterSpacing: '-1px', marginBottom: 24, color: TX }}>
-                Your clients get answers.<br /><em style={{ fontStyle: 'italic', color: V }}>You get your</em><br /><strong style={{ fontWeight: 700 }}>life back.</strong>
-              </h2>
-              <p style={{ fontSize: 16, color: MT, lineHeight: 1.7, fontWeight: 300, marginBottom: 36 }}>Stop answering the same questions at 11pm. Ryke handles your clients 24/7 &mdash; in your voice, your tone, your style. Step in only when it truly matters.</p>
-              <a href="#pricing" style={{ display: 'inline-block', background: GRAD, color: 'white', padding: '14px 32px', borderRadius: 10, fontSize: 15, fontWeight: 600, textDecoration: 'none', boxShadow: `0 6px 20px ${GLOW(0.4)}` }}>See Coach Plans &rarr;</a>
-            </FadeIn>
-            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
-              {[['01', 'Your AI, your voice', 'Ryke learns your coaching style, phrases, and energy — every text sounds exactly like you.'],
-                ['02', 'Smart scheduling', 'Clients text to book. Ryke negotiates, confirms, and sends reminders — you never touch a calendar.'],
-                ['03', 'Human handoff', 'Get alerted the moment a client needs real support. Jump in instantly — they never know the difference.']
-              ].map(([n, t, d], i) => (
-                <FadeIn key={n} delay={i * 100}>
-                  <div style={{ background: S1, border: `1px solid ${GLOW(0.15)}`, borderRadius: 16, padding: 28 }}>
-                    <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 38, fontWeight: 700, color: RL, opacity: 0.25, lineHeight: 1, marginBottom: 10 }}>{n}</div>
-                    <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: TX }}>{t}</div>
-                    <p style={{ fontSize: 14, color: MT, lineHeight: 1.7, fontWeight: 300 }}>{d}</p>
-                  </div>
-                </FadeIn>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ══ INTEGRATIONS ══ */}
-      <div style={{ padding: '80px 48px', borderBottom: `1px solid ${GLOW(0.1)}` }}>
-        <FadeIn><div style={{ maxWidth: 1100, margin: '0 auto', textAlign: 'center' as const }}>
-          <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Integrations</div>
-          <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(28px,4vw,48px)', fontWeight: 300, letterSpacing: '-1px', marginBottom: 12, color: TX }}>Works with the apps you <em style={{ fontStyle: 'italic', color: V }}>already use</em></h2>
-          <p style={{ fontSize: 15, color: MT, marginBottom: 40, fontWeight: 300 }}>Ryke pulls data from the tools you already use &mdash; so your mentor always has the full picture.</p>
-          <div style={{ display: 'flex', flexWrap: 'wrap' as const, justifyContent: 'center', gap: 12 }}>
-            {['&#8987; Apple Watch', '&#10084;&#65039; Apple Health', '&#127939; Strava', '&#128154; WHOOP', '&#128692; Peloton', '&#8987; Garmin', '&#128141; Oura Ring', '&#128197; Google Calendar', '&#128564; 8 Sleep', '&#129503; Calm', '&#127911; Headspace', '&#8987; Fitbit'].map(app => (
-              <div key={app} style={{ background: S1, border: `1px solid ${GLOW(0.15)}`, borderRadius: 40, padding: '10px 20px', fontSize: 13, color: '#d4d4d8' }} dangerouslySetInnerHTML={{ __html: app }} />
-            ))}
-          </div>
-        </div></FadeIn>
-      </div>
-
-      {/* ══ PRICING ══ */}
-      <section id="pricing" style={{ padding: '100px 48px', maxWidth: 1200, margin: '0 auto' }}>
-        <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 64 }}>
-          <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Simple pricing</div>
-          <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,64px)', fontWeight: 300, letterSpacing: '-1px', color: TX }}>
-            Start free. <em style={{ fontStyle: 'italic', color: V }}>Scale when</em> <strong style={{ fontWeight: 700 }}>you&apos;re ready.</strong>
-          </h2>
-        </div></FadeIn>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 20, alignItems: 'start' }}>
-          {[
-            { label: 'Individual', price: 20, period: 'per month · cancel anytime', features: ['Unlimited texts with Ryke AI', 'Fitness, nutrition & wellness', 'Food photo analysis (MMS)', 'Daily check-ins & reminders', 'Mental health support', 'Crisis detection & safety net'], cta: 'Start Free Trial', href: '/onboarding', featured: false },
-            { label: 'Coach Pro', price: 99, period: 'per month · up to 30 clients', features: ['Your own branded SMS number', 'AI trained in your voice & style', 'Smart scheduling for all clients', 'Coach dashboard & analytics', 'Human handoff alerts', 'Client progress tracking', 'Response delay settings'], cta: 'Start Free Trial', href: '/onboarding', featured: true, badge: 'Most Popular' },
-            { label: 'Coach Elite', price: 149, period: 'per month · unlimited clients', features: ['Everything in Coach Pro', 'Unlimited client seats', 'Multiple AI personas', 'Priority support', 'Custom branding', 'Early access to new features'], cta: 'Contact Us', href: 'mailto:hello@ryke.ai', featured: false },
-          ].map((p, i) => (
-            <FadeIn key={p.label} delay={i * 100}>
-              <div style={{ background: p.featured ? `linear-gradient(135deg,${GLOW(0.18)},${VGLOW(0.08)})` : S1, border: p.featured ? `1px solid ${R}` : `1px solid ${GLOW(0.2)}`, borderRadius: 22, padding: '44px 34px', position: 'relative', transform: p.featured ? 'scale(1.04)' : 'none', boxShadow: p.featured ? `0 0 50px ${GLOW(0.2)}` : 'none' }}>
-                {p.badge && <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', background: GRAD, color: 'white', fontSize: 11, fontWeight: 600, padding: '4px 18px', borderRadius: 20, letterSpacing: 1, textTransform: 'uppercase' as const, whiteSpace: 'nowrap' as const }}>{p.badge}</div>}
-                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: MT, marginBottom: 16 }}>{p.label}</div>
-                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 56, fontWeight: 700, lineHeight: 1, marginBottom: 4, letterSpacing: '-2px', color: TX }}><sup style={{ fontSize: 24, verticalAlign: 'top', marginTop: 12, display: 'inline-block' }}>$</sup>{p.price}</div>
-                <div style={{ fontSize: 13, color: MT, marginBottom: 32 }}>{p.period}</div>
-                <ul style={{ listStyle: 'none', marginBottom: 36, display: 'flex', flexDirection: 'column' as const, gap: 11 }}>
-                  {p.features.map(f => <li key={f} style={{ fontSize: 14, color: MT, display: 'flex', alignItems: 'center', gap: 10, fontWeight: 300 }}><span style={{ color: RL, fontSize: 10, flexShrink: 0 }}>&#10086;</span>{f}</li>)}
-                </ul>
-                <Link href={p.href as string} style={{ display: 'block', width: '100%', padding: '14px', borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' as const, background: p.featured ? GRAD : 'transparent', color: p.featured ? 'white' : '#d4d4d8', border: p.featured ? 'none' : `1px solid ${GLOW(0.3)}`, boxSizing: 'border-box' as const, boxShadow: p.featured ? `0 4px 16px ${GLOW(0.4)}` : 'none' }}>
-                  {p.cta} &rarr;
-                </Link>
-              </div>
-            </FadeIn>
-          ))}
-        </div>
       </section>
 
-      {/* ══ FAQ ══ */}
-      <div style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
+      {/* FAQ */}
+      <div style={{ borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
         <div style={{ maxWidth: 860, margin: '0 auto' }}>
           <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 60 }}>
             <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Questions</div>
@@ -456,27 +361,27 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ══ MISSION (replaces founder — no name) ══ */}
+      {/* MISSION */}
       <FadeIn>
         <div style={{ padding: '100px 48px', maxWidth: 860, margin: '0 auto', textAlign: 'center' as const }}>
           <div style={{ background: `linear-gradient(135deg,${GLOW(0.1)},${VGLOW(0.05)})`, border: `1px solid ${GLOW(0.25)}`, borderRadius: 24, padding: '60px 64px', position: 'relative', overflow: 'hidden' }}>
             <div style={{ position: 'absolute', top: -80, right: -80, width: 240, height: 240, background: `radial-gradient(circle,${GLOW(0.15)},transparent 70%)`, pointerEvents: 'none' }} />
             <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(20px,2.5vw,30px)', fontWeight: 300, fontStyle: 'italic', lineHeight: 1.6, color: TX, marginBottom: 28 }}>
-              &ldquo;Real coaching should be accessible to everyone &mdash; not just people who can afford $300 an hour. Guidance changes lives. That&apos;s why Ryke exists.&rdquo;
+              &ldquo;Motivation is a feeling. It comes and goes. Accountability is a system. It doesn&apos;t care how you feel. Kiba exists to be that system &mdash; relentless, precise, and calibrated to you.&rdquo;
             </div>
-            <div style={{ fontSize: 14, color: RL, fontWeight: 500, letterSpacing: 1 }}>&mdash; The Ryke.ai Team</div>
+            <div style={{ fontSize: 14, color: RL, fontWeight: 500, letterSpacing: 1 }}>&mdash; The Kiba Team</div>
           </div>
         </div>
       </FadeIn>
 
-      {/* ══ CTA ══ */}
+      {/* CTA */}
       <div style={{ textAlign: 'center' as const, padding: '120px 48px', position: 'relative', overflow: 'hidden', background: S2, borderTop: `1px solid ${GLOW(0.1)}` }}>
         <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse 70% 70% at 50% 50%,${GLOW(0.1)},transparent 70%)`, pointerEvents: 'none' }} />
         <FadeIn>
           <h2 style={{ position: 'relative', fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(42px,6vw,80px)', fontWeight: 300, lineHeight: 1.1, letterSpacing: '-2px', marginBottom: 24, color: TX }}>
-            One text changes <em style={{ fontStyle: 'italic', color: V }}>everything.</em>
+            No more <em style={{ fontStyle: 'italic', color: V }}>excuses.</em>
           </h2>
-          <p style={{ position: 'relative', fontSize: 17, color: MT, marginBottom: 48, fontWeight: 300 }}>Start your free 1-month trial today. No app download. No credit card to begin.</p>
+          <p style={{ position: 'relative', fontSize: 17, color: MT, marginBottom: 48, fontWeight: 300 }}>Start your free 1-month trial. Your goals deserve more than motivation — they deserve a system.</p>
           <Link href="/onboarding" style={{ position: 'relative', display: 'inline-block', background: GRAD, color: 'white', padding: '20px 56px', borderRadius: 14, fontSize: 18, fontWeight: 700, textDecoration: 'none', boxShadow: `0 10px 40px ${GLOW(0.5)}`, letterSpacing: '0.3px' }}>
             Start Free Trial &mdash; 1 Month Free &rarr;
           </Link>
@@ -484,12 +389,12 @@ export default function Home() {
         </FadeIn>
       </div>
 
-      {/* ══ FOOTER ══ */}
+      {/* FOOTER */}
       <footer style={{ borderTop: `1px solid ${GLOW(0.12)}`, padding: '40px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: TX }}>Ryke<span style={{ color: RL }}>.ai</span></div>
-        <div style={{ fontSize: 13, color: '#3f3f46' }}>&#169; 2026 Ryke.ai. All rights reserved.</div>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: TX }}>Kiba<span style={{ color: RL }}>.ai</span></div>
+        <div style={{ fontSize: 13, color: '#3f3f46' }}>&#169; 2026 Kiba.ai. All rights reserved.</div>
         <div style={{ display: 'flex', gap: 24 }}>
-          {['Privacy', 'Terms', 'Coaches', 'Contact'].map(l => <a key={l} href="#" style={{ fontSize: 13, color: MT, textDecoration: 'none' }}>{l}</a>)}
+          {['Privacy', 'Terms', 'Contact'].map(l => <a key={l} href="#" style={{ fontSize: 13, color: MT, textDecoration: 'none' }}>{l}</a>)}
         </div>
       </footer>
 
