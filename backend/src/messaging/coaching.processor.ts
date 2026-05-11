@@ -21,6 +21,7 @@ import { SessionCacheService } from '../data/session-cache.service';
 import { SessionBoundaryService } from '../data/session-boundary.service';
 import { MessagingService } from './messaging.service';
 import { SafetyService } from '../safety/safety.service';
+import { ScoreIntentService } from '../accountability/score-intent.service';
 import { SummaryTrigger } from '../data/entities/session-summary.entity';
 import { structuredLog } from '../common/logger';
 
@@ -70,6 +71,7 @@ export class CoachingProcessor {
     private readonly messagingService: MessagingService,
     @Inject(forwardRef(() => SafetyService))
     private readonly safetyService: SafetyService,
+    private readonly scoreIntentService: ScoreIntentService,
   ) {}
 
   @Process('process-coaching-message')
@@ -151,8 +153,15 @@ export class CoachingProcessor {
       return;
     }
 
-    // Context reset intent
+    // Score query intent
     const lowerBody = body.toLowerCase();
+    if (this.scoreIntentService.isScoreIntent(lowerBody)) {
+      const reply = await this.scoreIntentService.buildScoreReply(user.id);
+      await this.saveAndSend(user, boundary.sessionId, reply);
+      return;
+    }
+
+    // Context reset intent
     if (RESET_INTENTS.some((intent) => lowerBody.includes(intent))) {
       await this.sessionCache.invalidateSession(user.id);
       await this.messagingService.send(

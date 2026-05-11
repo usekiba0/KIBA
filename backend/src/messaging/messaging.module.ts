@@ -9,6 +9,7 @@ import { MessagingProcessor } from './messaging.processor';
 import { CoachingProcessor } from './coaching.processor';
 import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
 import { SendBlueWebhookGuard } from './guards/sendblue-webhook.guard';
+import { ScoreIntentService } from '../accountability/score-intent.service';
 
 @Module({
   imports: [
@@ -24,8 +25,8 @@ import { SendBlueWebhookGuard } from './guards/sendblue-webhook.guard';
   controllers: [MessagingController],
   providers: [
     MessagingService, MessagingProcessor, CoachingProcessor,
-    TwilioWebhookGuard, SendBlueWebhookGuard,
+    TwilioWebhookGuard, SendBlueWebhookGuard, ScoreIntentService,
   ],
-  exports: [MessagingService, BullModule],
+  exports: [MessagingService, BullModule, ScoreIntentService],
 })
 export class MessagingModule {}
