@@ -55,10 +55,10 @@ export default function OnboardingPage() {
         <div className="success-card">
           <div className="success-icon">📱</div>
           <h2>You&apos;re in.</h2>
-          <p>Kiba will text you at <strong style={{ color: '#fafafa' }}>{form.checkin_time}</strong> every day starting tomorrow. Be ready to prove you did the work.</p>
-          <div style={{ margin: '24px 0', padding: '20px', background: '#18181b', borderRadius: 12, border: '1px solid #3f3f46', textAlign: 'center' }}>
-            <div style={{ fontSize: 13, color: '#71717a', marginBottom: 8 }}>Kiba will reach you at</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: '#fafafa', letterSpacing: 1 }}>{form.phone_number}</div>
+          <p>Kiba will text you at <strong style={{ color: '#f0f9ff' }}>{form.checkin_time}</strong> every day starting tomorrow. Be ready to prove you did the work.</p>
+          <div style={{ margin: '24px 0', padding: '20px', background: '#0d1e30', borderRadius: 12, border: '1px solid rgba(14,165,233,0.2)', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: '#3a6080', marginBottom: 8 }}>Kiba will reach you at</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: '#f0f9ff', letterSpacing: 1 }}>{form.phone_number}</div>
           </div>
           <p className="success-hint">No app needed. No login. Just respond to Kiba&apos;s texts with proof of your work.</p>
         </div>
@@ -98,20 +98,20 @@ export default function OnboardingPage() {
       <style jsx>{`
         .onboarding-container {
           min-height: 100vh; display: flex; align-items: center; justify-content: center;
-          padding: 24px; background: radial-gradient(ellipse at 50% 0%, rgba(225,29,72,0.08) 0%, #09090b 60%);
+          padding: 24px; background: radial-gradient(ellipse at 50% 0%, rgba(14,165,233,0.1) 0%, #050d1a 60%);
         }
         .onboarding-card {
-          background: linear-gradient(160deg, #141414 0%, #0f0f0f 100%);
-          border: 1px solid rgba(225,29,72,0.22); border-radius: 24px;
+          background: linear-gradient(160deg, #0c1829 0%, #081422 100%);
+          border: 1px solid rgba(14,165,233,0.22); border-radius: 24px;
           padding: 40px; width: 100%; max-width: 560px;
           box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
         }
         .logo-small {
           font-family: 'Cormorant Garamond', serif; font-size: 13px; font-weight: 700; letter-spacing: 3px;
-          text-transform: uppercase; color: rgba(248,246,242,0.35); margin-bottom: 28px;
+          text-transform: uppercase; color: rgba(240,249,255,0.35); margin-bottom: 28px;
           display: flex; align-items: center; gap: 6px;
         }
-        .logo-small span { color: #fb7185; }
+        .logo-small span { color: #38bdf8; }
         .progress-bar {
           display: flex; justify-content: space-between; margin-bottom: 36px; position: relative;
         }
@@ -120,34 +120,34 @@ export default function OnboardingPage() {
           background: rgba(255,255,255,0.06); border-radius: 2px;
         }
         .progress-track-fill {
-          height: 100%; background: linear-gradient(90deg, #e11d48, #8b5cf6);
+          height: 100%; background: linear-gradient(90deg, #0ea5e9, #10b981);
           border-radius: 2px; transition: width 0.4s ease;
         }
         .progress-step { display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; z-index: 1; }
         .progress-dot {
-          width: 28px; height: 28px; border-radius: 50%; background: #181818;
+          width: 28px; height: 28px; border-radius: 50%; background: #0d1e30;
           border: 2px solid rgba(255,255,255,0.1); display: flex; align-items: center;
-          justify-content: center; font-size: 11px; font-weight: 600; color: #555;
+          justify-content: center; font-size: 11px; font-weight: 600; color: #3a6080;
           transition: all 0.3s ease;
         }
         .progress-step.active .progress-dot {
-          border-color: #e11d48; background: rgba(225,29,72,0.18); color: #8b5cf6;
-          box-shadow: 0 0 0 4px rgba(225,29,72,0.12);
+          border-color: #0ea5e9; background: rgba(14,165,233,0.18); color: #10b981;
+          box-shadow: 0 0 0 4px rgba(14,165,233,0.12);
         }
-        .progress-step.done .progress-dot { background: #e11d48; border-color: #e11d48; color: white; }
-        .progress-label { font-size: 10px; color: #555; letter-spacing: 0.5px; text-transform: uppercase; }
-        .progress-step.active .progress-label { color: #8b5cf6; }
-        .progress-step.done .progress-label { color: #e11d48; }
+        .progress-step.done .progress-dot { background: #0ea5e9; border-color: #0ea5e9; color: white; }
+        .progress-label { font-size: 10px; color: #3a6080; letter-spacing: 0.5px; text-transform: uppercase; }
+        .progress-step.active .progress-label { color: #10b981; }
+        .progress-step.done .progress-label { color: #0ea5e9; }
         .success-card {
-          text-align: center; background: linear-gradient(160deg,#141414,#0f0f0f);
-          border: 1px solid rgba(225,29,72,0.22); border-radius: 24px; padding: 52px;
+          text-align: center; background: linear-gradient(160deg,#0c1829,#081422);
+          border: 1px solid rgba(14,165,233,0.22); border-radius: 24px; padding: 52px;
           max-width: 420px; box-shadow: 0 24px 60px rgba(0,0,0,0.5);
           animation: stepIn 0.4s ease both;
         }
         .success-icon { font-size: 52px; margin-bottom: 20px; }
-        .success-card h2 { font-family: 'Cormorant Garamond', serif; font-size: 30px; color: #fafafa; margin-bottom: 14px; }
-        .success-card p { font-size: 15px; color: #a1a1aa; line-height: 1.65; }
-        .success-hint { font-size: 13px; margin-top: 14px; color: #6b7280; }
+        .success-card h2 { font-family: 'Cormorant Garamond', serif; font-size: 30px; color: #f0f9ff; margin-bottom: 14px; }
+        .success-card p { font-size: 15px; color: #7eb4cc; line-height: 1.65; }
+        .success-hint { font-size: 13px; margin-top: 14px; color: #3a6080; }
         @keyframes stepIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @media(max-width:600px){
           .onboarding-card { padding: 28px 18px !important; border-radius: 16px !important; }
@@ -165,53 +165,53 @@ export default function OnboardingPage() {
         .step-desc { font-size: 14px; color: #a1a1aa; margin-bottom: 28px; line-height: 1.6; }
         .focus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 22px; }
         .focus-card {
-          background: #181818; border: 2px solid rgba(255,255,255,0.07); border-radius: 14px;
+          background: #0d1e30; border: 2px solid rgba(14,165,233,0.1); border-radius: 14px;
           padding: 16px; text-align: left; cursor: pointer;
           transition: border-color 0.2s, background 0.2s, transform 0.15s;
           display: flex; flex-direction: column; gap: 5px;
         }
-        .focus-card:hover { border-color: rgba(225,29,72,0.4); background: rgba(225,29,72,0.06); transform: translateY(-1px); }
-        .focus-card.selected { border-color: #e11d48; background: rgba(225,29,72,0.12); }
-        .focus-label { font-size: 14px; font-weight: 600; color: #fafafa; }
-        .focus-desc { font-size: 12px; color: #a1a1aa; line-height: 1.4; }
-        .field-label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 500; color: #d1d5db; margin-bottom: 18px; }
+        .focus-card:hover { border-color: rgba(14,165,233,0.4); background: rgba(14,165,233,0.07); transform: translateY(-1px); }
+        .focus-card.selected { border-color: #0ea5e9; background: rgba(14,165,233,0.12); }
+        .focus-label { font-size: 14px; font-weight: 600; color: #f0f9ff; }
+        .focus-desc { font-size: 12px; color: #7eb4cc; line-height: 1.4; }
+        .field-label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 500; color: #bcd6e8; margin-bottom: 18px; }
         .input, .textarea {
-          background: #181818; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
-          padding: 11px 14px; color: #fafafa; font-size: 14px; outline: none;
+          background: #0d1e30; border: 1px solid rgba(14,165,233,0.15); border-radius: 10px;
+          padding: 11px 14px; color: #f0f9ff; font-size: 14px; outline: none;
           transition: border-color 0.2s, box-shadow 0.2s; width: 100%;
         }
         .input:focus, .textarea:focus {
-          border-color: rgba(225,29,72,0.6); box-shadow: 0 0 0 3px rgba(225,29,72,0.12);
+          border-color: rgba(14,165,233,0.6); box-shadow: 0 0 0 3px rgba(14,165,233,0.1);
         }
         .textarea { resize: vertical; font-family: inherit; line-height: 1.5; }
-        .field-error { font-size: 12px; color: #fca5a5; margin-top: 4px; }
-        .field-hint { font-size: 12px; color: #6b7280; margin-top: 5px; line-height: 1.4; }
+        .field-error { font-size: 12px; color: #7dd3fc; margin-top: 4px; }
+        .field-hint { font-size: 12px; color: #3a6080; margin-top: 5px; line-height: 1.4; }
         .btn-primary {
-          background: linear-gradient(135deg, #e11d48, #8b5cf6); color: white;
+          background: linear-gradient(135deg, #0ea5e9, #10b981); color: white;
           border: none; border-radius: 12px; padding: 13px 26px; font-size: 14px;
           font-weight: 600; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
-          box-shadow: 0 4px 14px rgba(225,29,72,0.35);
+          box-shadow: 0 4px 14px rgba(14,165,233,0.35);
         }
-        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(139,92,246,0.4); }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16,185,129,0.4); }
         .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
         .btn-secondary {
-          background: transparent; color: #a1a1aa;
-          border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+          background: transparent; color: #7eb4cc;
+          border: 1px solid rgba(14,165,233,0.15); border-radius: 12px;
           padding: 13px 20px; font-size: 14px; cursor: pointer;
           transition: border-color 0.2s, color 0.2s;
         }
-        .btn-secondary:hover { border-color: rgba(255,255,255,0.2); color: #d1d5db; }
+        .btn-secondary:hover { border-color: rgba(14,165,233,0.3); color: #bcd6e8; }
         .btn-row { display: flex; justify-content: space-between; margin-top: 10px; gap: 10px; }
         .trial-summary {
-          background: #181818; border-radius: 14px; padding: 18px;
-          margin-bottom: 18px; border: 1px solid rgba(255,255,255,0.06);
+          background: #0d1e30; border-radius: 14px; padding: 18px;
+          margin-bottom: 18px; border: 1px solid rgba(14,165,233,0.1);
         }
         .trial-row {
           display: flex; justify-content: space-between; font-size: 13px;
-          color: #d1d5db; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+          color: #bcd6e8; padding: 7px 0; border-bottom: 1px solid rgba(14,165,233,0.06);
         }
         .trial-row:last-child { border-bottom: none; }
-        .trial-free { color: #86efac; font-weight: 600; }
+        .trial-free { color: #34d399; font-weight: 600; }
         @media(max-width:480px){
           .focus-grid { grid-template-columns: 1fr !important; }
           .step h2 { font-size: 22px; }

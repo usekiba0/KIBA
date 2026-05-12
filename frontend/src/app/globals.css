@@ -1,12 +1,12 @@
 :root {
-  --black: #09090b;
-  --white: #fafafa;
-  --rose: #e11d48;
-  --rose-light: #fb7185;
-  --violet: #8b5cf6;
-  --violet-light: #a78bfa;
-  --muted: #a1a1aa;
-  --surface: #111113;
+  --black: #050d1a;
+  --white: #f0f9ff;
+  --rose: #0ea5e9;
+  --rose-light: #38bdf8;
+  --violet: #10b981;
+  --violet-light: #34d399;
+  --muted: #7eb4cc;
+  --surface: #0c1829;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: var(--black); color: var(--white); font-family: 'DM Sans', sans-serif; }

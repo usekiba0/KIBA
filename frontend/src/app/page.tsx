@@ -46,18 +46,18 @@ function FadeIn({ children, delay = 0, style = {} }: { children: React.ReactNode
   );
 }
 
-const R = '#e11d48';
-const RL = '#fb7185';
-const V = '#8b5cf6';
-const BG = '#09090b';
-const S1 = '#111113';
-const S2 = '#0d0d10';
-const TX = '#fafafa';
-const MT = '#a1a1aa';
+const R = '#0ea5e9';
+const RL = '#38bdf8';
+const V = '#10b981';
+const BG = '#050d1a';
+const S1 = '#0c1829';
+const S2 = '#081422';
+const TX = '#f0f9ff';
+const MT = '#7eb4cc';
 
 const GRAD = `linear-gradient(135deg,${R},${V})`;
-const GLOW = (a: number) => `rgba(225,29,72,${a})`;
-const VGLOW = (a: number) => `rgba(139,92,246,${a})`;
+const GLOW = (a: number) => `rgba(14,165,233,${a})`;
+const VGLOW = (a: number) => `rgba(16,185,129,${a})`;
 
 export default function Home() {
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -134,7 +134,7 @@ export default function Home() {
             </div>
             <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' as const, animation: 'fadeUp 0.8s ease 0.4s both' }}>
               {['&#10003;&nbsp; 1-month free trial', '&#10003;&nbsp; No app download', '&#10003;&nbsp; Cancel anytime', '&#10003;&nbsp; Works on any phone'].map(t => (
-                <span key={t} style={{ fontSize: 13, color: '#52525b' }} dangerouslySetInnerHTML={{ __html: t }} />
+                <span key={t} style={{ fontSize: 13, color: '#3a6080' }} dangerouslySetInnerHTML={{ __html: t }} />
               ))}
             </div>
           </div>
@@ -142,26 +142,26 @@ export default function Home() {
           {/* Phone mockup */}
           <div className="hero-phone" style={{ position: 'relative', flexShrink: 0 }}>
             <div style={{ position: 'absolute', inset: -40, background: `radial-gradient(ellipse at 50% 50%,${GLOW(0.18)} 0%,transparent 70%)`, borderRadius: '50%', animation: 'slowpulse 4s ease-in-out infinite', pointerEvents: 'none' }} />
-            <div className="float-card" style={{ position: 'absolute', top: -24, right: -60, background: 'rgba(17,17,19,0.96)', backdropFilter: 'blur(16px)', border: `1px solid ${GLOW(0.3)}`, borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', animation: 'floatBadge 3s ease-in-out infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
+            <div className="float-card" style={{ position: 'absolute', top: -24, right: -60, background: 'rgba(8,20,34,0.97)', backdropFilter: 'blur(16px)', border: `1px solid ${GLOW(0.3)}`, borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', animation: 'floatBadge 3s ease-in-out infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
               <div style={{ width: 38, height: 38, borderRadius: '50%', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🔥</div>
               <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>14-day streak!</div><div style={{ fontSize: 11, color: RL }}>Alex &middot; Score: 81/100</div></div>
             </div>
-            <div className="float-card" style={{ position: 'absolute', bottom: -20, left: -56, background: 'rgba(17,17,19,0.96)', backdropFilter: 'blur(16px)', border: `1px solid ${GLOW(0.3)}`, borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', animation: 'floatBadge 3s ease-in-out 1.5s infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
+            <div className="float-card" style={{ position: 'absolute', bottom: -20, left: -56, background: 'rgba(8,20,34,0.97)', backdropFilter: 'blur(16px)', border: `1px solid ${GLOW(0.3)}`, borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', animation: 'floatBadge 3s ease-in-out 1.5s infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
               <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#065f46,#34d399)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>✓</div>
               <div><div style={{ fontSize: 12, fontWeight: 600, color: TX }}>Proof accepted</div><div style={{ fontSize: 11, color: '#34d399' }}>Task complete</div></div>
             </div>
-            <div style={{ width: 290, background: '#141414', borderRadius: 42, border: '6px solid #222', padding: '22px 16px 30px', boxShadow: `0 0 0 1px ${GLOW(0.25)},0 40px 80px rgba(0,0,0,0.7),0 0 80px ${GLOW(0.1)}`, position: 'relative' }}>
-              <div style={{ width: 80, height: 7, background: '#1f1f1f', borderRadius: 4, margin: '0 auto 18px' }} />
+            <div style={{ width: 290, background: '#0a1828', borderRadius: 42, border: '6px solid #1a2d45', padding: '22px 16px 30px', boxShadow: `0 0 0 1px ${GLOW(0.25)},0 40px 80px rgba(0,0,0,0.7),0 0 80px ${GLOW(0.1)}`, position: 'relative' }}>
+              <div style={{ width: 80, height: 7, background: '#1a2d45', borderRadius: 4, margin: '0 auto 18px' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 14 }}>
                 <div style={{ width: 34, height: 34, borderRadius: '50%', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>K</div>
                 <div><div style={{ fontSize: 13, fontWeight: 500, color: TX }}>Kiba</div><div style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Watching</div></div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, minHeight: 200 }}>
                 {MSGS.map((m, i) => (
-                  <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', fontSize: 11, lineHeight: 1.5, maxWidth: '90%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? GRAD : '#222', color: TX, border: m.who === 'kiba' ? `1px solid ${GLOW(0.18)}` : 'none', animation: `msgIn 0.4s ease ${m.delay}s both` }}>{m.text}</div>
+                  <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', fontSize: 11, lineHeight: 1.5, maxWidth: '90%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? GRAD : '#152035', color: TX, border: m.who === 'kiba' ? `1px solid ${GLOW(0.18)}` : 'none', animation: `msgIn 0.4s ease ${m.delay}s both` }}>{m.text}</div>
                 ))}
                 {!typingDone && (
-                  <div style={{ padding: '9px 14px', borderRadius: '16px 16px 16px 4px', background: '#222', border: `1px solid ${GLOW(0.18)}`, alignSelf: 'flex-start', display: 'inline-flex', gap: 4, animation: 'msgIn 0.3s ease 3.6s both' }}>
+                  <div style={{ padding: '9px 14px', borderRadius: '16px 16px 16px 4px', background: '#152035', border: `1px solid ${GLOW(0.18)}`, alignSelf: 'flex-start', display: 'inline-flex', gap: 4, animation: 'msgIn 0.3s ease 3.6s both' }}>
                     {[0, 1, 2].map(i => <span key={i} className="typing-dot" style={{ animationDelay: `${i * 0.2}s` }} />)}
                   </div>
                 )}
@@ -225,7 +225,7 @@ export default function Home() {
         <FadeIn delay={200}>
           <div className="stats-bar" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: GLOW(0.15), borderRadius: 20, overflow: 'hidden', marginTop: 60, border: `1px solid ${GLOW(0.2)}` }}>
             {[{ n: 24, s: '/7', l: 'Kiba is watching' }, { n: 0, s: '', l: 'Apps to download' }, { n: 20, s: '+', l: '$ per month only' }].map(stat => (
-              <div key={stat.l} style={{ background: '#0f0f12', padding: '36px 32px', textAlign: 'center' as const }}>
+              <div key={stat.l} style={{ background: '#081422', padding: '36px 32px', textAlign: 'center' as const }}>
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 52, fontWeight: 700, color: RL, lineHeight: 1, marginBottom: 8 }}><Counter to={stat.n} suffix={stat.s} /></div>
                 <div style={{ fontSize: 13, color: MT, fontWeight: 300 }}>{stat.l}</div>
               </div>
@@ -246,14 +246,14 @@ export default function Home() {
           <div className="ps-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
             <FadeIn>
               <div style={{ background: S1, border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, padding: 40 }}>
-                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: '#52525b', marginBottom: 28, fontWeight: 600 }}>The motivation trap</div>
+                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: '#3a6080', marginBottom: 28, fontWeight: 600 }}>The motivation trap</div>
                 {['You set the goal. You feel good. You do nothing.',
                   'Apps send push notifications you swipe away',
                   'Accountability partners are too polite to actually push you',
                   'You ghost your own goals — no consequences, no change',
                   'Months pass. You\'re exactly where you were.'].map(p => (
                   <div key={p} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
-                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: '#fca5a5' }}>✕</div>
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(100,116,139,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: '#94a3b8' }}>✕</div>
                     <p style={{ fontSize: 14, color: MT, lineHeight: 1.6 }}>{p}</p>
                   </div>
                 ))}
@@ -343,7 +343,7 @@ export default function Home() {
               <Link href="/onboarding" style={{ display: 'inline-block', background: GRAD, color: 'white', padding: '18px 56px', borderRadius: 12, fontSize: 16, fontWeight: 700, textDecoration: 'none', boxShadow: `0 6px 24px ${GLOW(0.5)}`, letterSpacing: '0.3px' }}>
                 Start 1-Month Free Trial &rarr;
               </Link>
-              <p style={{ fontSize: 13, color: '#3f3f46', marginTop: 16 }}>No credit card required during trial</p>
+              <p style={{ fontSize: 13, color: '#2a4a6b', marginTop: 16 }}>No credit card required during trial</p>
             </div>
           </FadeIn>
         </div>
@@ -386,14 +386,14 @@ export default function Home() {
           <Link href="/onboarding" style={{ position: 'relative', display: 'inline-block', background: GRAD, color: 'white', padding: '20px 56px', borderRadius: 14, fontSize: 18, fontWeight: 700, textDecoration: 'none', boxShadow: `0 10px 40px ${GLOW(0.5)}`, letterSpacing: '0.3px' }}>
             Start Free Trial &mdash; 1 Month Free &rarr;
           </Link>
-          <p style={{ position: 'relative', fontSize: 13, color: '#3f3f46', marginTop: 20 }}>No credit card required &middot; Cancel anytime &middot; Works on any phone</p>
+          <p style={{ position: 'relative', fontSize: 13, color: '#2a4a6b', marginTop: 20 }}>No credit card required &middot; Cancel anytime &middot; Works on any phone</p>
         </FadeIn>
       </div>
 
       {/* FOOTER */}
       <footer className="footer-inner" style={{ borderTop: `1px solid ${GLOW(0.12)}`, padding: '40px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: TX }}>Kiba<span style={{ color: RL }}>.ai</span></div>
-        <div style={{ fontSize: 13, color: '#3f3f46' }}>&#169; 2026 Kiba.ai. All rights reserved.</div>
+        <div style={{ fontSize: 13, color: '#2a4a6b' }}>&#169; 2026 Kiba.ai. All rights reserved.</div>
         <div style={{ display: 'flex', gap: 24 }}>
           {['Privacy', 'Terms', 'Contact'].map(l => <a key={l} href="#" style={{ fontSize: 13, color: MT, textDecoration: 'none' }}>{l}</a>)}
         </div>
