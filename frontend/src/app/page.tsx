@@ -65,6 +65,7 @@ export default function Home() {
   const [typingDone, setTypingDone] = useState(false);
 
   useEffect(() => {
+    if (window.matchMedia('(hover: none)').matches) return;
     let mx = 0, my = 0, fx = 0, fy = 0;
     const move = (e: MouseEvent) => {
       mx = e.clientX; my = e.clientY;
@@ -92,7 +93,7 @@ export default function Home() {
       <div ref={followerRef} style={{ width: 32, height: 32, border: `1px solid ${GLOW(0.6)}`, borderRadius: '50%', position: 'fixed', pointerEvents: 'none', zIndex: 9998 }} />
 
       {/* NAV */}
-      <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 48px', background: `rgba(9,9,11,0.92)`, backdropFilter: 'blur(24px)', borderBottom: `1px solid ${GLOW(0.15)}` }}>
+      <nav className="main-nav" style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 48px', background: `rgba(9,9,11,0.92)`, backdropFilter: 'blur(24px)', borderBottom: `1px solid ${GLOW(0.15)}` }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 700, color: TX, letterSpacing: '-0.5px' }}>
           Kiba<span style={{ color: RL }}>.ai</span>
         </div>
@@ -105,11 +106,11 @@ export default function Home() {
       </nav>
 
       {/* HERO */}
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '140px 48px 80px', position: 'relative', overflow: 'hidden', background: BG }}>
+      <div className="hero-section" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '140px 48px 80px', position: 'relative', overflow: 'hidden', background: BG }}>
         <div style={{ position: 'absolute', top: '-20%', left: '50%', transform: 'translateX(-50%)', width: '140%', height: '70%', background: `radial-gradient(ellipse at 50% 0%,${GLOW(0.18)} 0%,${VGLOW(0.08)} 40%,transparent 70%)`, pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', inset: 0, backgroundImage: `linear-gradient(${GLOW(0.06)} 1px,transparent 1px),linear-gradient(90deg,${GLOW(0.06)} 1px,transparent 1px)`, backgroundSize: '60px 60px', maskImage: 'radial-gradient(ellipse 90% 90% at 50% 0%,black 0%,transparent 100%)', pointerEvents: 'none' }} />
 
-        <div style={{ maxWidth: 1200, width: '100%', display: 'grid', gridTemplateColumns: '1fr auto', gap: 80, alignItems: 'center', position: 'relative' }}>
+        <div className="hero-grid" style={{ maxWidth: 1200, width: '100%', display: 'grid', gridTemplateColumns: '1fr auto', gap: 80, alignItems: 'center', position: 'relative' }}>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: GLOW(0.1), border: `1px solid ${GLOW(0.35)}`, padding: '8px 18px', borderRadius: 30, fontSize: 12, fontWeight: 500, letterSpacing: '1.5px', textTransform: 'uppercase' as const, color: RL, marginBottom: 36, animation: 'fadeUp 0.8s ease both' }}>
               <span className="pulse-dot" /> Psychological Accountability &middot; Via SMS
@@ -139,7 +140,7 @@ export default function Home() {
           </div>
 
           {/* Phone mockup */}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
+          <div className="hero-phone" style={{ position: 'relative', flexShrink: 0 }}>
             <div style={{ position: 'absolute', inset: -40, background: `radial-gradient(ellipse at 50% 50%,${GLOW(0.18)} 0%,transparent 70%)`, borderRadius: '50%', animation: 'slowpulse 4s ease-in-out infinite', pointerEvents: 'none' }} />
             <div className="float-card" style={{ position: 'absolute', top: -24, right: -60, background: 'rgba(17,17,19,0.96)', backdropFilter: 'blur(16px)', border: `1px solid ${GLOW(0.3)}`, borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', animation: 'floatBadge 3s ease-in-out infinite', zIndex: 10, whiteSpace: 'nowrap' as const }}>
               <div style={{ width: 38, height: 38, borderRadius: '50%', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🔥</div>
@@ -171,14 +172,14 @@ export default function Home() {
       </div>
 
       {/* HOW IT WORKS */}
-      <div id="how" style={{ background: S2, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
+      <div id="how" className="section-pad" style={{ background: S2, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 72 }}>
             <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>The system</div>
             <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,60px)', fontWeight: 300, letterSpacing: '-1.5px', color: TX, lineHeight: 1.1 }}>Built on <em style={{ fontStyle: 'italic', color: V }}>pressure,</em> not promises.</h2>
           </div></FadeIn>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 32, position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 56, left: '18%', right: '18%', height: 1, background: `linear-gradient(90deg,transparent,${GLOW(0.4)},transparent)` }} />
+          <div className="how-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 32, position: 'relative' }}>
+            <div className="how-line" style={{ position: 'absolute', top: 56, left: '18%', right: '18%', height: 1, background: `linear-gradient(90deg,transparent,${GLOW(0.4)},transparent)` }} />
             {[['01', '🧠', 'Psych intake', 'You answer questions about your fears, your avoidance patterns, and who you compare yourself to. Kiba uses this against you — constructively.'],
               ['02', '📲', 'Daily check-ins', 'Every day at your chosen time, Kiba texts you. Did you do the work? Send proof. No reply means you\'re ghosting — and Kiba escalates.'],
               ['03', '📊', 'Execution score', 'Every action builds your score — completion rate, proof rate, response time, streak. Your accountability in a number. No hiding from it.']
@@ -197,14 +198,14 @@ export default function Home() {
       </div>
 
       {/* FEATURES */}
-      <section id="proof" style={{ padding: '100px 48px', maxWidth: 1200, margin: '0 auto' }}>
+      <section id="proof" className="section-pad features-section" style={{ padding: '100px 48px', maxWidth: 1200, margin: '0 auto' }}>
         <FadeIn><div style={{ marginBottom: 60 }}>
           <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>What Kiba does</div>
           <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,64px)', fontWeight: 300, lineHeight: 1.1, letterSpacing: '-1px', color: TX }}>
             Every tool built to<br /><em style={{ fontStyle: 'italic', color: V }}>eliminate</em> <strong style={{ fontWeight: 700 }}>excuses.</strong>
           </h2>
         </div></FadeIn>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 20 }}>
+        <div className="feat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 20 }}>
           {[['⚡', 'Proof-based accountability', 'No check-box. Send a photo or text proof of your completed task. Kiba validates it. Fake it and you\'re only cheating yourself.'],
             ['👻', 'Anti-ghost system', 'Miss a check-in? Kiba follows up in 2 hours. Then 24 hours. Then 48. Three strikes and your score reflects exactly who you\'ve been.'],
             ['📈', 'Execution score', 'A real-time score (0–100) based on completion rate, proof rate, response speed, and streak. Your record. Your mirror.'],
@@ -222,7 +223,7 @@ export default function Home() {
           ))}
         </div>
         <FadeIn delay={200}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: GLOW(0.15), borderRadius: 20, overflow: 'hidden', marginTop: 60, border: `1px solid ${GLOW(0.2)}` }}>
+          <div className="stats-bar" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: GLOW(0.15), borderRadius: 20, overflow: 'hidden', marginTop: 60, border: `1px solid ${GLOW(0.2)}` }}>
             {[{ n: 24, s: '/7', l: 'Kiba is watching' }, { n: 0, s: '', l: 'Apps to download' }, { n: 20, s: '+', l: '$ per month only' }].map(stat => (
               <div key={stat.l} style={{ background: '#0f0f12', padding: '36px 32px', textAlign: 'center' as const }}>
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 52, fontWeight: 700, color: RL, lineHeight: 1, marginBottom: 8 }}><Counter to={stat.n} suffix={stat.s} /></div>
@@ -234,7 +235,7 @@ export default function Home() {
       </section>
 
       {/* PROBLEM vs SOLUTION */}
-      <div style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
+      <div className="section-pad" style={{ background: S2, borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 60 }}>
             <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Why motivation fails</div>
@@ -242,7 +243,7 @@ export default function Home() {
               You know what to do.<br /><em style={{ fontStyle: 'italic', color: V }}>You just don&apos;t</em><br /><strong style={{ fontWeight: 700 }}>do it.</strong>
             </h2>
           </div></FadeIn>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+          <div className="ps-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
             <FadeIn>
               <div style={{ background: S1, border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, padding: 40 }}>
                 <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: '#52525b', marginBottom: 28, fontWeight: 600 }}>The motivation trap</div>
@@ -279,7 +280,7 @@ export default function Home() {
       </div>
 
       {/* TESTIMONIALS */}
-      <div style={{ padding: '100px 48px' }}>
+      <div className="section-pad" style={{ padding: '100px 48px' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 60 }}>
             <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Real results</div>
@@ -287,7 +288,7 @@ export default function Home() {
               People who stopped <em style={{ fontStyle: 'italic', color: V }}>making excuses.</em>
             </h2>
           </div></FadeIn>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
+          <div className="test-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
             {[['Marcus D.', 'Entrepreneur, 34', 'Kiba knew I was scared of staying mediocre. Every text referenced that. I shipped my product in 6 weeks. I had been "planning" it for 2 years.'],
               ['Priya S.', 'Graduate student, 28', 'I told Kiba I feared falling behind my peers. It brought that up every single day. Uncomfortable. Effective. I submitted my thesis early.'],
               ['Jordan T.', 'Freelancer, 31', 'I ghosted Kiba for 3 days once. The escalating messages were relentless. I haven\'t ghosted since. My execution score is 84. I am a different person.']
@@ -310,7 +311,7 @@ export default function Home() {
       </div>
 
       {/* PRICING */}
-      <section id="pricing" style={{ padding: '100px 48px', background: S2, borderTop: `1px solid ${GLOW(0.1)}` }}>
+      <section id="pricing" className="section-pad" style={{ padding: '100px 48px', background: S2, borderTop: `1px solid ${GLOW(0.1)}` }}>
         <div style={{ maxWidth: 700, margin: '0 auto' }}>
           <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 64 }}>
             <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Simple pricing</div>
@@ -319,7 +320,7 @@ export default function Home() {
             </h2>
           </div></FadeIn>
           <FadeIn delay={100}>
-            <div style={{ background: `linear-gradient(135deg,${GLOW(0.18)},${VGLOW(0.08)})`, border: `1px solid ${R}`, borderRadius: 22, padding: '52px 48px', position: 'relative', boxShadow: `0 0 60px ${GLOW(0.2)}`, textAlign: 'center' as const }}>
+            <div className="pricing-card-inner" style={{ background: `linear-gradient(135deg,${GLOW(0.18)},${VGLOW(0.08)})`, border: `1px solid ${R}`, borderRadius: 22, padding: '52px 48px', position: 'relative', boxShadow: `0 0 60px ${GLOW(0.2)}`, textAlign: 'center' as const }}>
               <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: MT, marginBottom: 16 }}>Individual</div>
               <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 72, fontWeight: 700, lineHeight: 1, marginBottom: 4, letterSpacing: '-3px', color: TX }}>
                 <sup style={{ fontSize: 28, verticalAlign: 'top', marginTop: 16, display: 'inline-block' }}>$</sup>20
@@ -349,7 +350,7 @@ export default function Home() {
       </section>
 
       {/* FAQ */}
-      <div style={{ borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
+      <div className="section-pad" style={{ borderTop: `1px solid ${GLOW(0.1)}`, borderBottom: `1px solid ${GLOW(0.1)}`, padding: '100px 48px' }}>
         <div style={{ maxWidth: 860, margin: '0 auto' }}>
           <FadeIn><div style={{ textAlign: 'center' as const, marginBottom: 60 }}>
             <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>Questions</div>
@@ -363,8 +364,8 @@ export default function Home() {
 
       {/* MISSION */}
       <FadeIn>
-        <div style={{ padding: '100px 48px', maxWidth: 860, margin: '0 auto', textAlign: 'center' as const }}>
-          <div style={{ background: `linear-gradient(135deg,${GLOW(0.1)},${VGLOW(0.05)})`, border: `1px solid ${GLOW(0.25)}`, borderRadius: 24, padding: '60px 64px', position: 'relative', overflow: 'hidden' }}>
+        <div className="section-pad" style={{ padding: '100px 48px', maxWidth: 860, margin: '0 auto', textAlign: 'center' as const }}>
+          <div className="mission-card" style={{ background: `linear-gradient(135deg,${GLOW(0.1)},${VGLOW(0.05)})`, border: `1px solid ${GLOW(0.25)}`, borderRadius: 24, padding: '60px 64px', position: 'relative', overflow: 'hidden' }}>
             <div style={{ position: 'absolute', top: -80, right: -80, width: 240, height: 240, background: `radial-gradient(circle,${GLOW(0.15)},transparent 70%)`, pointerEvents: 'none' }} />
             <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(20px,2.5vw,30px)', fontWeight: 300, fontStyle: 'italic', lineHeight: 1.6, color: TX, marginBottom: 28 }}>
               &ldquo;Motivation is a feeling. It comes and goes. Accountability is a system. It doesn&apos;t care how you feel. Kiba exists to be that system &mdash; relentless, precise, and calibrated to you.&rdquo;
@@ -375,7 +376,7 @@ export default function Home() {
       </FadeIn>
 
       {/* CTA */}
-      <div style={{ textAlign: 'center' as const, padding: '120px 48px', position: 'relative', overflow: 'hidden', background: S2, borderTop: `1px solid ${GLOW(0.1)}` }}>
+      <div className="section-pad cta-section" style={{ textAlign: 'center' as const, padding: '120px 48px', position: 'relative', overflow: 'hidden', background: S2, borderTop: `1px solid ${GLOW(0.1)}` }}>
         <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse 70% 70% at 50% 50%,${GLOW(0.1)},transparent 70%)`, pointerEvents: 'none' }} />
         <FadeIn>
           <h2 style={{ position: 'relative', fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(42px,6vw,80px)', fontWeight: 300, lineHeight: 1.1, letterSpacing: '-2px', marginBottom: 24, color: TX }}>
@@ -390,7 +391,7 @@ export default function Home() {
       </div>
 
       {/* FOOTER */}
-      <footer style={{ borderTop: `1px solid ${GLOW(0.12)}`, padding: '40px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <footer className="footer-inner" style={{ borderTop: `1px solid ${GLOW(0.12)}`, padding: '40px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: TX }}>Kiba<span style={{ color: RL }}>.ai</span></div>
         <div style={{ fontSize: 13, color: '#3f3f46' }}>&#169; 2026 Kiba.ai. All rights reserved.</div>
         <div style={{ display: 'flex', gap: 24 }}>
@@ -411,7 +412,35 @@ export default function Home() {
         .feat-card:hover{border-color:${GLOW(0.4)};transform:translateY(-5px);box-shadow:0 20px 48px rgba(0,0,0,0.5);}
         .feat-card:hover::before{opacity:1;}
         .float-card{transition:all 0.3s;}
-        @media(max-width:900px){nav ul li:not(:last-child){display:none;}}
+        @media(max-width:900px){
+          .main-nav ul li:not(:last-child){display:none;}
+        }
+        @media(max-width:768px){
+          .main-nav{padding:14px 20px!important;}
+          .hero-section{padding:110px 20px 64px!important;}
+          .hero-grid{grid-template-columns:1fr!important;gap:40px!important;}
+          .hero-phone{display:none!important;}
+          .section-pad{padding:72px 20px!important;}
+          .how-grid{grid-template-columns:1fr!important;gap:20px!important;}
+          .how-line{display:none!important;}
+          .features-section{padding:72px 20px!important;max-width:100%!important;}
+          .feat-grid{grid-template-columns:1fr 1fr!important;gap:14px!important;}
+          .stats-bar{grid-template-columns:1fr!important;}
+          .ps-grid{grid-template-columns:1fr!important;}
+          .test-grid{grid-template-columns:1fr!important;}
+          .pricing-card-inner{padding:36px 24px!important;}
+          .mission-card{padding:40px 24px!important;}
+          .cta-section{padding:80px 20px!important;}
+          .footer-inner{flex-direction:column!important;gap:18px!important;padding:28px 20px!important;align-items:flex-start!important;}
+        }
+        @media(max-width:480px){
+          .section-pad{padding:56px 16px!important;}
+          .features-section{padding:56px 16px!important;}
+          .hero-section{padding:96px 16px 48px!important;}
+          .feat-grid{grid-template-columns:1fr!important;}
+          .pricing-card-inner{padding:28px 16px!important;}
+          .mission-card{padding:32px 16px!important;}
+        }
       `}</style>
     </>
   );

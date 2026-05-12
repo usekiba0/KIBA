@@ -107,7 +107,7 @@ export default function OnboardingPage() {
           box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
         }
         .logo-small {
-          font-family: serif; font-size: 13px; font-weight: 700; letter-spacing: 3px;
+          font-family: 'Cormorant Garamond', serif; font-size: 13px; font-weight: 700; letter-spacing: 3px;
           text-transform: uppercase; color: rgba(248,246,242,0.35); margin-bottom: 28px;
           display: flex; align-items: center; gap: 6px;
         }
@@ -145,16 +145,23 @@ export default function OnboardingPage() {
           animation: stepIn 0.4s ease both;
         }
         .success-icon { font-size: 52px; margin-bottom: 20px; }
-        .success-card h2 { font-family: serif; font-size: 30px; color: #fafafa; margin-bottom: 14px; }
+        .success-card h2 { font-family: 'Cormorant Garamond', serif; font-size: 30px; color: #fafafa; margin-bottom: 14px; }
         .success-card p { font-size: 15px; color: #a1a1aa; line-height: 1.65; }
         .success-hint { font-size: 13px; margin-top: 14px; color: #6b7280; }
         @keyframes stepIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @media(max-width:600px){
+          .onboarding-card { padding: 28px 18px !important; border-radius: 16px !important; }
+          .success-card { padding: 36px 20px !important; border-radius: 16px !important; }
+        }
+        @media(max-width:400px){
+          .onboarding-card { padding: 22px 14px !important; }
+        }
       `}</style>
 
       <style jsx global>{`
         .step { animation: stepIn 0.3s ease both; }
         @keyframes stepIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        .step h2 { font-family: serif; font-size: 26px; font-weight: 600; color: #fafafa; margin-bottom: 6px; line-height: 1.3; }
+        .step h2 { font-family: 'Cormorant Garamond', serif; font-size: 26px; font-weight: 600; color: #fafafa; margin-bottom: 6px; line-height: 1.3; }
         .step-desc { font-size: 14px; color: #a1a1aa; margin-bottom: 28px; line-height: 1.6; }
         .focus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 22px; }
         .focus-card {
@@ -180,12 +187,12 @@ export default function OnboardingPage() {
         .field-error { font-size: 12px; color: #fca5a5; margin-top: 4px; }
         .field-hint { font-size: 12px; color: #6b7280; margin-top: 5px; line-height: 1.4; }
         .btn-primary {
-          background: linear-gradient(135deg, #e11d48, #be123c); color: white;
+          background: linear-gradient(135deg, #e11d48, #8b5cf6); color: white;
           border: none; border-radius: 12px; padding: 13px 26px; font-size: 14px;
           font-weight: 600; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
           box-shadow: 0 4px 14px rgba(225,29,72,0.35);
         }
-        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(225,29,72,0.45); }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(139,92,246,0.4); }
         .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
         .btn-secondary {
           background: transparent; color: #a1a1aa;
@@ -205,6 +212,12 @@ export default function OnboardingPage() {
         }
         .trial-row:last-child { border-bottom: none; }
         .trial-free { color: #86efac; font-weight: 600; }
+        @media(max-width:480px){
+          .focus-grid { grid-template-columns: 1fr !important; }
+          .step h2 { font-size: 22px; }
+          .btn-row { flex-direction: column-reverse; }
+          .btn-secondary { text-align: center; }
+        }
       `}</style>
     </div>
   );
