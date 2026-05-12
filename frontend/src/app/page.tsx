@@ -133,8 +133,8 @@ export default function Home() {
               </a>
             </div>
             <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' as const, animation: 'fadeUp 0.8s ease 0.4s both' }}>
-              {['&#10003;&nbsp; 1-month free trial', '&#10003;&nbsp; No app download', '&#10003;&nbsp; Cancel anytime', '&#10003;&nbsp; Works on any phone'].map(t => (
-                <span key={t} style={{ fontSize: 13, color: '#3a6080' }} dangerouslySetInnerHTML={{ __html: t }} />
+              {['1-month free trial', 'No app download', 'Cancel anytime', 'Works on any phone'].map(t => (
+                <span key={t} style={{ fontSize: 13, color: '#3a6080' }}>✓&nbsp;{t}</span>
               ))}
             </div>
           </div>
