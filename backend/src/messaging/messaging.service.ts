@@ -52,40 +52,15 @@ export class MessagingService implements OnModuleInit {
     const sendBlueSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
 
     if (this.sendBlueReady && sendBlueKeyId && sendBlueSecret) {
-      this.logger.log(`[Send] Checking SendBlue capability for ${to}`);
-      const supported = await this.isSendBlueCapable(to, sendBlueKeyId, sendBlueSecret);
-      if (supported) {
-        this.logger.log(`[Send] Using SendBlue (iMessage) for ${to}`);
-        try {
-          await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret);
-          return;
-        } catch (err) {
-          this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
-        }
-      } else {
-        this.logger.log(`[Send] SendBlue not supported for ${to}, falling back to Twilio`);
+      try {
+        await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret);
+        return;
+      } catch (err) {
+        this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
       }
-    } else {
-      this.logger.log(`[Send] SendBlue not ready — using Twilio for ${to}`);
     }
 
     await this.sendViaTwilio(to, body);
-  }
-
-  private async isSendBlueCapable(to: string, keyId: string, secret: string): Promise<boolean> {
-    try {
-      const response = await axios.get(`https://api.sendblue.co/api/evaluate-service`, {
-        params: { number: to },
-        headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret },
-        timeout: 3000,
-      });
-      const result = response.data?.service === 'iMessage';
-      this.logger.log(`[SendBlue] Capability check for ${to}: ${response.data?.service ?? 'unknown'}`);
-      return result;
-    } catch (err) {
-      this.logger.warn(`[SendBlue] Capability check failed for ${to}: ${(err as Error).message}`);
-      return false;
-    }
   }
 
   async sendViaSendBlue(to: string, body: string, keyId: string, secret: string): Promise<void> {
