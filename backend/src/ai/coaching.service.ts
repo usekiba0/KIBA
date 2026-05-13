@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from './anthropic.factory';
 import { User } from '../data/entities/user.entity';
 import { Message } from '../data/entities/message.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
@@ -25,7 +26,7 @@ export class CoachingService {
     @InjectRepository(Strike)
     private readonly strikeRepo: Repository<Strike>,
   ) {
-    this.client = new Anthropic({ apiKey: config.getOrThrow('ANTHROPIC_API_KEY') });
+    this.client = createAnthropicClient(config);
   }
 
   async generateReply(

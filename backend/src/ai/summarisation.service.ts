@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from './anthropic.factory';
 import { Message } from '../data/entities/message.entity';
 import { SessionSummary, SummaryTrigger } from '../data/entities/session-summary.entity';
 import { ConversationSession } from '../data/entities/conversation-session.entity';
@@ -20,7 +21,7 @@ export class SummarisationService {
     @InjectRepository(SessionSummary) private readonly summaryRepo: Repository<SessionSummary>,
     @InjectRepository(ConversationSession) private readonly sessionRepo: Repository<ConversationSession>,
   ) {
-    this.client = new Anthropic({ apiKey: config.getOrThrow('ANTHROPIC_API_KEY') });
+    this.client = createAnthropicClient(config);
   }
 
   async summariseSession(userId: string, sessionId: string, trigger: SummaryTrigger): Promise<string> {

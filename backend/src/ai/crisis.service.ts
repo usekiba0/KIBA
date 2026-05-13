@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from './anthropic.factory';
 import { CRISIS_SYSTEM_PROMPT, buildCrisisMessages } from './prompts/crisis.prompt';
 import { HIGH_RISK_KEYWORDS } from '../safety/crisis-keywords';
 import { structuredLog } from '../common/logger';
@@ -19,7 +20,7 @@ export class CrisisService {
   private readonly client: Anthropic;
 
   constructor(private readonly config: ConfigService) {
-    this.client = new Anthropic({ apiKey: config.getOrThrow('ANTHROPIC_API_KEY') });
+    this.client = createAnthropicClient(config);
   }
 
   async classify(text: string): Promise<CrisisResult> {

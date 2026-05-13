@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from './anthropic.factory';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { ActionPlan } from '../data/entities/goal.entity';
 import { buildPlanPrompt } from './prompts/plan.prompt';
@@ -18,7 +19,7 @@ export class PlanService {
   private readonly client: Anthropic;
 
   constructor(private readonly config: ConfigService) {
-    this.client = new Anthropic({ apiKey: config.getOrThrow('ANTHROPIC_API_KEY') });
+    this.client = createAnthropicClient(config);
   }
 
   async generatePlan(goal: GoalData, profile: PsychologicalProfile): Promise<ActionPlan> {

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from './anthropic.factory';
 import { User } from '../data/entities/user.entity';
 import { buildNutritionPrompt } from './prompts/vision.prompt';
 import { structuredLog } from '../common/logger';
@@ -34,7 +35,7 @@ export class VisionService {
   private readonly client: Anthropic;
 
   constructor(private readonly config: ConfigService) {
-    this.client = new Anthropic({ apiKey: config.getOrThrow('ANTHROPIC_API_KEY') });
+    this.client = createAnthropicClient(config);
   }
 
   async analyseFood(mediaUrl: string, user: User): Promise<NutritionResult> {
