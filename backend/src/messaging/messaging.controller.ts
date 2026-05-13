@@ -37,8 +37,8 @@ export class MessagingController {
     const mediaUrls = this.extractMediaUrls(body);
     const smsData = {
       from: body.From,
-      body: body.Body,
-      twilioSid: body.SmsMessageSid,
+      body: body.Body ?? '',
+      twilioSid: body.SmsMessageSid ?? null,
       numMedia: parseInt(body.NumMedia || '0'),
       mediaUrls,
       mediaContentTypes: mediaUrls.map((_, i) => body[`MediaContentType${i}`] ?? ''),
