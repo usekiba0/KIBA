@@ -64,7 +64,7 @@ export default function OnboardingPage() {
       name: 'Test User',
       phone_number: '',
     });
-    setStep(3);
+    setStep(2);
   };
 
   // Build the payload for Step5Payment
