@@ -49,9 +49,16 @@ export default function OnboardingPage() {
   const next = () => setStep(s => Math.min(s + 1, STEPS.length - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
 
-  if (done) {
-    return (
-      <div className="onboarding-container">
+  // Build the payload for Step5Payment
+  const paymentPayload: Record<string, unknown> = {
+    ...form,
+    goals: form.goal_description,
+    coaching_focus: 'combined',
+  };
+
+  return (
+    <div className="onboarding-container">
+      {done ? (
         <div className="success-card">
           <div className="success-icon">📱</div>
           <h2>You&apos;re in.</h2>
@@ -62,19 +69,7 @@ export default function OnboardingPage() {
           </div>
           <p className="success-hint">No app needed. No login. Just respond to Kiba&apos;s texts with proof of your work.</p>
         </div>
-      </div>
-    );
-  }
-
-  // Build the payload for Step5Payment
-  const paymentPayload: Record<string, unknown> = {
-    ...form,
-    goals: form.goal_description,
-    coaching_focus: 'combined',
-  };
-
-  return (
-    <div className="onboarding-container">
+      ) : (
       <div className="onboarding-card">
         <div className="logo-small">KIBA <span>AI</span></div>
         <div className="progress-bar">
@@ -94,6 +89,7 @@ export default function OnboardingPage() {
         {step === 2 && <Step4Contact data={form} onChange={update} onNext={next} onBack={back} />}
         {step === 3 && <Step5Payment formData={paymentPayload} onSuccess={() => setDone(true)} onBack={back} />}
       </div>
+      )}
 
       <style jsx>{`
         .onboarding-container {
