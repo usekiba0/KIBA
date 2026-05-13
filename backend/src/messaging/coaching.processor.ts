@@ -75,7 +75,11 @@ export class CoachingProcessor {
 
   @Process('process-coaching-message')
   async handle(job: Job<CoachingJob>) {
-    const { from, body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = job.data;
+    return this.process(job.data);
+  }
+
+  async process(data: CoachingJob): Promise<void> {
+    const { from, body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = data;
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Look up user

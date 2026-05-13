@@ -2,12 +2,11 @@ import { Controller, Post, Body, UseGuards, Res, Logger, HttpCode, UsePipes, Val
 import { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { InjectQueue } from '@nestjs/bull';
-import { Queue } from 'bull';
 import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
 import { SendBlueWebhookGuard } from './guards/sendblue-webhook.guard';
 import { TwilioWebhookDto } from './dto/twilio-webhook.dto';
 import { SendBlueWebhookDto } from './dto/sendblue-webhook.dto';
+import { CoachingProcessor } from './coaching.processor';
 import { Message } from '../data/entities/message.entity';
 import { ConversationSession } from '../data/entities/conversation-session.entity';
 import { User } from '../data/entities/user.entity';
@@ -22,7 +21,7 @@ export class MessagingController {
     @InjectRepository(ConversationSession)
     private readonly sessionRepo: Repository<ConversationSession>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectQueue('coaching') private readonly coachingQueue: Queue,
+    private readonly coachingProcessor: CoachingProcessor,
   ) {}
 
   @Post('sms')
@@ -36,15 +35,19 @@ export class MessagingController {
     if (existing) return;
 
     const mediaUrls = this.extractMediaUrls(body);
-    await this.coachingQueue.add('process-coaching-message', {
+    const smsData = {
       from: body.From,
       body: body.Body,
       twilioSid: body.SmsMessageSid,
       numMedia: parseInt(body.NumMedia || '0'),
       mediaUrls,
       mediaContentTypes: mediaUrls.map((_, i) => body[`MediaContentType${i}`] ?? ''),
-      channel: 'sms',
-    });
+      channel: 'sms' as const,
+    };
+    // Process directly — Bull/Upstash blocking connections are unreliable on Render
+    this.coachingProcessor.process(smsData).catch((err) =>
+      this.logger.error(`[SMS] Processing failed for ${body.From}: ${(err as Error).message}\n${(err as Error).stack}`),
+    );
 
     structuredLog(this.logger, 'log', {
       service: 'messaging',
@@ -69,23 +72,20 @@ export class MessagingController {
     }
 
     const mediaUrls = mediaUrl ? [mediaUrl] : [];
-    // SendBlue doesn't always send content-type; default to jpeg for image detection downstream
     const mediaContentTypes = mediaUrl ? ['image/jpeg'] : [];
-
-    // jobId deduplicates within a 30-second window — prevents double-firing webhooks
-    const contentKey = (content || mediaUrl || '').substring(0, 40).replace(/\W/g, '_');
-    const timeBucket = Math.floor(Date.now() / 30_000);
-    const jobId = `imsg:${from}:${contentKey}:${timeBucket}`;
-
-    await this.coachingQueue.add('process-coaching-message', {
+    const imsgData = {
       from,
       body: content || '[image]',
       twilioSid: null,
       numMedia: mediaUrl ? 1 : 0,
       mediaUrls,
       mediaContentTypes,
-      channel: 'imessage',
-    }, { jobId });
+      channel: 'imessage' as const,
+    };
+    // Process directly — Bull/Upstash blocking connections are unreliable on Render
+    this.coachingProcessor.process(imsgData).catch((err) =>
+      this.logger.error(`[iMsg] Processing failed for ${from}: ${(err as Error).message}\n${(err as Error).stack}`),
+    );
 
     structuredLog(this.logger, 'log', {
       service: 'messaging',
