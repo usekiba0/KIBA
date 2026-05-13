@@ -83,6 +83,7 @@ import { HealthController } from './common/health/health.controller';
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
           migrations: [__dirname + '/data/migrations/*{.ts,.js}'],
           synchronize: false,
+          migrationsRun: true,
           logging: config.get('NODE_ENV') === 'development',
           ssl: isCloudDb ? { rejectUnauthorized: false } : false,
           extra: isCloudDb ? { family: 4 } : {},
