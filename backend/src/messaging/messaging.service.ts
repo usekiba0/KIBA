@@ -10,7 +10,7 @@ import { structuredLog } from '../common/logger';
 export class MessagingService implements OnModuleInit {
   private readonly logger = new Logger(MessagingService.name);
   private readonly twilioClient: twilio.Twilio;
-  private sendBlueFrom: string | null = null;
+  private sendBlueReady = false;
 
   constructor(
     private readonly config: ConfigService,
@@ -25,23 +25,14 @@ export class MessagingService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     const keyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const secret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
-    if (!keyId || !secret) return;
-
-    try {
-      const response = await axios.get('https://api.sendblue.com/api/lines', {
-        headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret },
-        timeout: 5000,
-      });
-      const numbers: string[] = response.data?.numbers ?? response.data?.data?.map((l: { number?: string }) => l.number) ?? [];
-      this.sendBlueFrom = numbers[0] ?? null;
-      if (this.sendBlueFrom) {
-        this.logger.log(`[SendBlue] Sender number resolved: ${this.sendBlueFrom}`);
-      } else {
-        this.logger.warn('[SendBlue] No registered lines found — will use Twilio');
-      }
-    } catch (err) {
-      this.logger.warn(`[SendBlue] Could not fetch lines, will use Twilio: ${(err as Error).message}`);
+    if (!keyId || !secret) {
+      this.logger.warn('[SendBlue] No credentials configured — iMessage disabled');
+      return;
     }
+    // Credentials present — mark ready. We don't require a registered outbound line
+    // because INBOUND_ONLY plans can still reply to contacts who messaged first.
+    this.sendBlueReady = true;
+    this.logger.log('[SendBlue] Credentials loaded — iMessage replies enabled');
   }
 
   async queueMessage(to: string, body: string): Promise<void> {
@@ -62,7 +53,7 @@ export class MessagingService implements OnModuleInit {
     const sendBlueKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const sendBlueSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
 
-    if (sendBlueKeyId && sendBlueSecret && this.sendBlueFrom) {
+    if (this.sendBlueReady && sendBlueKeyId && sendBlueSecret) {
       this.logger.log(`[Send] Checking SendBlue capability for ${to}`);
       const supported = await this.isSendBlueCapable(to, sendBlueKeyId, sendBlueSecret);
       if (supported) {
@@ -77,7 +68,7 @@ export class MessagingService implements OnModuleInit {
         this.logger.log(`[Send] SendBlue not supported for ${to}, falling back to Twilio`);
       }
     } else {
-      this.logger.log(`[Send] No SendBlue credentials — using Twilio for ${to}`);
+      this.logger.log(`[Send] SendBlue not ready — using Twilio for ${to}`);
     }
 
     await this.sendViaTwilio(to, body);
