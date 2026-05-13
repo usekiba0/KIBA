@@ -86,6 +86,12 @@ export default function OnboardingPage() {
             <div style={{ fontSize: 24, fontWeight: 700, color: '#f0f9ff', letterSpacing: 1 }}>{form.phone_number}</div>
           </div>
           <p className="success-hint">No app needed. No login. Just respond to Kiba&apos;s texts with proof of your work.</p>
+          <div style={{ marginTop: 20, padding: '16px', background: 'rgba(14,165,233,0.06)', borderRadius: 12, border: '1px solid rgba(14,165,233,0.15)' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#38bdf8', marginBottom: 6 }}>📲 iPhone user? Get iMessage (blue bubbles)</div>
+            <div style={{ fontSize: 13, color: '#7eb4cc', lineHeight: 1.6 }}>
+              Text <strong style={{ color: '#f0f9ff' }}>START</strong> to <strong style={{ color: '#f0f9ff' }}>+14695634418</strong> from your iPhone to activate iMessage delivery. Kiba will reply instantly.
+            </div>
+          </div>
         </div>
       ) : (
       <div className="onboarding-card">
