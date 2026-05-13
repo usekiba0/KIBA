@@ -49,6 +49,24 @@ export default function OnboardingPage() {
   const next = () => setStep(s => Math.min(s + 1, STEPS.length - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
 
+  const fillTestData = () => {
+    setForm({
+      goal_description: 'Launch my SaaS product and get 10 paying customers within 90 days',
+      goal_timeline: '90 days',
+      current_status: 'I have the idea and a rough prototype but haven\'t launched yet',
+      checkin_time: '09:00',
+      fears: 'Being mediocre and watching others succeed while I stay stuck planning forever',
+      avoidance_patterns: 'Scrolling social media, over-researching instead of building, saying I\'ll start tomorrow',
+      comparison_figure: 'My college roommate who launched a startup and got funded',
+      public_failure_scenario: 'Having to admit to my family and friends that I quit again after talking about it for months',
+      typical_failure_moment: 'After the first week when the initial excitement wears off and things get hard',
+      pressure_preference: 'pressure',
+      name: 'Test User',
+      phone_number: '+923323043863',
+    });
+    setStep(3);
+  };
+
   // Build the payload for Step5Payment
   const paymentPayload: Record<string, unknown> = {
     ...form,
@@ -71,7 +89,12 @@ export default function OnboardingPage() {
         </div>
       ) : (
       <div className="onboarding-card">
-        <div className="logo-small">KIBA <span>AI</span></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+          <div className="logo-small" style={{ marginBottom: 0 }}>KIBA <span>AI</span></div>
+          <button onClick={fillTestData} type="button" style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(14,165,233,0.2)', background: 'rgba(14,165,233,0.06)', color: '#38bdf8', cursor: 'pointer', letterSpacing: 0.5 }}>
+            ⚡ Fill test data
+          </button>
+        </div>
         <div className="progress-bar">
           <div className="progress-track">
             <div className="progress-track-fill" style={{ width: `${(step / (STEPS.length - 1)) * 100}%` }} />
