@@ -29,15 +29,8 @@ export class MessagingService implements OnModuleInit {
       this.logger.warn('[SendBlue] No credentials configured — iMessage disabled');
       return;
     }
-    // Only enable iMessage sending when SENDBLUE_OUTBOUND_ENABLED=true is set.
-    // The INBOUND_ONLY plan silently queues outbound messages but never delivers them.
-    const outboundEnabled = this.config.get<string>('SENDBLUE_OUTBOUND_ENABLED') === 'true';
-    this.sendBlueReady = outboundEnabled;
-    if (outboundEnabled) {
-      this.logger.log('[SendBlue] Outbound iMessage enabled');
-    } else {
-      this.logger.warn('[SendBlue] SENDBLUE_OUTBOUND_ENABLED not set — using Twilio for all sends');
-    }
+    this.sendBlueReady = true;
+    this.logger.log('[SendBlue] Credentials loaded — iMessage replies enabled');
   }
 
   async queueMessage(to: string, body: string): Promise<void> {
@@ -96,10 +89,13 @@ export class MessagingService implements OnModuleInit {
   }
 
   async sendViaSendBlue(to: string, body: string, keyId: string, secret: string): Promise<void> {
+    const fromNumber = this.config.get<string>('SENDBLUE_FROM_NUMBER');
+    const payload: Record<string, string> = { number: to, content: body };
+    if (fromNumber) payload.from_number = fromNumber;
     try {
       const response = await axios.post(
         'https://api.sendblue.co/api/send-message',
-        { number: to, content: body },
+        payload,
         { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret } },
       );
       const status = response.data?.status;
