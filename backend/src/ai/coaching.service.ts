@@ -29,11 +29,18 @@ export class CoachingService {
     this.client = createAnthropicClient(config);
   }
 
+  private isSupportedImageFormat(url: string): boolean {
+    const lower = url.toLowerCase();
+    return lower.endsWith('.jpg') || lower.endsWith('.jpeg') ||
+           lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp');
+  }
+
   async generateReply(
     user: User,
     recentMessages: Message[],
     incomingText: string,
     sessionSummary?: string,
+    imageUrl?: string,
   ): Promise<{ reply: string; tokenCount: number }> {
     const [profile, latestScore, strikeCount] = await Promise.all([
       this.profileRepo.findOne({ where: { user_id: user.id } }),
@@ -54,11 +61,19 @@ export class CoachingService {
       ? buildSystemPrompt(user, profile, latestScore?.current_score ?? 0, strikeCount, sessionSummary)
       : `You are Kiba — a psychological accountability system. User: ${user.name}. Hold them accountable. 1–4 sentences. End with a required action.`;
 
-    const history = recentMessages.map((m) => ({
+    type MsgParam = Anthropic.Messages.MessageParam;
+    const history: MsgParam[] = recentMessages.map((m) => ({
       role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
       content: m.content,
     }));
-    history.push({ role: 'user', content: incomingText });
+
+    const lastContent = imageUrl && this.isSupportedImageFormat(imageUrl)
+      ? [
+          { type: 'image' as const, source: { type: 'url' as const, url: imageUrl } },
+          { type: 'text' as const, text: incomingText || 'I sent you a photo.' },
+        ]
+      : incomingText;
+    history.push({ role: 'user', content: lastContent });
 
     const response = await this.client.messages.create({
       model,

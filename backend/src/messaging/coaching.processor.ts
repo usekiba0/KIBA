@@ -209,9 +209,9 @@ export class CoachingProcessor {
           `Proof received ✓ "${task.task_description}" marked complete. Your execution score has been updated.`,
         );
       } else {
-        // No pending task today — route to coaching AI
+        // No pending task today — route to coaching AI with vision
         const { reply, tokenCount } = await this.coachingService.generateReply(
-          user, dbMessages, body || '[sent a photo]', latestSummary?.summary,
+          user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined,
         );
         await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
         await this.saveAndSend(user, boundary.sessionId, reply);
