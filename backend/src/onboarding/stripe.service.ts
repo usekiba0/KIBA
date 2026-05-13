@@ -1,6 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
+import * as https from 'https';
+
+// Disable keep-alive — Render free tier drops idle connections mid-request
+const httpsAgent = new https.Agent({
+  keepAlive: false,
+  timeout: 30000,
+  rejectUnauthorized: true,
+});
 
 @Injectable()
 export class StripeService {
@@ -8,11 +16,12 @@ export class StripeService {
   private readonly logger = new Logger(StripeService.name);
 
   constructor(private readonly config: ConfigService) {
-    this.stripe = new Stripe(config.getOrThrow<string>('STRIPE_SECRET_KEY'), {
+    const key = config.getOrThrow<string>('STRIPE_SECRET_KEY').trim();
+    this.stripe = new Stripe(key, {
       apiVersion: '2025-02-24.acacia',
-      httpClient: Stripe.createNodeHttpClient(),
-      timeout: 20000,
-      maxNetworkRetries: 1,
+      httpClient: Stripe.createNodeHttpClient(httpsAgent),
+      timeout: 30000,
+      maxNetworkRetries: 0,
     });
   }
 
@@ -33,12 +42,10 @@ export class StripeService {
     priceId: string,
     trialDays: number,
   ): Promise<Stripe.Subscription> {
-    // Attach payment method to customer
     await this.stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
     await this.stripe.customers.update(customerId, {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
-
     return this.stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: priceId }],
