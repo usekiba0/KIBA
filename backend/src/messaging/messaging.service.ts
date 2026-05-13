@@ -97,10 +97,17 @@ export class MessagingService implements OnModuleInit {
         { number: to, content: body },
         { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret } },
       );
+      const status = response.data?.status;
+      const errorCode = response.data?.error_code;
+      this.logger.log(`[SendBlue] Send response for ${to}: status=${status} error_code=${errorCode} handle=${response.data?.message_handle} raw=${JSON.stringify(response.data)}`);
+      if (status === 'ERROR' || errorCode) {
+        throw new Error(`SendBlue rejected send: status=${status} error_code=${errorCode} error=${response.data?.error_message}`);
+      }
       structuredLog(this.logger, 'log', {
         service: 'messaging',
         operation: 'send_imessage',
         to,
+        status,
         messageHandle: response.data?.message_handle,
       });
     } catch (err) {
