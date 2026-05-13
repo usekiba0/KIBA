@@ -1,4 +1,4 @@
-import { Process, Processor } from '@nestjs/bull';
+import { Process, Processor, OnQueueFailed, OnQueueError, OnQueueActive } from '@nestjs/bull';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
@@ -58,9 +58,25 @@ export class CoachingProcessor {
     private readonly scoreIntentService: ScoreIntentService,
   ) {}
 
+  @OnQueueActive()
+  onActive(job: Job) {
+    this.logger.log(`[Queue] Job ${job.id} started — ${job.name}`);
+  }
+
+  @OnQueueFailed()
+  onFailed(job: Job, err: Error) {
+    this.logger.error(`[Queue] Job ${job.id} FAILED after ${job.attemptsMade} attempts: ${err.message}\n${err.stack}`);
+  }
+
+  @OnQueueError()
+  onError(err: Error) {
+    this.logger.error(`[Queue] Queue error: ${err.message}\n${err.stack}`);
+  }
+
   @Process('process-coaching-message')
   async handle(job: Job<CoachingJob>) {
     const { from, body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = job.data;
+    this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Look up user
     const user = await this.userRepo.findOne({ where: { phone_number: from } });
