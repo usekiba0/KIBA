@@ -10,6 +10,9 @@ export class StripeService {
   constructor(private readonly config: ConfigService) {
     this.stripe = new Stripe(config.getOrThrow<string>('STRIPE_SECRET_KEY'), {
       apiVersion: '2025-02-24.acacia',
+      httpClient: Stripe.createNodeHttpClient(),
+      timeout: 20000,
+      maxNetworkRetries: 1,
     });
   }
 
