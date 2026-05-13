@@ -2,27 +2,23 @@ import { Process, Processor } from '@nestjs/bull';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
-import axios from 'axios';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const heicConvert = require('heic-convert') as (opts: { buffer: Buffer; format: 'JPEG'; quality: number }) => Promise<ArrayBuffer>;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp = require('sharp') as typeof import('sharp');
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../data/entities/user.entity';
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
-import { NutritionalAnalysis } from '../data/entities/nutritional-analysis.entity';
-import { SessionSummary } from '../data/entities/session-summary.entity';
+import { SessionSummary, SummaryTrigger } from '../data/entities/session-summary.entity';
+import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
+import { ProofType } from '../data/entities/proof.entity';
 import { CoachingService } from '../ai/coaching.service';
-import { VisionService } from '../ai/vision.service';
 import { CrisisService } from '../ai/crisis.service';
 import { SummarisationService } from '../ai/summarisation.service';
 import { SessionCacheService } from '../data/session-cache.service';
 import { SessionBoundaryService } from '../data/session-boundary.service';
 import { MessagingService } from './messaging.service';
 import { SafetyService } from '../safety/safety.service';
+import { AntiGhostService } from '../accountability/anti-ghost.service';
+import { ProofService } from '../accountability/proof.service';
 import { ScoreIntentService } from '../accountability/score-intent.service';
-import { SummaryTrigger } from '../data/entities/session-summary.entity';
 import { structuredLog } from '../common/logger';
 
 interface CoachingJob {
@@ -37,20 +33,6 @@ interface CoachingJob {
 
 const RESET_INTENTS = ['reset my coaching', 'start fresh', 'clear my history', 'reset context'];
 
-// Allowlist for trusted media URL hosts (Twilio CDN domains)
-const TRUSTED_MEDIA_HOSTS = ['api.twilio.com', 'media.twiliocdn.com'];
-
-function isTrustedMediaUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return TRUSTED_MEDIA_HOSTS.some(
-      (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`),
-    );
-  } catch {
-    return false;
-  }
-}
-
 @Processor('coaching')
 export class CoachingProcessor {
   private readonly logger = new Logger(CoachingProcessor.name);
@@ -58,12 +40,10 @@ export class CoachingProcessor {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
-    @InjectRepository(NutritionalAnalysis)
-    private readonly nutritionRepo: Repository<NutritionalAnalysis>,
     @InjectRepository(SessionSummary) private readonly summaryRepo: Repository<SessionSummary>,
+    @InjectRepository(DailyTask) private readonly dailyTaskRepo: Repository<DailyTask>,
     private readonly config: ConfigService,
     private readonly coachingService: CoachingService,
-    private readonly visionService: VisionService,
     private readonly crisisService: CrisisService,
     private readonly summarisationService: SummarisationService,
     private readonly sessionCache: SessionCacheService,
@@ -71,6 +51,10 @@ export class CoachingProcessor {
     private readonly messagingService: MessagingService,
     @Inject(forwardRef(() => SafetyService))
     private readonly safetyService: SafetyService,
+    @Inject(forwardRef(() => AntiGhostService))
+    private readonly antiGhostService: AntiGhostService,
+    @Inject(forwardRef(() => ProofService))
+    private readonly proofService: ProofService,
     private readonly scoreIntentService: ScoreIntentService,
   ) {}
 
@@ -153,6 +137,11 @@ export class CoachingProcessor {
       return;
     }
 
+    // Cancel any anti-ghost timers — user is actively responding
+    await this.antiGhostService.onUserResponse(user.id).catch((err) =>
+      this.logger.warn(`onUserResponse failed for ${user.id}: ${(err as Error).message}`),
+    );
+
     // Score query intent
     const lowerBody = body.toLowerCase();
     if (this.scoreIntentService.isScoreIntent(lowerBody)) {
@@ -178,106 +167,36 @@ export class CoachingProcessor {
         .catch((err) => this.logger.error(`Summarisation error: ${err}`));
     }
 
-    // iMessage image — download and analyse as base64 (SendBlue URLs are not Twilio-trusted)
-    if (channel === 'imessage' && numMedia > 0 && mediaUrls[0]) {
-      try {
-        const sbKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
-        const sbSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
-        const imgRes = await axios.get<ArrayBuffer>(mediaUrls[0], {
-          responseType: 'arraybuffer',
-          timeout: 10_000,
-          headers: sbKeyId && sbSecret
-            ? { 'sb-api-key-id': sbKeyId, 'sb-api-secret-key': sbSecret }
-            : {},
-        });
-        let imageBytes = Buffer.from(imgRes.data as ArrayBuffer);
-        let mimeType = ((imgRes.headers['content-type'] as string) || 'image/jpeg').split(';')[0].trim();
-
-        // HEIC is not supported by Claude — convert to JPEG
-        const imgUrl = mediaUrls[0];
-        const isHeic = mimeType === 'image/heic' || mimeType === 'image/heif' ||
-          imgUrl.toLowerCase().endsWith('.heic') || imgUrl.toLowerCase().endsWith('.heif');
-        if (isHeic) {
-          const converted = await heicConvert({ buffer: imageBytes, format: 'JPEG', quality: 1 });
-          // Resize to Claude's optimal max dimension — heic-convert output is full-res iPhone (~2.5MB)
-          imageBytes = (await sharp(Buffer.from(converted))
-            .resize(1568, 1568, { fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: 85 })
-            .toBuffer()) as Buffer<ArrayBuffer>;
-          mimeType = 'image/jpeg';
-        }
-
-        const nutritionResult = await this.visionService.analyseFoodFromBytes(imageBytes, mimeType, user);
-
-        await this.nutritionRepo.save({
-          message_id: inboundMsg.id,
-          user_id: user.id,
-          detected_foods: nutritionResult.detected_foods,
-          total_calories: nutritionResult.total_calories,
-          protein_grams: nutritionResult.protein_grams,
-          carbs_grams: nutritionResult.carbs_grams,
-          fat_grams: nutritionResult.fat_grams,
-          health_flags: nutritionResult.health_condition_flags,
-          recommendation: nutritionResult.dietary_recommendation,
-          food_identified: nutritionResult.food_identified,
-        });
-
-        const reply = !nutritionResult.food_identified
-          ? "I couldn't identify a meal in that photo — try a clearer shot with the food in frame? 📸"
-          : `${nutritionResult.dietary_recommendation ?? 'Looks good!'}\n\n~${nutritionResult.total_calories ?? '?'} cal | ${nutritionResult.protein_grams ?? '?'}p/${nutritionResult.carbs_grams ?? '?'}c/${nutritionResult.fat_grams ?? '?'}f`;
-
-        await this.saveAndSend(user, boundary.sessionId, reply);
-      } catch (err) {
-        this.logger.warn(`[iMessage] Image processing failed for ${user.id}: ${(err as Error).message}`);
-        await this.saveAndSend(user, boundary.sessionId, "I couldn't process that photo — try sending it again? 📸");
-      }
-      return;
-    }
-
-    // MMS nutrition analysis — validate media URL to prevent SSRF (Twilio path only)
-    const hasValidImage =
-      channel === 'sms' &&
-      numMedia > 0 &&
-      mediaContentTypes[0]?.startsWith('image/') &&
-      mediaUrls[0] &&
-      isTrustedMediaUrl(mediaUrls[0]);
-
-    if (hasValidImage) {
-      const nutritionResult = await this.visionService.analyseFood(mediaUrls[0], user);
-
-      await this.nutritionRepo.save({
-        message_id: inboundMsg.id,
-        user_id: user.id,
-        detected_foods: nutritionResult.detected_foods,
-        total_calories: nutritionResult.total_calories,
-        protein_grams: nutritionResult.protein_grams,
-        carbs_grams: nutritionResult.carbs_grams,
-        fat_grams: nutritionResult.fat_grams,
-        health_flags: nutritionResult.health_condition_flags,
-        recommendation: nutritionResult.dietary_recommendation,
-        food_identified: nutritionResult.food_identified,
+    // Image = proof submission — look up today's pending task
+    if (numMedia > 0) {
+      const mediaUrl = mediaUrls[0] ?? null;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const task = await this.dailyTaskRepo.findOne({
+        where: { user_id: user.id, scheduled_date: today, status: TaskStatus.PENDING },
       });
 
-      let reply: string;
-      if (!nutritionResult.food_identified) {
-        reply =
-          "I couldn't identify a meal in that photo — try a clearer shot with the food in frame? 📸";
+      if (task) {
+        await this.proofService.submitProof({
+          userId: user.id,
+          taskId: task.id,
+          type: ProofType.PHOTO,
+          mediaUrl: mediaUrl ?? undefined,
+          content: body !== '[image]' ? body : undefined,
+        });
+        await this.saveAndSend(
+          user, boundary.sessionId,
+          `Proof received ✓ "${task.task_description}" marked complete. Your execution score has been updated.`,
+        );
       } else {
-        const cal = nutritionResult.total_calories ?? '?';
-        const p = nutritionResult.protein_grams ?? '?';
-        const c = nutritionResult.carbs_grams ?? '?';
-        const f = nutritionResult.fat_grams ?? '?';
-        const rec = nutritionResult.dietary_recommendation ?? 'Looks good!';
-        reply = `${rec}\n\n~${cal} cal | ${p}p/${c}c/${f}f`;
+        // No pending task today — route to coaching AI
+        const { reply, tokenCount } = await this.coachingService.generateReply(
+          user, dbMessages, body || '[sent a photo]', latestSummary?.summary,
+        );
+        await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+        await this.saveAndSend(user, boundary.sessionId, reply);
       }
-
-      await this.saveAndSend(user, boundary.sessionId, reply);
       return;
-    }
-
-    // MMS with untrusted URL — log and skip vision
-    if (numMedia > 0 && mediaUrls[0] && !isTrustedMediaUrl(mediaUrls[0])) {
-      this.logger.warn(`Rejected untrusted media URL for user ${user.id}: ${mediaUrls[0]}`);
     }
 
     // Phase 2: coaching reply (DB context already fetched in Phase 1)

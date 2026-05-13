@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bull';
 import { DailyTask } from '../data/entities/daily-task.entity';
@@ -23,7 +23,7 @@ import { MessagingModule } from '../messaging/messaging.module';
   imports: [
     TypeOrmModule.forFeature([DailyTask, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User, PsychologicalProfile]),
     BullModule.registerQueue({ name: 'accountability' }),
-    MessagingModule,
+    forwardRef(() => MessagingModule),
   ],
   providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService],
   exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService],
