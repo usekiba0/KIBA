@@ -45,7 +45,8 @@
     "sharp": "^0.34.5",
     "stripe": "^17.7.0",
     "twilio": "^5.4.5",
-    "typeorm": "^0.3.20"
+    "typeorm": "^0.3.20",
+    "undici": "^8.2.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",

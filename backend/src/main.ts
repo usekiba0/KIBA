@@ -3,6 +3,11 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import * as express from 'express';
 import helmet from 'helmet';
+import { setGlobalDispatcher, Agent as UndiciAgent } from 'undici';
+
+// Render's network stack drops idle keep-alive connections mid-request.
+// Disable keep-alive globally for all fetch-based HTTP clients (Anthropic SDK, etc.)
+setGlobalDispatcher(new UndiciAgent({ connect: { keepAlive: false, timeout: 30_000 } }));
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
