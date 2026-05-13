@@ -29,10 +29,15 @@ export class MessagingService implements OnModuleInit {
       this.logger.warn('[SendBlue] No credentials configured — iMessage disabled');
       return;
     }
-    // Credentials present — mark ready. We don't require a registered outbound line
-    // because INBOUND_ONLY plans can still reply to contacts who messaged first.
-    this.sendBlueReady = true;
-    this.logger.log('[SendBlue] Credentials loaded — iMessage replies enabled');
+    // Only enable iMessage sending when SENDBLUE_OUTBOUND_ENABLED=true is set.
+    // The INBOUND_ONLY plan silently queues outbound messages but never delivers them.
+    const outboundEnabled = this.config.get<string>('SENDBLUE_OUTBOUND_ENABLED') === 'true';
+    this.sendBlueReady = outboundEnabled;
+    if (outboundEnabled) {
+      this.logger.log('[SendBlue] Outbound iMessage enabled');
+    } else {
+      this.logger.warn('[SendBlue] SENDBLUE_OUTBOUND_ENABLED not set — using Twilio for all sends');
+    }
   }
 
   async queueMessage(to: string, body: string): Promise<void> {
