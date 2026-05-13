@@ -62,9 +62,9 @@ export class MessagingController {
   async handleSendBlueWebhook(@Body() body: Record<string, unknown>) {
     this.logger.log(`[SendBlue] Raw webhook payload: ${JSON.stringify(body)}`);
 
-    const from = (body.number ?? body.from_number ?? body.sender) as string;
-    const content = (body.content ?? body.body ?? body.text ?? '') as string;
-    const mediaUrl = (body.media_url ?? body.mediaUrl ?? body.attachment_url) as string | undefined;
+    const from = ((body.number || body.from_number || body.sender) as string) || '';
+    const content = ((body.content || body.body || body.text || '') as string);
+    const mediaUrl = ((body.media_url || body.mediaUrl || body.attachment_url) as string) || undefined;
 
     if (!from || (!content && !mediaUrl)) {
       this.logger.warn(`[SendBlue] Missing from or content/media — from:${from}`);
