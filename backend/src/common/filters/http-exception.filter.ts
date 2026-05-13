@@ -21,6 +21,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const exceptionResponse =
       exception instanceof HttpException ? exception.getResponse() : null;
 
+    // Always log the real error message and stack — even in production
     this.logger.error(
       JSON.stringify({
         service: 'exception-filter',
@@ -28,26 +29,36 @@ export class AllExceptionsFilter implements ExceptionFilter {
         statusCode: status,
         path: request.url,
         method: request.method,
-        message: isProd ? `HTTP ${status}` : (exception instanceof Error ? exception.message : String(exception)),
-        stack: isProd ? undefined : (exception instanceof Error ? exception.stack : undefined),
+        message: exception instanceof Error ? exception.message : String(exception),
+        stack: exception instanceof Error ? exception.stack?.split('\n').slice(0, 6).join(' | ') : undefined,
       }),
     );
 
+    // In dev: pass through full HttpException body (includes ValidationPipe field errors)
     if (!isProd && exceptionResponse) {
-      // Pass through full HttpException body (includes ValidationPipe field errors)
       response.status(status).json(exceptionResponse);
       return;
     }
 
-    const message = isProd
-      ? status < 500
-        ? (typeof exceptionResponse === 'string'
-            ? exceptionResponse
-            : (exceptionResponse as any)?.message ?? HttpStatus[status])
-        : 'An unexpected error occurred'
-      : exception instanceof Error
-        ? exception.message
-        : String(exception);
+    // Derive a client-safe message
+    let message: string;
+    if (exception instanceof HttpException) {
+      const body = exception.getResponse();
+      message = typeof body === 'string'
+        ? body
+        : (body as any)?.message ?? HttpStatus[status];
+      if (Array.isArray(message)) message = (message as string[]).join(' · ');
+    } else if (isStripeError(exception)) {
+      // Surface Stripe errors as 502 with a useful message
+      response.status(502).json({
+        statusCode: 502,
+        message: `Payment provider error: ${(exception as any).message}`,
+        error: 'Bad Gateway',
+      });
+      return;
+    } else {
+      message = 'An unexpected error occurred';
+    }
 
     response.status(status).json({
       statusCode: status,
@@ -55,4 +66,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       error: HttpStatus[status],
     });
   }
+}
+
+function isStripeError(e: unknown): boolean {
+  return (
+    e instanceof Error &&
+    (e.constructor.name.startsWith('Stripe') || (e as any).type?.startsWith('Stripe'))
+  );
 }

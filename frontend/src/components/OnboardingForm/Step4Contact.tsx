@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/v1';
 
@@ -27,13 +27,17 @@ function isValidPhone(phone: string): boolean {
 export default function Step4Contact({ data, onChange, onNext, onBack }: Props) {
   const [phoneError, setPhoneError] = useState('');
   const [checking, setChecking] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const checkingRef = useRef(false);
 
   const phoneValid = isValidPhone(data.phone_number);
   const nameValid = data.name.trim().length >= 2;
+  const canContinue = nameValid && phoneValid && !phoneError;
 
   async function checkPhone() {
     if (!phoneValid) return;
     setChecking(true);
+    checkingRef.current = true;
     setPhoneError('');
     try {
       const normalized = normalizePhone(data.phone_number);
@@ -43,12 +47,27 @@ export default function Step4Contact({ data, onChange, onNext, onBack }: Props) 
         setPhoneError('This phone number is already registered. Please use a different number.');
       }
     } catch {
-      // ignore network errors — backend will catch duplicates anyway
+      // ignore — backend will catch duplicates on submit
     }
     setChecking(false);
+    checkingRef.current = false;
   }
 
-  const canContinue = nameValid && phoneValid && !phoneError && !checking;
+  async function handleNext() {
+    if (!nameValid || !phoneValid) return;
+    // If still checking, wait for it to finish before advancing
+    if (checkingRef.current) {
+      setSubmitting(true);
+      await new Promise<void>(resolve => {
+        const poll = setInterval(() => {
+          if (!checkingRef.current) { clearInterval(poll); resolve(); }
+        }, 60);
+      });
+      setSubmitting(false);
+    }
+    if (phoneError) return;
+    onNext();
+  }
 
   return (
     <div className="step">
@@ -84,14 +103,19 @@ export default function Step4Contact({ data, onChange, onNext, onBack }: Props) 
           <span className="field-error">Enter at least 10 digits — e.g. (415) 555-0100 or +44 7911 123456</span>
         )}
         {phoneError && <span className="field-error">{phoneError}</span>}
-        {checking && <span className="field-hint">Checking...</span>}
+        {checking && <span className="field-hint">Checking availability...</span>}
         {!phoneError && !checking && <span className="field-hint">US numbers work with or without +1. iPhone users get iMessages (blue bubbles).</span>}
       </label>
 
       <div className="btn-row">
         <button className="btn-secondary" onClick={onBack} type="button">← Back</button>
-        <button className="btn-primary" onClick={onNext} disabled={!canContinue} type="button">
-          Continue →
+        <button
+          className="btn-primary"
+          onClick={handleNext}
+          disabled={!canContinue || submitting}
+          type="button"
+        >
+          {submitting ? 'Checking...' : 'Continue →'}
         </button>
       </div>
     </div>
