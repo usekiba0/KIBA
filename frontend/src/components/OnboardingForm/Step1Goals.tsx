@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 
 interface Props {
   data: {
@@ -31,11 +32,18 @@ function timeLabel(t: string): string {
 }
 
 export default function Step1Goals({ data, onChange, onNext }: Props) {
+  const [attempted, setAttempted] = useState(false);
+
   const canContinue =
     data.goal_description.trim().length >= 10 &&
     data.goal_timeline.length > 0 &&
     data.current_status.trim().length >= 5 &&
     data.checkin_time.length > 0;
+
+  function handleNext() {
+    if (!canContinue) { setAttempted(true); return; }
+    onNext();
+  }
 
   return (
     <div className="step">
@@ -52,7 +60,10 @@ export default function Step1Goals({ data, onChange, onNext }: Props) {
           rows={3}
         />
         {data.goal_description && data.goal_description.trim().length < 10 && (
-          <span className="field-error">Be more specific — at least 10 characters</span>
+          <span className="field-error">Be more specific — describe what success actually looks like</span>
+        )}
+        {attempted && !data.goal_description.trim() && (
+          <span className="field-error">This field is required</span>
         )}
       </label>
 
@@ -71,6 +82,9 @@ export default function Step1Goals({ data, onChange, onNext }: Props) {
             </button>
           ))}
         </div>
+        {attempted && !data.goal_timeline && (
+          <span className="field-error">Choose a timeline for your goal</span>
+        )}
       </div>
 
       <label className="field-label" style={{ marginTop: 24 }}>
@@ -79,14 +93,20 @@ export default function Step1Goals({ data, onChange, onNext }: Props) {
           className="textarea"
           value={data.current_status}
           onChange={e => onChange({ current_status: e.target.value })}
-          placeholder="e.g. I have the idea but haven't started. I run occasionally but never consistently. I've been meaning to start for months."
+          placeholder="e.g. I have the idea but haven't started. I run occasionally but never consistently."
           rows={2}
         />
+        {data.current_status && data.current_status.trim().length < 5 && (
+          <span className="field-error">Add a bit more detail about where you are now</span>
+        )}
+        {attempted && !data.current_status.trim() && (
+          <span className="field-error">This field is required</span>
+        )}
       </label>
 
       <div className="field-label" style={{ marginTop: 24 }}>
         Daily check-in time
-        <p style={{ fontSize: 13, color: '#71717a', marginTop: 4, marginBottom: 10 }}>
+        <p style={{ fontSize: 13, color: '#3a6080', marginTop: 4, marginBottom: 10 }}>
           Kiba texts you at this time every day. Pick when you want to be held accountable.
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -102,12 +122,14 @@ export default function Step1Goals({ data, onChange, onNext }: Props) {
             </button>
           ))}
         </div>
+        {attempted && !data.checkin_time && (
+          <span className="field-error" style={{ marginTop: 8, display: 'block' }}>Choose your daily check-in time</span>
+        )}
       </div>
 
       <button
         className="btn-primary"
-        onClick={onNext}
-        disabled={!canContinue}
+        onClick={handleNext}
         type="button"
         style={{ marginTop: 32 }}
       >
