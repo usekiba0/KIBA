@@ -113,7 +113,10 @@ export class MessagingService implements OnModuleInit {
         messageHandle: response.data?.message_handle,
       });
     } catch (err) {
-      this.logger.error(`[SendBlue] Send failed to ${to}: ${(err as Error).message}`);
+      const detail = (err as any)?.response?.data
+        ? JSON.stringify((err as any).response.data)
+        : '';
+      this.logger.error(`[SendBlue] Send failed to ${to}: ${(err as Error).message} | body: ${detail}`);
       throw err;
     }
   }
