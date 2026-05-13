@@ -16,7 +16,7 @@ export class StripeService {
   private readonly logger = new Logger(StripeService.name);
 
   constructor(private readonly config: ConfigService) {
-    const key = config.getOrThrow<string>('STRIPE_SECRET_KEY').trim();
+    const key = config.getOrThrow<string>('STRIPE_SECRET_KEY').replace(/\s+/g, '');
     this.stripe = new Stripe(key, {
       apiVersion: '2025-02-24.acacia',
       httpClient: Stripe.createNodeHttpClient(httpsAgent),
