@@ -157,6 +157,18 @@ export default function AdminPage() {
     setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, ...updated } : m));
   }
 
+  async function deleteUser(user: AdminUser) {
+    if (!confirm(`Delete ${user.name} (${user.phone_number})? This cannot be undone.`)) return;
+    try {
+      const encoded = encodeURIComponent(user.phone_number);
+      await fetch(`${API}/admin/users/by-phone/${encoded}`, { method: 'DELETE', headers: { 'x-internal-key': key } });
+      setUsers(prev => prev.filter(u => u.id !== user.id));
+      if (selectedUser?.id === user.id) setSelectedUser(null);
+    } catch (err) {
+      alert(`Failed to delete user: ${err instanceof Error ? err.message : 'Server error'}`);
+    }
+  }
+
   async function toggleUserStatus(user: AdminUser) {
     setTogglingUserId(user.id);
     const isBlocking = user.status === 'active' || user.status === 'trial';
@@ -422,6 +434,10 @@ export default function AdminPage() {
                       background: u.status === 'active' || u.status === 'trial' ? '#3b0a0a' : '#0a1a0e',
                       color: u.status === 'active' || u.status === 'trial' ? '#f87171' : '#4ade80' }}>
                     {togglingUserId === u.id ? '...' : u.status === 'active' || u.status === 'trial' ? 'Block' : 'Unblock'}
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); deleteUser(u); }}
+                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: 'none', cursor: 'pointer', fontWeight: 600, background: '#1a0a0a', color: '#f87171' }}>
+                    Delete
                   </button>
                 </div>
               </div>

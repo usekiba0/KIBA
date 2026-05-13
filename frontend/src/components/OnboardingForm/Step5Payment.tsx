@@ -98,7 +98,10 @@ export default function Step5Payment({ formData, onSuccess, onBack }: Props) {
       setStripeCustomerId(result.stripe_customer_id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
+      const isConflict = msg.toLowerCase().includes('already registered') || msg.includes('409');
+      setError(isConflict
+        ? 'This phone number is already registered. Go back and use a different number.'
+        : msg);
     }
     setLoading(false);
   };
