@@ -283,6 +283,13 @@ export class AdminService {
     `);
   }
 
+  async deleteUserByPhone(phone: string) {
+    const user = await this.userRepo.findOne({ where: { phone_number: phone } });
+    if (!user) return { deleted: false, message: `No user found with phone ${phone}` };
+    await this.dataSource.query(`DELETE FROM users WHERE id = $1`, [user.id]);
+    return { deleted: true, user_id: user.id, name: user.name, phone_number: phone };
+  }
+
   async resolveAlert(alertId: string, resolvedBy: string) {
     const alert = await this.alertRepo.findOneOrFail({ where: { id: alertId } });
     await this.alertRepo.update(alertId, {

@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsEnum, IsOptional, IsPhoneNumber, IsString, MaxLength } from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
@@ -92,5 +92,10 @@ export class AdminController {
   @Patch('crisis-alerts/:alertId/resolve')
   resolveAlert(@Param('alertId') alertId: string, @Body() dto: ResolveAlertDto) {
     return this.adminService.resolveAlert(alertId, dto.resolved_by);
+  }
+
+  @Delete('users/by-phone/:phone')
+  deleteUserByPhone(@Param('phone') phone: string) {
+    return this.adminService.deleteUserByPhone(decodeURIComponent(phone));
   }
 }
