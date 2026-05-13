@@ -95,6 +95,15 @@ import { HealthController } from './common/health/health.controller';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const redisUrl = config.get<string>('REDIS_URL');
+        // Required for Upstash (serverless Redis): maxRetriesPerRequest:null prevents
+        // ioredis from throwing MaxRetriesPerRequestError when the blocking consumer
+        // connection times out, which would silently kill Bull workers.
+        const sharedOpts = {
+          enableReadyCheck: false,
+          maxRetriesPerRequest: null as unknown as number,
+          connectTimeout: 10_000,
+          retryStrategy: (times: number) => Math.min(times * 200, 5_000),
+        };
         if (redisUrl) {
           const parsed = new URL(redisUrl);
           return {
@@ -105,6 +114,7 @@ import { HealthController } from './common/health/health.controller';
               username:
                 parsed.username && parsed.username !== 'default' ? parsed.username : undefined,
               tls: parsed.protocol === 'rediss:' ? {} : undefined,
+              ...sharedOpts,
             },
           };
         }
@@ -113,6 +123,7 @@ import { HealthController } from './common/health/health.controller';
             host: config.get<string>('REDIS_HOST', 'localhost'),
             port: config.get<number>('REDIS_PORT', 6379),
             password: config.get<string>('REDIS_PASSWORD'),
+            ...sharedOpts,
           },
         };
       },
