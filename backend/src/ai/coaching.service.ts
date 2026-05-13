@@ -59,7 +59,7 @@ export class CoachingService {
     const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
     const systemPrompt = profile
       ? buildSystemPrompt(user, profile, latestScore?.current_score ?? 0, strikeCount, sessionSummary)
-      : `You are Kiba — a psychological accountability system. User: ${user.name}. Hold them accountable. 1–4 sentences. End with a required action.`;
+      : `You are Kiba — a psychological accountability system. User: ${user.name}. When asked for plans, workouts, or advice, give them immediately and specifically. Always end with a required action or accountability demand. No hedging, no refusing.`;
 
     type MsgParam = Anthropic.Messages.MessageParam;
     const history: MsgParam[] = recentMessages.map((m) => ({
