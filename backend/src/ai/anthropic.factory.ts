@@ -1,16 +1,21 @@
 import Anthropic from '@anthropic-ai/sdk';
-import * as https from 'https';
 import { ConfigService } from '@nestjs/config';
+import { Agent, fetch as undiciFetch } from 'undici';
 
-// Render drops idle keep-alive connections — pass a fresh agent so the SDK
-// never tries to reuse a stale socket across requests.
-const agent = new https.Agent({ keepAlive: false, timeout: 30_000 });
+// Render drops idle keep-alive connections — use undici directly with a
+// fresh dispatcher per-request so the SDK never reuses a stale socket.
+const dispatcher = new Agent({
+  connect: { keepAlive: false, timeout: 30_000 },
+});
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const customFetch: typeof fetch = (url, init) =>
+  undiciFetch(url as string, { ...(init as any), dispatcher }) as any;
 
 export function createAnthropicClient(config: ConfigService): Anthropic {
   return new Anthropic({
     apiKey: config.getOrThrow<string>('ANTHROPIC_API_KEY'),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    httpAgent: agent as any,
+    fetch: customFetch,
     maxRetries: 1,
     timeout: 30_000,
   });
