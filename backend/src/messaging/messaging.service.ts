@@ -68,7 +68,7 @@ export class MessagingService implements OnModuleInit {
       if (supported) {
         this.logger.log(`[Send] Using SendBlue (iMessage) for ${to}`);
         try {
-          await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret, this.sendBlueFrom);
+          await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret);
           return;
         } catch (err) {
           this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
@@ -99,11 +99,11 @@ export class MessagingService implements OnModuleInit {
     }
   }
 
-  async sendViaSendBlue(to: string, body: string, keyId: string, secret: string, fromNumber: string): Promise<void> {
+  async sendViaSendBlue(to: string, body: string, keyId: string, secret: string): Promise<void> {
     try {
       const response = await axios.post(
         'https://api.sendblue.co/api/send-message',
-        { number: to, content: body, from_number: fromNumber },
+        { number: to, content: body },
         { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret } },
       );
       structuredLog(this.logger, 'log', {
