@@ -70,9 +70,9 @@ export class CoachingService {
     const lastContent = imageUrl && this.isSupportedImageFormat(imageUrl)
       ? [
           { type: 'image' as const, source: { type: 'url' as const, url: imageUrl } },
-          { type: 'text' as const, text: incomingText || 'I sent you a photo.' },
+          { type: 'text' as const, text: incomingText || 'What do you see? Respond as my accountability coach.' },
         ]
-      : incomingText;
+      : (incomingText || (imageUrl ? 'I sent you a photo.' : 'I sent you a message.'));
     history.push({ role: 'user', content: lastContent });
 
     const response = await this.client.messages.create({
