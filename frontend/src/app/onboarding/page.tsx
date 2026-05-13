@@ -62,7 +62,7 @@ export default function OnboardingPage() {
       typical_failure_moment: 'After the first week when the initial excitement wears off and things get hard',
       pressure_preference: 'pressure',
       name: 'Test User',
-      phone_number: '+923323043863',
+      phone_number: '',
     });
     setStep(3);
   };
