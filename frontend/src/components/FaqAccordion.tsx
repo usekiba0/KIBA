@@ -36,17 +36,17 @@ export default function FaqAccordion() {
       {FAQS.map((faq, i) => (
         <div
           key={i}
-          style={{ background: '#111113', border: `1px solid ${open === i ? 'rgba(225,29,72,0.4)' : 'rgba(255,255,255,0.07)'}`, borderRadius: 14, overflow: 'hidden', transition: 'border-color 0.2s' }}
+          style={{ background: '#0c1829', border: `1px solid ${open === i ? 'rgba(14,165,233,0.4)' : 'rgba(14,165,233,0.1)'}`, borderRadius: 14, overflow: 'hidden', transition: 'border-color 0.2s' }}
         >
           <button
             onClick={() => setOpen(open === i ? null : i)}
             style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' as const, gap: 16 }}
           >
-            <span style={{ fontSize: 15, fontWeight: 500, color: '#fafafa', lineHeight: 1.4 }}>{faq.q}</span>
-            <span style={{ color: open === i ? '#fb7185' : '#71717a', fontSize: 20, flexShrink: 0, transform: open === i ? 'rotate(45deg)' : 'none', transition: 'transform 0.25s, color 0.2s', lineHeight: 1 }}>+</span>
+            <span style={{ fontSize: 15, fontWeight: 500, color: '#f0f9ff', lineHeight: 1.4 }}>{faq.q}</span>
+            <span style={{ color: open === i ? '#38bdf8' : '#3a6080', fontSize: 20, flexShrink: 0, transform: open === i ? 'rotate(45deg)' : 'none', transition: 'transform 0.25s, color 0.2s', lineHeight: 1 }}>+</span>
           </button>
           {open === i && (
-            <div style={{ padding: '0 24px 20px', fontSize: 14, color: '#a1a1aa', lineHeight: 1.75, fontWeight: 300 }}>
+            <div style={{ padding: '0 24px 20px', fontSize: 14, color: '#7eb4cc', lineHeight: 1.75, fontWeight: 300 }}>
               {faq.a}
             </div>
           )}

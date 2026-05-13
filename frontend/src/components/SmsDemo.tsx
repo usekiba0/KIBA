@@ -46,11 +46,11 @@ export default function SmsDemo() {
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center', maxWidth: 1100, margin: '0 auto' }}>
       {/* Left */}
       <div>
-        <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: '#fb7185', marginBottom: 16, fontWeight: 500 }}>Live demo</div>
-        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(32px,4vw,52px)', fontWeight: 300, letterSpacing: '-1px', color: '#fafafa', lineHeight: 1.15, marginBottom: 20 }}>
-          Try Kiba <em style={{ fontStyle: 'italic', color: '#8b5cf6' }}>right now.</em>
+        <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: '#38bdf8', marginBottom: 16, fontWeight: 500 }}>Live demo</div>
+        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(32px,4vw,52px)', fontWeight: 300, letterSpacing: '-1px', color: '#f0f9ff', lineHeight: 1.15, marginBottom: 20 }}>
+          Try Kiba <em style={{ fontStyle: 'italic', color: '#10b981' }}>right now.</em>
         </h2>
-        <p style={{ fontSize: 15, color: '#a1a1aa', lineHeight: 1.7, fontWeight: 300, marginBottom: 32 }}>
+        <p style={{ fontSize: 15, color: '#7eb4cc', lineHeight: 1.7, fontWeight: 300, marginBottom: 32 }}>
           Pick a scenario below or type your own. See exactly how Kiba responds — no sign-up needed.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
@@ -59,7 +59,7 @@ export default function SmsDemo() {
               key={i}
               onClick={() => sendMessage(chip, i)}
               disabled={typing || usedChips.has(i)}
-              style={{ background: usedChips.has(i) ? 'rgba(225,29,72,0.06)' : 'rgba(225,29,72,0.08)', border: `1px solid rgba(225,29,72,${usedChips.has(i) ? 0.15 : 0.3})`, borderRadius: 10, padding: '12px 18px', textAlign: 'left' as const, cursor: typing || usedChips.has(i) ? 'default' : 'pointer', color: usedChips.has(i) ? '#71717a' : '#fda4af', fontSize: 14, fontWeight: 400, transition: 'all 0.2s', lineHeight: 1.4 }}
+              style={{ background: usedChips.has(i) ? 'rgba(14,165,233,0.04)' : 'rgba(14,165,233,0.08)', border: `1px solid rgba(14,165,233,${usedChips.has(i) ? 0.1 : 0.28})`, borderRadius: 10, padding: '12px 18px', textAlign: 'left' as const, cursor: typing || usedChips.has(i) ? 'default' : 'pointer', color: usedChips.has(i) ? '#3a6080' : '#7dd3fc', fontSize: 14, fontWeight: 400, transition: 'all 0.2s', lineHeight: 1.4 }}
             >
               {usedChips.has(i) ? '✓ ' : '→ '}{chip}
             </button>
@@ -69,34 +69,34 @@ export default function SmsDemo() {
 
       {/* Right — Phone */}
       <div style={{ position: 'relative' as const }}>
-        <div style={{ position: 'absolute' as const, inset: -30, background: 'radial-gradient(ellipse at 50% 50%,rgba(225,29,72,0.12) 0%,transparent 70%)', borderRadius: '50%', pointerEvents: 'none' }} />
-        <div style={{ background: '#141414', borderRadius: 36, border: '6px solid #222', padding: '18px 14px 22px', boxShadow: '0 0 0 1px rgba(225,29,72,0.2),0 32px 64px rgba(0,0,0,0.6)' }}>
-          <div style={{ width: 72, height: 6, background: '#222', borderRadius: 3, margin: '0 auto 16px' }} />
+        <div style={{ position: 'absolute' as const, inset: -30, background: 'radial-gradient(ellipse at 50% 50%,rgba(14,165,233,0.12) 0%,transparent 70%)', borderRadius: '50%', pointerEvents: 'none' }} />
+        <div style={{ background: '#0a1828', borderRadius: 36, border: '6px solid #1a2d45', padding: '18px 14px 22px', boxShadow: '0 0 0 1px rgba(14,165,233,0.2),0 32px 64px rgba(0,0,0,0.6)' }}>
+          <div style={{ width: 72, height: 6, background: '#1a2d45', borderRadius: 3, margin: '0 auto 16px' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 12 }}>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#be123c,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>K</div>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#0ea5e9,#10b981)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>K</div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#fafafa' }}>Kiba</div>
-              <div style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Online now
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#f0f9ff' }}>Kiba</div>
+              <div style={{ fontSize: 11, color: '#34d399', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} /> Online now
               </div>
             </div>
           </div>
 
           <div style={{ minHeight: 220, maxHeight: 280, overflowY: 'auto' as const, display: 'flex', flexDirection: 'column' as const, gap: 8, paddingRight: 2 }}>
             {messages.length === 0 && (
-              <div style={{ textAlign: 'center' as const, padding: '40px 20px', color: '#52525b', fontSize: 13, lineHeight: 1.6 }}>
+              <div style={{ textAlign: 'center' as const, padding: '40px 20px', color: '#3a6080', fontSize: 13, lineHeight: 1.6 }}>
                 Click a scenario on the left<br />to start a conversation
               </div>
             )}
             {messages.map((m, i) => (
-              <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px', fontSize: 12, lineHeight: 1.5, maxWidth: '88%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? 'linear-gradient(135deg,#e11d48,#be123c)' : '#222', color: '#fafafa', border: m.who === 'kiba' ? '1px solid rgba(225,29,72,0.15)' : 'none' }}>
+              <div key={i} style={{ padding: '9px 13px', borderRadius: m.who === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px', fontSize: 12, lineHeight: 1.5, maxWidth: '88%', alignSelf: m.who === 'user' ? 'flex-end' : 'flex-start', background: m.who === 'user' ? 'linear-gradient(135deg,#0ea5e9,#10b981)' : '#152035', color: '#f0f9ff', border: m.who === 'kiba' ? '1px solid rgba(14,165,233,0.15)' : 'none' }}>
                 {m.text}
               </div>
             ))}
             {typing && (
-              <div style={{ padding: '10px 14px', borderRadius: '14px 14px 14px 4px', background: '#222', border: '1px solid rgba(225,29,72,0.15)', alignSelf: 'flex-start', display: 'inline-flex', gap: 4 }}>
+              <div style={{ padding: '10px 14px', borderRadius: '14px 14px 14px 4px', background: '#152035', border: '1px solid rgba(14,165,233,0.15)', alignSelf: 'flex-start', display: 'inline-flex', gap: 4 }}>
                 {[0, 1, 2].map(i => (
-                  <span key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: '#8b5cf6', display: 'inline-block', animation: `typingPulse 1.2s ease ${i * 0.2}s infinite` }} />
+                  <span key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block', animation: `typingPulse 1.2s ease ${i * 0.2}s infinite` }} />
                 ))}
               </div>
             )}
@@ -110,12 +110,12 @@ export default function SmsDemo() {
               onKeyDown={e => e.key === 'Enter' && sendMessage(input)}
               placeholder="Type a message…"
               disabled={typing}
-              style={{ flex: 1, background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '8px 14px', fontSize: 12, color: '#fafafa', outline: 'none' }}
+              style={{ flex: 1, background: '#0d1e30', border: '1px solid rgba(14,165,233,0.12)', borderRadius: 20, padding: '8px 14px', fontSize: 12, color: '#f0f9ff', outline: 'none' }}
             />
             <button
               onClick={() => sendMessage(input)}
               disabled={typing || !input.trim()}
-              style={{ width: 32, height: 32, borderRadius: '50%', background: input.trim() && !typing ? 'linear-gradient(135deg,#e11d48,#8b5cf6)' : '#222', border: 'none', cursor: input.trim() && !typing ? 'pointer' : 'default', color: 'white', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+              style={{ width: 32, height: 32, borderRadius: '50%', background: input.trim() && !typing ? 'linear-gradient(135deg,#0ea5e9,#10b981)' : '#152035', border: 'none', cursor: input.trim() && !typing ? 'pointer' : 'default', color: 'white', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
             >↑</button>
           </div>
         </div>

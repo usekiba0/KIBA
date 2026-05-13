@@ -37,14 +37,14 @@ function money(cents: number) {
 }
 
 function StatCard({ label, value, sub, highlight, large }: { label: string; value: string | number; sub?: string; highlight?: 'red' | 'amber' | 'green'; large?: boolean }) {
-  const borderColor = highlight === 'red' ? '#ef4444' : highlight === 'amber' ? '#f59e0b' : highlight === 'green' ? '#22c55e' : '#27272a';
-  const bg = highlight === 'red' ? 'linear-gradient(135deg,#1a0a0a,#0f0505)' : highlight === 'amber' ? 'linear-gradient(135deg,#1a1200,#0f0b00)' : highlight === 'green' ? 'linear-gradient(135deg,#0a1a0e,#050f08)' : 'linear-gradient(135deg,#111113,#0d0d10)';
+  const borderColor = highlight === 'red' ? '#ef4444' : highlight === 'amber' ? '#f59e0b' : highlight === 'green' ? '#22c55e' : '#1a2d45';
+  const bg = highlight === 'red' ? 'linear-gradient(135deg,#1a0a0a,#0f0505)' : highlight === 'amber' ? 'linear-gradient(135deg,#1a1200,#0f0b00)' : highlight === 'green' ? 'linear-gradient(135deg,#0a1a0e,#050f08)' : 'linear-gradient(135deg,#0c1829,#081422)';
   return (
     <div style={{ background: bg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: large ? '22px 24px' : '14px 18px', position: 'relative', overflow: 'hidden' }}>
       {highlight && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: borderColor, opacity: 0.6 }} />}
-      <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8, fontWeight: 600 }}>{label}</div>
       <div style={{ fontSize: large ? 34 : 24, fontWeight: 700, color: highlight === 'green' ? '#4ade80' : highlight === 'red' ? '#f87171' : highlight === 'amber' ? '#fbbf24' : '#fafafa', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: '#52525b', marginTop: 6 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 11, color: '#3a6080', marginTop: 6 }}>{sub}</div>}
     </div>
   );
 }
@@ -53,14 +53,14 @@ function MiniStat({ label, value, color }: { label: string; value: number; color
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
       <div style={{ fontSize: 20, fontWeight: 700, color }}>{value}</div>
-      <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1 }}>{label}</div>
+      <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1 }}>{label}</div>
     </div>
   );
 }
 
 function PlanBadge({ plan }: { plan: string }) {
   const labels: Record<string, string> = { individual: 'IND', coach_pro: 'PRO', coach_elite: 'ELITE' };
-  return <span style={{ fontSize: 10, background: '#27272a', color: '#a1a1aa', borderRadius: 4, padding: '1px 5px', marginLeft: 4 }}>{labels[plan] ?? plan.toUpperCase()}</span>;
+  return <span style={{ fontSize: 10, background: '#1a2d45', color: '#7eb4cc', borderRadius: 4, padding: '1px 5px', marginLeft: 4 }}>{labels[plan] ?? plan.toUpperCase()}</span>;
 }
 
 function SubStatusBadge({ status }: { status: SubStatus }) {
@@ -218,14 +218,14 @@ export default function AdminPage() {
 
   if (!key) {
     return (
-      <div style={{ minHeight: '100vh', background: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <form onSubmit={handleLogin} style={{ background: '#111113', border: '1px solid #27272a', borderRadius: 16, padding: 40, width: 340 }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#fafafa', marginBottom: 8 }}>KIBA <span style={{ color: '#e11d48' }}>Admin</span></div>
-          <div style={{ fontSize: 13, color: '#71717a', marginBottom: 24 }}>Enter your internal API key to continue</div>
+      <div style={{ minHeight: '100vh', background: '#050d1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <form onSubmit={handleLogin} style={{ background: '#0c1829', border: '1px solid #27272a', borderRadius: 16, padding: 40, width: 340 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color: '#f0f9ff', marginBottom: 8 }}>KIBA <span style={{ color: '#38bdf8' }}>Admin</span></div>
+          <div style={{ fontSize: 13, color: '#3a6080', marginBottom: 24 }}>Enter your internal API key to continue</div>
           <input type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder="Internal API key"
-            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #3f3f46', background: '#18181b', color: '#fafafa', fontSize: 14, boxSizing: 'border-box', marginBottom: 12 }} />
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', fontSize: 14, boxSizing: 'border-box', marginBottom: 12 }} />
           {keyError && <div style={{ color: '#f87171', fontSize: 13, marginBottom: 10 }}>{keyError}</div>}
-          <button type="submit" style={{ width: '100%', padding: '10px 0', borderRadius: 8, background: 'linear-gradient(135deg,#e11d48,#8b5cf6)', color: '#fff', fontWeight: 600, border: 'none', cursor: 'pointer', fontSize: 14 }}>
+          <button type="submit" style={{ width: '100%', padding: '10px 0', borderRadius: 8, background: 'linear-gradient(135deg,#0ea5e9,#10b981)', color: '#fff', fontWeight: 600, border: 'none', cursor: 'pointer', fontSize: 14 }}>
             Sign In
           </button>
         </form>
@@ -236,14 +236,14 @@ export default function AdminPage() {
   const openAlertCount = dashStats?.open_alerts ?? 0;
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#09090b', color: '#fafafa', fontFamily: 'DM Sans, sans-serif' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#050d1a', color: '#f0f9ff', fontFamily: 'DM Sans, sans-serif' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', borderBottom: '1px solid #27272a', background: '#111113', height: 52, flexShrink: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: 16 }}>KIBA <span style={{ color: '#e11d48' }}>Admin</span></div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', borderBottom: '1px solid #27272a', background: '#0c1829', height: 52, flexShrink: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 16 }}>KIBA <span style={{ color: '#38bdf8' }}>Admin</span></div>
         <div style={{ display: 'flex', gap: 4 }}>
           {(['dashboard', 'users', 'crisis', 'settings'] as Tab[]).map(t => (
             <button key={t} onClick={() => handleTabChange(t)}
-              style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: tab === t ? 600 : 400, background: tab === t ? '#27272a' : 'transparent', color: tab === t ? '#fafafa' : '#71717a', position: 'relative' }}>
+              style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: tab === t ? 600 : 400, background: tab === t ? '#1a2d45' : 'transparent', color: tab === t ? '#fafafa' : '#71717a', position: 'relative' }}>
               {t === 'crisis' ? 'Crisis Alerts' : t.charAt(0).toUpperCase() + t.slice(1)}
               {t === 'crisis' && openAlertCount > 0 && (
                 <span style={{ position: 'absolute', top: 2, right: 2, width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
@@ -252,27 +252,27 @@ export default function AdminPage() {
           ))}
         </div>
         <button onClick={() => { localStorage.removeItem('adminKey'); setKey(''); setUsers([]); setSelectedUser(null); setCrisisLoaded(false); }}
-          style={{ fontSize: 13, color: '#71717a', background: 'none', border: '1px solid #3f3f46', borderRadius: 6, padding: '4px 12px', cursor: 'pointer' }}>
+          style={{ fontSize: 13, color: '#3a6080', background: 'none', border: '1px solid #1a2d45', borderRadius: 6, padding: '4px 12px', cursor: 'pointer' }}>
           Logout
         </button>
       </div>
 
       {/* Dashboard Tab */}
       {tab === 'dashboard' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', background: '#09090b' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', background: '#050d1a' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
             <div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#fafafa' }}>Overview</div>
-              <div style={{ fontSize: 13, color: '#52525b', marginTop: 2 }}>Real-time metrics from your database</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#f0f9ff' }}>Overview</div>
+              <div style={{ fontSize: 13, color: '#3a6080', marginTop: 2 }}>Real-time metrics from your database</div>
             </div>
-            <button onClick={() => init(key)} style={{ fontSize: 12, color: '#a1a1aa', background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => init(key)} style={{ fontSize: 12, color: '#7eb4cc', background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
               ↻ Refresh
             </button>
           </div>
 
           {loading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#52525b', fontSize: 14 }}>
-              <div style={{ width: 16, height: 16, border: '2px solid #27272a', borderTopColor: '#e11d48', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#3a6080', fontSize: 14 }}>
+              <div style={{ width: 16, height: 16, border: '2px solid #27272a', borderTopColor: '#0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
               Loading...
             </div>
           )}
@@ -291,8 +291,8 @@ export default function AdminPage() {
               {/* Users + Subscriptions row */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 {/* User breakdown card */}
-                <div style={{ background: 'linear-gradient(135deg,#111113,#0d0d10)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
-                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 20 }}>User Breakdown</div>
+                <div style={{ background: 'linear-gradient(135deg,#0c1829,#081422)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
+                  <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 20 }}>User Breakdown</div>
                   <div style={{ display: 'flex', justifyContent: 'space-around', marginBottom: 20 }}>
                     <MiniStat label="Active" value={dashStats.active_users} color="#4ade80" />
                     <MiniStat label="Trial" value={dashStats.trial_users} color="#60a5fa" />
@@ -305,7 +305,7 @@ export default function AdminPage() {
                       {dashStats.active_users > 0 && <div style={{ flex: dashStats.active_users, background: '#22c55e' }} />}
                       {dashStats.trial_users > 0 && <div style={{ flex: dashStats.trial_users, background: '#3b82f6' }} />}
                       {dashStats.paused_users > 0 && <div style={{ flex: dashStats.paused_users, background: '#71717a' }} />}
-                      {dashStats.cancelled_users > 0 && <div style={{ flex: dashStats.cancelled_users, background: '#27272a' }} />}
+                      {dashStats.cancelled_users > 0 && <div style={{ flex: dashStats.cancelled_users, background: '#1a2d45' }} />}
                     </div>
                   )}
                   {dashStats.crisis_hold_count > 0 && (
@@ -316,24 +316,24 @@ export default function AdminPage() {
                 </div>
 
                 {/* Subscription health card */}
-                <div style={{ background: 'linear-gradient(135deg,#111113,#0d0d10)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
-                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 20 }}>Subscription Health</div>
+                <div style={{ background: 'linear-gradient(135deg,#0c1829,#081422)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
+                  <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 20 }}>Subscription Health</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {[
                       { label: 'Trialing', value: dashStats.trialing_subs, color: '#60a5fa' },
                       { label: 'Active (Paid)', value: dashStats.active_subs, color: '#4ade80' },
                       { label: 'Past Due', value: dashStats.past_due_subs, color: '#fbbf24' },
-                      { label: 'Cancelled', value: dashStats.cancelled_subs, color: '#52525b' },
+                      { label: 'Cancelled', value: dashStats.cancelled_subs, color: '#3a6080' },
                     ].map(row => (
                       <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: row.color, flexShrink: 0 }} />
-                        <div style={{ flex: 1, fontSize: 13, color: '#a1a1aa' }}>{row.label}</div>
+                        <div style={{ flex: 1, fontSize: 13, color: '#7eb4cc' }}>{row.label}</div>
                         <div style={{ fontSize: 15, fontWeight: 600, color: row.color }}>{row.value}</div>
                       </div>
                     ))}
                     <div style={{ borderTop: '1px solid #1f1f23', paddingTop: 12, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span style={{ color: '#52525b' }}>Trial → Paid conversions</span>
-                      <span style={{ color: '#fafafa', fontWeight: 600 }}>{dashStats.trial_to_paid_count}</span>
+                      <span style={{ color: '#3a6080' }}>Trial → Paid conversions</span>
+                      <span style={{ color: '#f0f9ff', fontWeight: 600 }}>{dashStats.trial_to_paid_count}</span>
                     </div>
                   </div>
                 </div>
@@ -341,44 +341,44 @@ export default function AdminPage() {
 
               {/* Activity + Crisis row */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-                <div style={{ background: 'linear-gradient(135deg,#111113,#0d0d10)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
-                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 16 }}>Message Activity</div>
+                <div style={{ background: 'linear-gradient(135deg,#0c1829,#081422)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
+                  <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 16 }}>Message Activity</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 13, color: '#71717a' }}>Last 24 hours</span>
-                      <span style={{ fontSize: 18, fontWeight: 700, color: '#fafafa' }}>{dashStats.messages_last_24h}</span>
+                      <span style={{ fontSize: 13, color: '#3a6080' }}>Last 24 hours</span>
+                      <span style={{ fontSize: 18, fontWeight: 700, color: '#f0f9ff' }}>{dashStats.messages_last_24h}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 13, color: '#71717a' }}>Last 7 days</span>
-                      <span style={{ fontSize: 18, fontWeight: 700, color: '#fafafa' }}>{dashStats.messages_last_7d}</span>
+                      <span style={{ fontSize: 13, color: '#3a6080' }}>Last 7 days</span>
+                      <span style={{ fontSize: 18, fontWeight: 700, color: '#f0f9ff' }}>{dashStats.messages_last_7d}</span>
                     </div>
                   </div>
                 </div>
 
-                <div style={{ background: 'linear-gradient(135deg,#111113,#0d0d10)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
-                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 16 }}>AI Quality</div>
+                <div style={{ background: 'linear-gradient(135deg,#0c1829,#081422)', border: '1px solid #27272a', borderRadius: 12, padding: '20px 24px' }}>
+                  <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 16 }}>AI Quality</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ fontSize: 32, fontWeight: 700, color: dashStats.flagged_messages_total > 0 ? '#fbbf24' : '#4ade80' }}>{dashStats.flagged_messages_total}</div>
-                    <div style={{ fontSize: 13, color: '#52525b' }}>flagged responses</div>
+                    <div style={{ fontSize: 13, color: '#3a6080' }}>flagged responses</div>
                     {dashStats.flagged_messages_total === 0 && <div style={{ fontSize: 12, color: '#22c55e', marginTop: 4 }}>All clear</div>}
                   </div>
                 </div>
 
-                <div style={{ background: dashStats.open_alerts > 0 ? 'linear-gradient(135deg,#1a0a0a,#0f0505)' : 'linear-gradient(135deg,#111113,#0d0d10)', border: `1px solid ${dashStats.open_alerts > 0 ? '#7f1d1d' : '#27272a'}`, borderRadius: 12, padding: '20px 24px', position: 'relative', overflow: 'hidden' }}>
+                <div style={{ background: dashStats.open_alerts > 0 ? 'linear-gradient(135deg,#1a0a0a,#0f0505)' : 'linear-gradient(135deg,#0c1829,#081422)', border: `1px solid ${dashStats.open_alerts > 0 ? '#7f1d1d' : '#1a2d45'}`, borderRadius: 12, padding: '20px 24px', position: 'relative', overflow: 'hidden' }}>
                   {dashStats.open_alerts > 0 && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: '#ef4444' }} />}
-                  <div style={{ fontSize: 11, color: '#52525b', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 16 }}>Crisis Alerts</div>
+                  <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 16 }}>Crisis Alerts</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 13, color: '#71717a' }}>Open</span>
+                      <span style={{ fontSize: 13, color: '#3a6080' }}>Open</span>
                       <span style={{ fontSize: 15, fontWeight: 700, color: dashStats.open_alerts > 0 ? '#f87171' : '#52525b' }}>{dashStats.open_alerts}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 13, color: '#71717a' }}>Acknowledged</span>
+                      <span style={{ fontSize: 13, color: '#3a6080' }}>Acknowledged</span>
                       <span style={{ fontSize: 15, fontWeight: 700, color: dashStats.acknowledged_alerts > 0 ? '#fbbf24' : '#52525b' }}>{dashStats.acknowledged_alerts}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #1f1f23', paddingTop: 10 }}>
-                      <span style={{ fontSize: 13, color: '#52525b' }}>Last 30 days</span>
-                      <span style={{ fontSize: 13, color: '#a1a1aa' }}>{dashStats.alerts_last_30d}</span>
+                      <span style={{ fontSize: 13, color: '#3a6080' }}>Last 30 days</span>
+                      <span style={{ fontSize: 13, color: '#7eb4cc' }}>{dashStats.alerts_last_30d}</span>
                     </div>
                   </div>
                 </div>
@@ -393,28 +393,28 @@ export default function AdminPage() {
       {tab === 'users' && (
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
           {/* User list */}
-          <div style={{ width: 260, borderRight: '1px solid #27272a', overflowY: 'auto', background: '#0d0d10', flexShrink: 0 }}>
-            <div style={{ padding: '12px 16px', fontSize: 11, fontWeight: 600, color: '#71717a', textTransform: 'uppercase', letterSpacing: 1 }}>
+          <div style={{ width: 260, borderRight: '1px solid #27272a', overflowY: 'auto', background: '#081422', flexShrink: 0 }}>
+            <div style={{ padding: '12px 16px', fontSize: 11, fontWeight: 600, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1 }}>
               Users ({users.length})
             </div>
-            {loading && <div style={{ padding: '12px 16px', color: '#71717a', fontSize: 13 }}>Loading...</div>}
+            {loading && <div style={{ padding: '12px 16px', color: '#3a6080', fontSize: 13 }}>Loading...</div>}
             {users.map(u => (
-              <div key={u.id} style={{ borderBottom: '1px solid #1f1f23', background: selectedUser?.id === u.id ? '#18181b' : 'transparent' }}>
+              <div key={u.id} style={{ borderBottom: '1px solid #1f1f23', background: selectedUser?.id === u.id ? '#0d1e30' : 'transparent' }}>
                 <div onClick={() => selectUser(u)} style={{ padding: '12px 16px', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
                     <div style={{ width: 7, height: 7, borderRadius: '50%', background: u.crisis_hold ? '#ef4444' : u.status === 'active' ? '#22c55e' : '#52525b', flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, fontSize: 13, color: '#fafafa' }}>{u.name}</span>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: '#f0f9ff' }}>{u.name}</span>
                     {u.subscription && <PlanBadge plan={u.subscription.plan} />}
                     {u.subscription && <SubStatusBadge status={u.subscription.status} />}
                     {u.crisis_hold && <span style={{ fontSize: 10, background: '#ef4444', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>CRISIS</span>}
                   </div>
-                  <div style={{ fontSize: 12, color: '#71717a', paddingLeft: 13 }}>{u.phone_number}</div>
-                  {u.goals && <div style={{ fontSize: 11, color: '#52525b', paddingLeft: 13, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 210 }} title={u.goals}>{u.goals}</div>}
+                  <div style={{ fontSize: 12, color: '#3a6080', paddingLeft: 13 }}>{u.phone_number}</div>
+                  {u.goals && <div style={{ fontSize: 11, color: '#3a6080', paddingLeft: 13, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 210 }} title={u.goals}>{u.goals}</div>}
                   <div style={{ fontSize: 11, color: '#3f3f46', paddingLeft: 13, marginTop: 2 }}>{timeAgo(u.last_active_at)}</div>
                 </div>
                 <div style={{ padding: '0 16px 10px 16px', display: 'flex', gap: 6 }}>
                   <button onClick={() => selectUser(u)}
-                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #27272a', background: 'transparent', color: '#a1a1aa', cursor: 'pointer' }}>
+                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #27272a', background: 'transparent', color: '#7eb4cc', cursor: 'pointer' }}>
                     View Chat
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); toggleUserStatus(u); }} disabled={togglingUserId === u.id}
@@ -431,17 +431,17 @@ export default function AdminPage() {
           {/* Conversation panel */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {!selectedUser ? (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#52525b', fontSize: 14 }}>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3a6080', fontSize: 14 }}>
                 Select a user to view their conversation
               </div>
             ) : (
               <>
                 {/* User header */}
-                <div style={{ padding: '14px 24px', borderBottom: '1px solid #27272a', background: '#111113', flexShrink: 0 }}>
+                <div style={{ padding: '14px 24px', borderBottom: '1px solid #27272a', background: '#0c1829', flexShrink: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 15 }}>{selectedUser.name}</div>
-                      <div style={{ fontSize: 12, color: '#71717a', marginTop: 2 }}>
+                      <div style={{ fontSize: 12, color: '#3a6080', marginTop: 2 }}>
                         {selectedUser.phone_number} · {selectedUser.status} · last active {timeAgo(selectedUser.last_active_at)}
                       </div>
                     </div>
@@ -455,19 +455,19 @@ export default function AdminPage() {
 
                   {/* Subscription detail */}
                   {userSubDetail && (
-                    <div style={{ marginTop: 12, padding: '10px 14px', background: '#18181b', borderRadius: 8, border: '1px solid #27272a', fontSize: 12, color: '#a1a1aa', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                    <div style={{ marginTop: 12, padding: '10px 14px', background: '#18181b', borderRadius: 8, border: '1px solid #27272a', fontSize: 12, color: '#7eb4cc', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
                       {userSubDetail.subscription ? (
                         <>
-                          <span><span style={{ color: '#52525b' }}>Plan</span> {userSubDetail.subscription.plan}</span>
-                          <span><span style={{ color: '#52525b' }}>Status</span> {userSubDetail.subscription.status}</span>
-                          <span><span style={{ color: '#52525b' }}>Trial ends</span> {fmt(userSubDetail.subscription.trial_end)}</span>
-                          <span><span style={{ color: '#52525b' }}>Period end</span> {fmt(userSubDetail.subscription.current_period_end)}</span>
+                          <span><span style={{ color: '#3a6080' }}>Plan</span> {userSubDetail.subscription.plan}</span>
+                          <span><span style={{ color: '#3a6080' }}>Status</span> {userSubDetail.subscription.status}</span>
+                          <span><span style={{ color: '#3a6080' }}>Trial ends</span> {fmt(userSubDetail.subscription.trial_end)}</span>
+                          <span><span style={{ color: '#3a6080' }}>Period end</span> {fmt(userSubDetail.subscription.current_period_end)}</span>
                         </>
-                      ) : <span style={{ color: '#52525b' }}>No subscription</span>}
+                      ) : <span style={{ color: '#3a6080' }}>No subscription</span>}
                       <span style={{ marginLeft: 'auto' }}>
-                        <span style={{ color: '#52525b' }}>Messages</span> {userSubDetail.stats.total_messages}
+                        <span style={{ color: '#3a6080' }}>Messages</span> {userSubDetail.stats.total_messages}
                         {' · '}
-                        <span style={{ color: '#52525b' }}>Tokens</span> {userSubDetail.stats.total_tokens_used.toLocaleString()}
+                        <span style={{ color: '#3a6080' }}>Tokens</span> {userSubDetail.stats.total_tokens_used.toLocaleString()}
                         {userSubDetail.stats.flagged_messages > 0 && (
                           <span style={{ color: '#f87171' }}> · {userSubDetail.stats.flagged_messages} flagged</span>
                         )}
@@ -484,9 +484,9 @@ export default function AdminPage() {
                         <div style={{
                           maxWidth: 480, padding: '10px 14px',
                           borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                          background: msg.role === 'user' ? '#e11d48' : msg.flagged ? '#2d1a1a' : '#1f1f23',
+                          background: msg.role === 'user' ? '#0ea5e9' : msg.flagged ? '#2d1a1a' : '#152035',
                           border: msg.flagged ? '1px solid #7f1d1d' : 'none',
-                          color: '#fafafa', fontSize: 14, lineHeight: 1.5,
+                          color: '#f0f9ff', fontSize: 14, lineHeight: 1.5,
                         }}>
                           {msg.media_url && msg.content === '[image]'
                             ? <img src={msg.media_url} alt="user photo" style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8, display: 'block' }} />
@@ -499,7 +499,7 @@ export default function AdminPage() {
                           </button>
                         )}
                       </div>
-                      <div style={{ fontSize: 11, color: '#52525b', paddingLeft: msg.role === 'user' ? 0 : 8, paddingRight: msg.role === 'user' ? 8 : 0 }}>
+                      <div style={{ fontSize: 11, color: '#3a6080', paddingLeft: msg.role === 'user' ? 0 : 8, paddingRight: msg.role === 'user' ? 8 : 0 }}>
                         {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         {msg.token_count ? ` · ${msg.token_count} tokens` : ''}
                       </div>
@@ -529,27 +529,27 @@ export default function AdminPage() {
         <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <div style={{ fontSize: 16, fontWeight: 600 }}>Crisis Alerts</div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#71717a', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#3a6080', cursor: 'pointer' }}>
               <input type="checkbox" checked={showResolved} onChange={toggleShowResolved} />
               Show resolved
             </label>
           </div>
-          {crisisAlerts.length === 0 && <div style={{ color: '#52525b', fontSize: 14 }}>No alerts{showResolved ? '' : ' — toggle "Show resolved" to see history'}.</div>}
+          {crisisAlerts.length === 0 && <div style={{ color: '#3a6080', fontSize: 14 }}>No alerts{showResolved ? '' : ' — toggle "Show resolved" to see history'}.</div>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {crisisAlerts.map(alert => {
-              const borderColor = alert.status === 'open' ? '#ef4444' : alert.status === 'acknowledged' ? '#f59e0b' : '#27272a';
+              const borderColor = alert.status === 'open' ? '#ef4444' : alert.status === 'acknowledged' ? '#f59e0b' : '#1a2d45';
               const resolved = alert.status === 'resolved';
               return (
-                <div key={alert.id} style={{ background: '#111113', border: `1px solid ${borderColor}`, borderLeft: `4px solid ${borderColor}`, borderRadius: 10, padding: '16px 20px' }}>
+                <div key={alert.id} style={{ background: '#0c1829', border: `1px solid ${borderColor}`, borderLeft: `4px solid ${borderColor}`, borderRadius: 10, padding: '16px 20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <div>
                       <span style={{ fontWeight: 600, fontSize: 14 }}>{alert.user_name}</span>
-                      <span style={{ fontSize: 13, color: '#71717a', marginLeft: 8 }}>{alert.user_phone}</span>
+                      <span style={{ fontSize: 13, color: '#3a6080', marginLeft: 8 }}>{alert.user_phone}</span>
                       <span style={{ fontSize: 11, marginLeft: 8, padding: '2px 8px', borderRadius: 4, background: borderColor + '33', color: borderColor, textTransform: 'uppercase', fontWeight: 600 }}>{alert.status}</span>
                     </div>
-                    <span style={{ fontSize: 12, color: '#52525b' }}>{timeAgo(alert.created_at)}</span>
+                    <span style={{ fontSize: 12, color: '#3a6080' }}>{timeAgo(alert.created_at)}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: '#71717a', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 12, color: '#3a6080', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                     <span>{alert.detection_method.replace('_', ' ')} {alert.confidence_score != null ? `· ${Math.round(alert.confidence_score * 100)}% confidence` : ''}</span>
                     {alert.coach_alerted && <span>coach alerted via {alert.coach_alert_channel ?? 'unknown'} at {fmt(alert.coach_alerted_at)}</span>}
                     {alert.holding_message_sent && <span>holding message sent</span>}
@@ -560,7 +560,7 @@ export default function AdminPage() {
                         value={resolveInputs[alert.id] ?? ''}
                         onChange={e => setResolveInputs(prev => ({ ...prev, [alert.id]: e.target.value }))}
                         placeholder="Your name to resolve..."
-                        style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid #3f3f46', background: '#18181b', color: '#fafafa', width: 220 }}
+                        style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', width: 220 }}
                       />
                       <button onClick={() => resolveAlert(alert)} disabled={resolvingAlertId === alert.id || !resolveInputs[alert.id]?.trim()}
                         style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, background: '#14532d', color: '#86efac', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
@@ -569,8 +569,8 @@ export default function AdminPage() {
                     </div>
                   )}
                   {resolved && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: '#52525b' }}>
-                      Resolved by <span style={{ color: '#a1a1aa' }}>{alert.resolved_by}</span> on {fmt(alert.resolved_at)}
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#3a6080' }}>
+                      Resolved by <span style={{ color: '#7eb4cc' }}>{alert.resolved_by}</span> on {fmt(alert.resolved_at)}
                     </div>
                   )}
                 </div>
@@ -584,33 +584,33 @@ export default function AdminPage() {
       {tab === 'settings' && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
           <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Settings</div>
-          <div style={{ fontSize: 13, color: '#52525b', marginBottom: 28 }}>Configure who gets alerted when a crisis is detected</div>
+          <div style={{ fontSize: 13, color: '#3a6080', marginBottom: 28 }}>Configure who gets alerted when a crisis is detected</div>
 
           <form onSubmit={saveSettings} style={{ maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div style={{ background: '#111113', border: '1px solid #27272a', borderRadius: 12, padding: '24px' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#fafafa', marginBottom: 4 }}>Crisis Coach Contact</div>
-              <div style={{ fontSize: 12, color: '#52525b', marginBottom: 20 }}>
+            <div style={{ background: '#0c1829', border: '1px solid #27272a', borderRadius: 12, padding: '24px' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#f0f9ff', marginBottom: 4 }}>Crisis Coach Contact</div>
+              <div style={{ fontSize: 12, color: '#3a6080', marginBottom: 20 }}>
                 When a user sends a distress message, KIBA immediately texts and emails this person.
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>
-                  <label style={{ fontSize: 12, color: '#71717a', display: 'block', marginBottom: 6 }}>Coach Phone Number (E.164 format, e.g. +12125551234)</label>
+                  <label style={{ fontSize: 12, color: '#3a6080', display: 'block', marginBottom: 6 }}>Coach Phone Number (E.164 format, e.g. +12125551234)</label>
                   <input
                     value={settingsForm.coach_alert_phone}
                     onChange={e => setSettingsForm(f => ({ ...f, coach_alert_phone: e.target.value }))}
                     placeholder="+12125551234"
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #3f3f46', background: '#18181b', color: '#fafafa', fontSize: 14, boxSizing: 'border-box' }}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', fontSize: 14, boxSizing: 'border-box' }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 12, color: '#71717a', display: 'block', marginBottom: 6 }}>Coach Email Address</label>
+                  <label style={{ fontSize: 12, color: '#3a6080', display: 'block', marginBottom: 6 }}>Coach Email Address</label>
                   <input
                     type="email"
                     value={settingsForm.coach_alert_email}
                     onChange={e => setSettingsForm(f => ({ ...f, coach_alert_email: e.target.value }))}
                     placeholder="coach@yourcompany.com"
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #3f3f46', background: '#18181b', color: '#fafafa', fontSize: 14, boxSizing: 'border-box' }}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', fontSize: 14, boxSizing: 'border-box' }}
                   />
                 </div>
               </div>
@@ -628,7 +628,7 @@ export default function AdminPage() {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <button type="submit" disabled={settingsSaving}
-                style={{ padding: '10px 24px', borderRadius: 8, background: 'linear-gradient(135deg,#e11d48,#8b5cf6)', color: '#fff', fontWeight: 600, border: 'none', cursor: 'pointer', fontSize: 14 }}>
+                style={{ padding: '10px 24px', borderRadius: 8, background: 'linear-gradient(135deg,#0ea5e9,#10b981)', color: '#fff', fontWeight: 600, border: 'none', cursor: 'pointer', fontSize: 14 }}>
                 {settingsSaving ? 'Saving...' : 'Save Settings'}
               </button>
               {settingsSaved && <span style={{ fontSize: 13, color: '#4ade80' }}>✓ Saved</span>}
