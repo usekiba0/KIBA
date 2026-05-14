@@ -72,7 +72,7 @@ export class MessagingController {
     }
 
     const mediaUrls = mediaUrl ? [mediaUrl] : [];
-    const mediaContentTypes = mediaUrl ? ['image/jpeg'] : [];
+    const mediaContentTypes = mediaUrl ? [this.guessContentType(mediaUrl)] : [];
     const imsgData = {
       from,
       body: content || '[image]',
@@ -99,5 +99,14 @@ export class MessagingController {
   private extractMediaUrls(body: TwilioWebhookDto): string[] {
     const num = parseInt(body.NumMedia || '0');
     return Array.from({ length: num }, (_, i) => body[`MediaUrl${i}`]).filter(Boolean) as string[];
+  }
+
+  private guessContentType(url: string): string {
+    const lower = url.toLowerCase().split('?')[0];
+    if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
   }
 }

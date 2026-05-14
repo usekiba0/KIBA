@@ -72,20 +72,32 @@ export class CoachingService {
       content: m.content,
     }));
 
-    const lastContent = imageUrl && this.isSupportedImageFormat(imageUrl, imageContentType)
+    const usingImage = !!imageUrl && this.isSupportedImageFormat(imageUrl, imageContentType);
+    const lastContent = usingImage
       ? [
-          { type: 'image' as const, source: { type: 'url' as const, url: imageUrl } },
+          { type: 'image' as const, source: { type: 'url' as const, url: imageUrl! } },
           { type: 'text' as const, text: incomingText || 'What do you see? Respond as my accountability coach.' },
         ]
       : (incomingText || (imageUrl ? 'I sent you a photo.' : 'I sent you a message.'));
     history.push({ role: 'user', content: lastContent });
 
-    const response = await this.client.messages.create({
-      model,
-      max_tokens: 256,
-      system: systemPrompt,
-      messages: history,
-    });
+    let response: Awaited<ReturnType<typeof this.client.messages.create>>;
+    try {
+      response = await this.client.messages.create({
+        model,
+        max_tokens: 256,
+        system: systemPrompt,
+        messages: history,
+      });
+    } catch (err: unknown) {
+      const isImageError = usingImage &&
+        err instanceof Error &&
+        (err.message.includes('invalid_request_error') || err.message.includes('image'));
+      if (!isImageError) throw err;
+
+      this.logger.warn(`Image rejected by Anthropic for user ${user.id} — unsupported format`);
+      return { reply: 'heic photos don\'t work — screenshot it and send as a jpeg or png instead.', tokenCount: 0 };
+    }
 
     const reply = response.content[0].type === 'text' ? response.content[0].text : '';
     const inputTokens = response.usage.input_tokens;
