@@ -19,6 +19,7 @@ import { SafetyService } from '../safety/safety.service';
 import { AntiGhostService } from '../accountability/anti-ghost.service';
 import { ProofService } from '../accountability/proof.service';
 import { ScoreIntentService } from '../accountability/score-intent.service';
+import { CheckinService } from '../accountability/checkin.service';
 import { structuredLog } from '../common/logger';
 
 interface CoachingJob {
@@ -32,6 +33,32 @@ interface CoachingJob {
 }
 
 const RESET_INTENTS = ['reset my coaching', 'start fresh', 'clear my history', 'reset context'];
+
+const REMINDER_TRIGGERS = ['text me at', 'remind me at', 'message me at', 'check in on me at', 'set a reminder', 'send me a reminder', 'wake me up at', 'hit me up at'];
+
+function parseReminderTime(text: string): string | null {
+  const match = text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+  if (!match) return null;
+
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2] ?? '0', 10);
+  const period = match[3].toLowerCase();
+
+  if (period === 'pm' && hours !== 12) hours += 12;
+  if (period === 'am' && hours === 12) hours = 0;
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function formatDisplayTime(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'pm' : 'am';
+  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const displayM = m > 0 ? `:${String(m).padStart(2, '0')}` : '';
+  return `${displayH}${displayM}${period}`;
+}
 
 @Processor('coaching')
 export class CoachingProcessor {
@@ -56,6 +83,8 @@ export class CoachingProcessor {
     @Inject(forwardRef(() => ProofService))
     private readonly proofService: ProofService,
     private readonly scoreIntentService: ScoreIntentService,
+    @Inject(forwardRef(() => CheckinService))
+    private readonly checkinService: CheckinService,
   ) {}
 
   @OnQueueActive()
@@ -170,6 +199,17 @@ export class CoachingProcessor {
       return;
     }
 
+    // Reminder scheduling intent
+    if (REMINDER_TRIGGERS.some((trigger) => lowerBody.includes(trigger))) {
+      const time = parseReminderTime(lowerBody);
+      if (time) {
+        await this.userRepo.update(user.id, { checkin_time: time });
+        await this.checkinService.scheduleCheckin({ ...user, checkin_time: time } as User);
+        await this.saveAndSend(user, boundary.sessionId, `got it. i'll hit you at ${formatDisplayTime(time)} starting tomorrow.`);
+        return;
+      }
+    }
+
     // Context reset intent
     if (RESET_INTENTS.some((intent) => lowerBody.includes(intent))) {
       await this.sessionCache.invalidateSession(user.id);
@@ -211,7 +251,7 @@ export class CoachingProcessor {
       } else {
         // No pending task today — route to coaching AI with vision
         const { reply, tokenCount } = await this.coachingService.generateReply(
-          user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined,
+          user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaContentTypes[0],
         );
         await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
         await this.saveAndSend(user, boundary.sessionId, reply);

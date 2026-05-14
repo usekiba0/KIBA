@@ -29,10 +29,14 @@ export class CoachingService {
     this.client = createAnthropicClient(config);
   }
 
-  private isSupportedImageFormat(url: string): boolean {
+  private isSupportedImageFormat(url: string, contentType?: string): boolean {
+    if (contentType) {
+      const ct = contentType.toLowerCase().split(';')[0].trim();
+      return ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'].includes(ct);
+    }
     const lower = url.toLowerCase();
-    return lower.endsWith('.jpg') || lower.endsWith('.jpeg') ||
-           lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp');
+    return lower.includes('.jpg') || lower.includes('.jpeg') ||
+           lower.includes('.png') || lower.includes('.gif') || lower.includes('.webp');
   }
 
   async generateReply(
@@ -41,6 +45,7 @@ export class CoachingService {
     incomingText: string,
     sessionSummary?: string,
     imageUrl?: string,
+    imageContentType?: string,
   ): Promise<{ reply: string; tokenCount: number }> {
     const [profile, latestScore, strikeCount] = await Promise.all([
       this.profileRepo.findOne({ where: { user_id: user.id } }),
@@ -67,7 +72,7 @@ export class CoachingService {
       content: m.content,
     }));
 
-    const lastContent = imageUrl && this.isSupportedImageFormat(imageUrl)
+    const lastContent = imageUrl && this.isSupportedImageFormat(imageUrl, imageContentType)
       ? [
           { type: 'image' as const, source: { type: 'url' as const, url: imageUrl } },
           { type: 'text' as const, text: incomingText || 'What do you see? Respond as my accountability coach.' },
