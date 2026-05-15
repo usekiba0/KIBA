@@ -13,6 +13,7 @@ type FormState = {
   goal_timeline: string;
   current_status: string;
   checkin_time: string;
+  utc_offset_minutes: number | null;
   // Step 2
   fears: string;
   avoidance_patterns: string;
@@ -35,6 +36,7 @@ export default function OnboardingPage() {
     goal_timeline: '',
     current_status: '',
     checkin_time: '',
+    utc_offset_minutes: typeof window !== 'undefined' ? -new Date().getTimezoneOffset() : null,
     fears: '',
     avoidance_patterns: '',
     comparison_figure: '',
@@ -55,6 +57,7 @@ export default function OnboardingPage() {
       goal_timeline: '90 days',
       current_status: 'I have the idea and a rough prototype but haven\'t launched yet',
       checkin_time: '09:00',
+      utc_offset_minutes: -new Date().getTimezoneOffset(),
       fears: 'Being mediocre and watching others succeed while I stay stuck planning forever',
       avoidance_patterns: 'Scrolling social media, over-researching instead of building, saying I\'ll start tomorrow',
       comparison_figure: 'My college roommate who launched a startup and got funded',

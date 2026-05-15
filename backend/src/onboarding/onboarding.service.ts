@@ -92,6 +92,7 @@ export class OnboardingService {
           dietary_restrictions: dto.dietary_restrictions ?? [],
           injuries: dto.injuries ?? null,
           checkin_time: dto.checkin_time ?? null,
+          utc_offset_minutes: dto.utc_offset_minutes ?? null,
           status: UserStatus.TRIAL,
         });
         const savedUser = await manager.save(User, user);
@@ -197,6 +198,7 @@ export class OnboardingService {
         dietary_restrictions: dto.dietary_restrictions ?? [],
         injuries: dto.injuries ?? null,
         checkin_time: dto.checkin_time ?? null,
+        utc_offset_minutes: dto.utc_offset_minutes ?? null,
         status: UserStatus.TRIAL,
       });
       const savedUser = await manager.save(User, user);

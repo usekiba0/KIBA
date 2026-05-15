@@ -15,14 +15,21 @@ export class CheckinService {
     @InjectQueue('accountability') private readonly queue: Queue,
   ) {}
 
-  computeDelayMs(checkinTime: string): number {
+  computeDelayMs(checkinTime: string, utcOffsetMinutes = 0): number {
     const [hours, minutes] = checkinTime.split(':').map(Number);
+
+    // Convert user's local time → UTC by subtracting their offset
+    const localTotalMins = hours * 60 + minutes;
+    const utcTotalMins = ((localTotalMins - utcOffsetMinutes) % 1440 + 1440) % 1440;
+    const utcH = Math.floor(utcTotalMins / 60);
+    const utcM = utcTotalMins % 60;
+
     const now = new Date();
     const target = new Date(now);
-    target.setHours(hours, minutes, 0, 0);
+    target.setUTCHours(utcH, utcM, 0, 0);
 
     if (target.getTime() <= now.getTime()) {
-      target.setDate(target.getDate() + 1);
+      target.setUTCDate(target.getUTCDate() + 1);
     }
 
     return target.getTime() - now.getTime();

@@ -34,7 +34,7 @@ interface CoachingJob {
 
 const RESET_INTENTS = ['reset my coaching', 'start fresh', 'clear my history', 'reset context'];
 
-const REMINDER_TRIGGERS = ['text me at', 'remind me at', 'message me at', 'check in on me at', 'set a reminder', 'send me a reminder', 'wake me up at', 'hit me up at'];
+const REMINDER_REGEX = /\b(remind|reminder|alarm|alert me|ping me|text me|message me|hit me up|wake me up|check in on me|send me a reminder)\b.{0,40}(\bat\b|\bin\b|\b@\b)/i;
 
 function parseReminderTime(text: string): string | null {
   // Prefer time explicitly after "at" — avoids grabbing "It's 5:18pm rn" instead of "at 5:20"
@@ -61,6 +61,31 @@ function parseRelativeDelayMs(text: string): number | null {
   const unit = match[2].toLowerCase();
   if (unit.startsWith('min')) return amount * 60_000;
   if (unit.startsWith('h')) return amount * 3_600_000;
+  return null;
+}
+
+const NAMED_TZ_OFFSETS: Record<string, number> = {
+  pst: -480, pdt: -420, mst: -420, mdt: -360, cst: -360, cdt: -300,
+  est: -300, edt: -240, ast: -240, gmt: 0, utc: 0, bst: 60, cet: 60,
+  eet: 120, msk: 180, ist: 330, pkt: 300, bst_bd: 360, ict: 420,
+  cst_cn: 480, sgt: 480, jst: 540, kst: 540, aest: 600, nzst: 720,
+};
+
+function parseTimezoneOffset(text: string): number | null {
+  // Match UTC/GMT±offset e.g. "UTC+5", "GMT-5:30", "UTC +5"
+  const utcMatch = text.match(/\b(?:utc|gmt)\s*([+-])\s*(\d{1,2})(?::(\d{2}))?\b/i);
+  if (utcMatch) {
+    const sign = utcMatch[1] === '+' ? 1 : -1;
+    const h = parseInt(utcMatch[2], 10);
+    const m = parseInt(utcMatch[3] ?? '0', 10);
+    return sign * (h * 60 + m);
+  }
+  // Match named zone + optional offset e.g. "PKT+5", "PKT", "EST"
+  const namedMatch = text.match(/\b(pst|pdt|mst|mdt|cst|cdt|est|edt|ast|gmt|bst|cet|eet|msk|pkt|ict|sgt|jst|kst|aest|nzst|ist)\s*(?:[+-]\s*\d{1,2})?\b/i);
+  if (namedMatch) {
+    const key = namedMatch[1].toLowerCase();
+    return NAMED_TZ_OFFSETS[key] ?? null;
+  }
   return null;
 }
 
@@ -124,7 +149,7 @@ export class CoachingProcessor {
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Look up user
-    const user = await this.userRepo.findOne({ where: { phone_number: from } });
+    let user = await this.userRepo.findOne({ where: { phone_number: from } });
     if (!user) {
       await this.messagingService.send(
         from,
@@ -211,8 +236,17 @@ export class CoachingProcessor {
       return;
     }
 
+    // Timezone detection — save offset whenever user mentions their timezone
+    const tzOffset = parseTimezoneOffset(lowerBody);
+    if (tzOffset !== null && user.utc_offset_minutes !== tzOffset) {
+      await this.userRepo.update(user.id, { utc_offset_minutes: tzOffset });
+      user = { ...user, utc_offset_minutes: tzOffset };
+    }
+
+    const userOffset = user.utc_offset_minutes ?? 0;
+
     // Reminder scheduling intent
-    if (REMINDER_TRIGGERS.some((trigger) => lowerBody.includes(trigger))) {
+    if (REMINDER_REGEX.test(lowerBody)) {
       const relativeDelayMs = parseRelativeDelayMs(lowerBody);
       const time = parseReminderTime(lowerBody);
 
@@ -227,7 +261,7 @@ export class CoachingProcessor {
 
       if (time) {
         await this.userRepo.update(user.id, { checkin_time: time });
-        const delay = this.checkinService.computeDelayMs(time);
+        const delay = this.checkinService.computeDelayMs(time, userOffset);
         await this.checkinService.scheduleCheckin({ ...user, checkin_time: time } as User);
         const when = delay < 20 * 3_600_000
           ? `today at ${formatDisplayTime(time)}`

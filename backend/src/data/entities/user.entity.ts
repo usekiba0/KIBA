@@ -62,6 +62,9 @@ export class User {
   @Column({ type: 'varchar', length: 5, nullable: true })
   checkin_time: string | null;
 
+  @Column({ type: 'smallint', nullable: true })
+  utc_offset_minutes: number | null;
+
   @CreateDateColumn()
   registered_at: Date;
 

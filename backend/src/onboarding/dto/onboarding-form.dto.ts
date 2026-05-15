@@ -85,6 +85,13 @@ export class OnboardingFormDto {
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'checkin_time must be HH:MM format e.g. 08:00' })
   checkin_time: string;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-720)
+  @Max(840)
+  utc_offset_minutes?: number;
+
   // ── Legacy fitness fields (optional, kept for backwards compat) ───────────
   @IsOptional()
   @IsEnum(CoachingFocus)
