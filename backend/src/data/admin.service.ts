@@ -224,7 +224,7 @@ export class AdminService {
     return this.messageRepo.find({
       where: { user_id: userId },
       order: { created_at: 'ASC' },
-      select: ['id', 'session_id', 'role', 'content', 'media_url', 'created_at', 'token_count', 'flagged', 'flag_reason', 'message_type'],
+      select: ['id', 'session_id', 'role', 'content', 'media_url', 'media_content_type', 'created_at', 'token_count', 'flagged', 'flag_reason', 'message_type', 'is_checkin_prompt', 'is_proof_submission'],
     });
   }
 

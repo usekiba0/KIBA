@@ -37,7 +37,9 @@ const RESET_INTENTS = ['reset my coaching', 'start fresh', 'clear my history', '
 const REMINDER_TRIGGERS = ['text me at', 'remind me at', 'message me at', 'check in on me at', 'set a reminder', 'send me a reminder', 'wake me up at', 'hit me up at'];
 
 function parseReminderTime(text: string): string | null {
-  const match = text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+  // Prefer time explicitly after "at" — avoids grabbing "It's 5:18pm rn" instead of "at 5:20"
+  const match = text.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i)
+    ?? text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
   if (!match) return null;
 
   let hours = parseInt(match[1], 10);
@@ -50,6 +52,16 @@ function parseReminderTime(text: string): string | null {
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
 
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function parseRelativeDelayMs(text: string): number | null {
+  const match = text.match(/\bin\s+(\d+)\s*(min(?:utes?)?|hrs?|hours?)/i);
+  if (!match) return null;
+  const amount = parseInt(match[1], 10);
+  const unit = match[2].toLowerCase();
+  if (unit.startsWith('min')) return amount * 60_000;
+  if (unit.startsWith('h')) return amount * 3_600_000;
+  return null;
 }
 
 function formatDisplayTime(hhmm: string): string {
@@ -201,11 +213,26 @@ export class CoachingProcessor {
 
     // Reminder scheduling intent
     if (REMINDER_TRIGGERS.some((trigger) => lowerBody.includes(trigger))) {
+      const relativeDelayMs = parseRelativeDelayMs(lowerBody);
       const time = parseReminderTime(lowerBody);
+
+      if (relativeDelayMs !== null) {
+        // "in X min/hours" — use exact relative delay, bypasses server timezone issues
+        await this.checkinService.scheduleOneShot(user.id, relativeDelayMs);
+        if (time) await this.userRepo.update(user.id, { checkin_time: time });
+        const mins = Math.round(relativeDelayMs / 60_000);
+        await this.saveAndSend(user, boundary.sessionId, `got it — hitting you in ${mins} minute${mins !== 1 ? 's' : ''}.`);
+        return;
+      }
+
       if (time) {
         await this.userRepo.update(user.id, { checkin_time: time });
+        const delay = this.checkinService.computeDelayMs(time);
         await this.checkinService.scheduleCheckin({ ...user, checkin_time: time } as User);
-        await this.saveAndSend(user, boundary.sessionId, `got it. i'll hit you at ${formatDisplayTime(time)} starting tomorrow.`);
+        const when = delay < 20 * 3_600_000
+          ? `today at ${formatDisplayTime(time)}`
+          : `tomorrow at ${formatDisplayTime(time)}`;
+        await this.saveAndSend(user, boundary.sessionId, `got it — i'll hit you ${when}.`);
         return;
       }
     }

@@ -48,6 +48,16 @@ export class CheckinService {
     return job;
   }
 
+  async scheduleOneShot(userId: string, delayMs: number): Promise<void> {
+    await this.queue.add('send-checkin', { userId }, { delay: delayMs });
+    structuredLog(this.logger, 'log', {
+      service: 'accountability',
+      operation: 'oneshot_scheduled',
+      userId,
+      delayMs,
+    });
+  }
+
   async scheduleAllCheckins(): Promise<void> {
     const users = await this.userRepo.find({
       where: [

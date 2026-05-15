@@ -103,7 +103,9 @@ import { HealthController } from './common/health/health.controller';
           enableReadyCheck: false,
           maxRetriesPerRequest: null as unknown as number,
           connectTimeout: 10_000,
+          keepAlive: 10_000,
           retryStrategy: (times: number) => Math.min(times * 200, 5_000),
+          reconnectOnError: (err: Error) => err.message.includes('ERR caller gone'),
         };
         if (redisUrl) {
           const parsed = new URL(redisUrl);

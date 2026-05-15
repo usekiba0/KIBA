@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Fragment } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/v1';
 
@@ -9,9 +9,9 @@ type SubStatus = 'trialing' | 'active' | 'past_due' | 'cancelled';
 type AlertStatus = 'open' | 'acknowledged' | 'resolved';
 
 interface AdminUserSub { id: string; plan: string; status: SubStatus; trial_end: string; current_period_end: string | null; }
-interface AdminUser { id: string; name: string; phone_number: string; coaching_focus: string; goals: string; status: UserStatus; crisis_hold: boolean; last_active_at: string | null; registered_at: string; subscription: AdminUserSub | null; }
+interface AdminUser { id: string; name: string; phone_number: string; coaching_focus: string; goals: string; status: UserStatus; crisis_hold: boolean; last_active_at: string | null; registered_at: string; subscription: AdminUserSub | null; execution_score: number | null; strike_count: number; plan_status: string; }
 interface CoachSettings { coach_alert_phone: string; coach_alert_email: string; }
-interface Message { id: string; session_id: string; role: 'user' | 'ai'; content: string; media_url: string | null; created_at: string; token_count: number | null; flagged: boolean; flag_reason: string | null; message_type: string; }
+interface Message { id: string; session_id: string; role: 'user' | 'ai'; content: string; media_url: string | null; media_content_type: string | null; created_at: string; token_count: number | null; flagged: boolean; flag_reason: string | null; message_type: string; is_checkin_prompt: boolean; is_proof_submission: boolean; }
 interface UserSubDetail { subscription: { stripe_customer_id: string; stripe_subscription_id: string; plan: string; status: string; trial_start: string; trial_end: string; current_period_end: string | null; created_at: string; } | null; stats: { total_messages: number; user_messages: number; ai_messages: number; flagged_messages: number; total_tokens_used: number; first_message_at: string | null; last_message_at: string | null; }; }
 interface DashStats { total_users: number; active_users: number; trial_users: number; paused_users: number; cancelled_users: number; crisis_hold_count: number; active_subs: number; trialing_subs: number; past_due_subs: number; cancelled_subs: number; trial_to_paid_count: number; mrr_cents: number; arr_cents: number; messages_last_24h: number; messages_last_7d: number; flagged_messages_total: number; open_alerts: number; acknowledged_alerts: number; alerts_last_30d: number; }
 interface CrisisAlert { id: string; user_id: string; user_name: string; user_phone: string; detection_method: string; confidence_score: number | null; coach_alerted: boolean; coach_alerted_at: string | null; coach_alert_channel: string | null; holding_message_sent: boolean; status: AlertStatus; resolved_by: string | null; resolved_at: string | null; created_at: string; }
@@ -34,6 +34,31 @@ function fmt(date: string | null) {
 
 function money(cents: number) {
   return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0 });
+}
+
+function fmtMsgTime(iso: string) {
+  const d = new Date(iso);
+  const isToday = d.toDateString() === new Date().toDateString();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (isToday) return time;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + time;
+}
+
+function fmtSessionDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function groupBySession(msgs: Message[]) {
+  const groups: { sessionId: string; msgs: Message[] }[] = [];
+  for (const msg of msgs) {
+    const last = groups[groups.length - 1];
+    if (last && last.sessionId === msg.session_id) {
+      last.msgs.push(msg);
+    } else {
+      groups.push({ sessionId: msg.session_id, msgs: [msg] });
+    }
+  }
+  return groups;
 }
 
 function StatCard({ label, value, sub, highlight, large }: { label: string; value: string | number; sub?: string; highlight?: 'red' | 'amber' | 'green'; large?: boolean }) {
@@ -487,6 +512,12 @@ export default function AdminPage() {
                         {userSubDetail.stats.flagged_messages > 0 && (
                           <span style={{ color: '#f87171' }}> · {userSubDetail.stats.flagged_messages} flagged</span>
                         )}
+                        {selectedUser.execution_score != null && (
+                          <> · <span style={{ color: '#3a6080' }}>Score</span> {selectedUser.execution_score}%</>
+                        )}
+                        {selectedUser.strike_count > 0 && (
+                          <span style={{ color: '#f87171' }}> · {selectedUser.strike_count} strike{selectedUser.strike_count !== 1 ? 's' : ''}/wk</span>
+                        )}
                       </span>
                     </div>
                   )}
@@ -494,43 +525,60 @@ export default function AdminPage() {
 
                 {/* Messages */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {messages.map(msg => (
-                    <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: 4 }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
-                        <div style={{
-                          maxWidth: 480, padding: '10px 14px',
-                          borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                          background: msg.role === 'user' ? '#0ea5e9' : msg.flagged ? '#2d1a1a' : '#152035',
-                          border: msg.flagged ? '1px solid #7f1d1d' : 'none',
-                          color: '#f0f9ff', fontSize: 14, lineHeight: 1.5,
-                        }}>
-                          {msg.media_url && msg.content === '[image]'
-                            ? <img src={msg.media_url} alt="user photo" style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8, display: 'block' }} />
-                            : msg.content}
+                  {groupBySession(messages).map(({ sessionId, msgs: sessionMsgs }) => (
+                    <Fragment key={sessionId}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
+                        <div style={{ flex: 1, height: 1, background: '#1a2d45' }} />
+                        <div style={{ fontSize: 10, color: '#3a6080', whiteSpace: 'nowrap', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                          Session · {fmtSessionDate(sessionMsgs[0].created_at)}
                         </div>
-                        {msg.role === 'ai' && (
-                          <button onClick={() => toggleFlag(msg)} title={msg.flagged ? 'Unflag' : 'Flag bad response'}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, opacity: msg.flagged ? 1 : 0.3, padding: 4 }}>
-                            {msg.flagged ? '🚩' : '⚑'}
-                          </button>
-                        )}
+                        <div style={{ flex: 1, height: 1, background: '#1a2d45' }} />
                       </div>
-                      <div style={{ fontSize: 11, color: '#3a6080', paddingLeft: msg.role === 'user' ? 0 : 8, paddingRight: msg.role === 'user' ? 8 : 0 }}>
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        {msg.token_count ? ` · ${msg.token_count} tokens` : ''}
-                      </div>
-                      {msg.role === 'ai' && msg.flagged && (
-                        <div style={{ paddingLeft: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <input value={flagInputs[msg.id] ?? msg.flag_reason ?? ''} onChange={e => setFlagInputs(prev => ({ ...prev, [msg.id]: e.target.value }))}
-                            placeholder="Reason for flagging (optional)"
-                            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #7f1d1d', background: '#1a0a0a', color: '#fca5a5', width: 280 }} />
-                          <button onClick={() => toggleFlag({ ...msg, flagged: true })}
-                            style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, background: '#7f1d1d', color: '#fca5a5', border: 'none', cursor: 'pointer' }}>
-                            Save
-                          </button>
+                      {sessionMsgs.map(msg => (
+                        <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: 4 }}>
+                          {msg.is_checkin_prompt && (
+                            <div style={{ fontSize: 10, color: '#60a5fa', paddingLeft: 8, letterSpacing: 0.5, textTransform: 'uppercase' }}>Check-in Prompt</div>
+                          )}
+                          {msg.is_proof_submission && (
+                            <div style={{ fontSize: 10, color: '#a78bfa', paddingRight: 8, textAlign: 'right', letterSpacing: 0.5, textTransform: 'uppercase' }}>Proof Submission</div>
+                          )}
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
+                            <div style={{
+                              maxWidth: 480, padding: '10px 14px',
+                              borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                              background: msg.role === 'user' ? '#0ea5e9' : msg.flagged ? '#2d1a1a' : '#152035',
+                              border: msg.flagged ? '1px solid #7f1d1d' : 'none',
+                              color: '#f0f9ff', fontSize: 14, lineHeight: 1.5,
+                            }}>
+                              {msg.media_url && msg.content === '[image]'
+                                ? <img src={msg.media_url} alt="user photo" style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8, display: 'block' }} />
+                                : msg.content}
+                            </div>
+                            {msg.role === 'ai' && (
+                              <button onClick={() => toggleFlag(msg)} title={msg.flagged ? 'Unflag' : 'Flag bad response'}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, opacity: msg.flagged ? 1 : 0.3, padding: 4 }}>
+                                {msg.flagged ? '🚩' : '⚑'}
+                              </button>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#3a6080', paddingLeft: msg.role === 'user' ? 0 : 8, paddingRight: msg.role === 'user' ? 8 : 0 }}>
+                            {fmtMsgTime(msg.created_at)}
+                            {msg.token_count ? ` · ${msg.token_count} tokens` : ''}
+                          </div>
+                          {msg.role === 'ai' && msg.flagged && (
+                            <div style={{ paddingLeft: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <input value={flagInputs[msg.id] ?? msg.flag_reason ?? ''} onChange={e => setFlagInputs(prev => ({ ...prev, [msg.id]: e.target.value }))}
+                                placeholder="Reason for flagging (optional)"
+                                style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #7f1d1d', background: '#1a0a0a', color: '#fca5a5', width: 280 }} />
+                              <button onClick={() => toggleFlag({ ...msg, flagged: true })}
+                                style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, background: '#7f1d1d', color: '#fca5a5', border: 'none', cursor: 'pointer' }}>
+                                Save
+                              </button>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      ))}
+                    </Fragment>
                   ))}
                   <div ref={bottomRef} />
                 </div>
@@ -634,7 +682,7 @@ export default function AdminPage() {
 
             <div style={{ background: '#0a1628', border: '1px solid #1e3a5f', borderRadius: 12, padding: '16px 20px', fontSize: 13, color: '#93c5fd', lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, marginBottom: 6 }}>How crisis alerts work</div>
-              When RYKE detects a distress message, it:<br />
+              When KIBA detects a distress message, it:<br />
               1. Sends an SMS to the coach phone number above<br />
               2. Sends an email to the coach email above<br />
               3. The coach can view the full conversation in the <strong>Users</strong> tab<br />
