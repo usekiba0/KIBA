@@ -3,7 +3,8 @@ import { useEffect, useState, useRef, Fragment } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/v1';
 
-type Tab = 'dashboard' | 'users' | 'crisis' | 'settings';
+type Tab = 'dashboard' | 'users' | 'crisis' | 'corrections' | 'settings';
+type CorrectionStatus = 'pending' | 'accepted' | 'appended' | 'rejected';
 type UserStatus = 'trial' | 'active' | 'paused' | 'cancelled';
 type SubStatus = 'trialing' | 'active' | 'past_due' | 'cancelled';
 type AlertStatus = 'open' | 'acknowledged' | 'resolved';
@@ -15,6 +16,8 @@ interface Message { id: string; session_id: string; role: 'user' | 'ai'; content
 interface UserSubDetail { subscription: { stripe_customer_id: string; stripe_subscription_id: string; plan: string; status: string; trial_start: string; trial_end: string; current_period_end: string | null; created_at: string; } | null; stats: { total_messages: number; user_messages: number; ai_messages: number; flagged_messages: number; total_tokens_used: number; first_message_at: string | null; last_message_at: string | null; }; }
 interface DashStats { total_users: number; active_users: number; trial_users: number; paused_users: number; cancelled_users: number; crisis_hold_count: number; active_subs: number; trialing_subs: number; past_due_subs: number; cancelled_subs: number; trial_to_paid_count: number; mrr_cents: number; arr_cents: number; messages_last_24h: number; messages_last_7d: number; flagged_messages_total: number; open_alerts: number; acknowledged_alerts: number; alerts_last_30d: number; }
 interface CrisisAlert { id: string; user_id: string; user_name: string; user_phone: string; detection_method: string; confidence_score: number | null; coach_alerted: boolean; coach_alerted_at: string | null; coach_alert_channel: string | null; holding_message_sent: boolean; status: AlertStatus; resolved_by: string | null; resolved_at: string | null; created_at: string; }
+interface Correction { id: string; user_id: string; triggering_message_id: string | null; correction_text: string; ai_analysis: string | null; ai_validity_score: number | null; ai_suggested_knowledge: string | null; status: CorrectionStatus; knowledge_id: string | null; admin_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string; }
+interface Knowledge { id: string; title: string; content: string; source_correction_id: string | null; active: boolean; created_by: string; created_at: string; updated_at: string; }
 
 function timeAgo(iso: string | null) {
   if (!iso) return 'never';
@@ -117,6 +120,13 @@ export default function AdminPage() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [corrections, setCorrections] = useState<Correction[]>([]);
+  const [knowledge, setKnowledge] = useState<Knowledge[]>([]);
+  const [correctionsLoaded, setCorrectionsLoaded] = useState(false);
+  const [showReviewedCorrections, setShowReviewedCorrections] = useState(false);
+  const [reviewerName, setReviewerName] = useState('');
+  const [correctionDraft, setCorrectionDraft] = useState<Record<string, { title: string; content: string }>>({});
+  const [correctingId, setCorrectingId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -222,6 +232,91 @@ export default function AdminPage() {
       setCoachSettings(data);
       setSettingsForm(data);
     }
+    if (t === 'corrections' && !correctionsLoaded) await loadCorrections(showReviewedCorrections);
+  }
+
+  async function loadCorrections(includeReviewed: boolean) {
+    const [c, k] = await Promise.all([
+      apiFetch(`/admin/corrections${includeReviewed ? '?include_reviewed=true' : ''}`),
+      apiFetch('/admin/knowledge'),
+    ]);
+    setCorrections(c);
+    setKnowledge(k);
+    setCorrectionsLoaded(true);
+    // Seed drafts from AI suggestion so admin can edit-then-accept
+    const seed: Record<string, { title: string; content: string }> = {};
+    for (const row of c as Correction[]) {
+      seed[row.id] = {
+        title: row.ai_analysis ? row.ai_analysis.slice(0, 80) : row.correction_text.slice(0, 80),
+        content: row.ai_suggested_knowledge ?? row.correction_text,
+      };
+    }
+    setCorrectionDraft(seed);
+  }
+
+  async function toggleShowReviewedCorrections() {
+    const next = !showReviewedCorrections;
+    setShowReviewedCorrections(next);
+    await loadCorrections(next);
+  }
+
+  async function acceptCorrection(c: Correction) {
+    const draft = correctionDraft[c.id];
+    if (!reviewerName.trim() || !draft?.title.trim() || !draft?.content.trim()) return;
+    setCorrectingId(c.id);
+    try {
+      await apiFetch(`/admin/corrections/${c.id}/accept`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reviewed_by: reviewerName.trim(), title: draft.title.trim(), content: draft.content.trim() }),
+      });
+      await loadCorrections(showReviewedCorrections);
+    } catch (err) {
+      alert(`Accept failed: ${err instanceof Error ? err.message : 'server error'}`);
+    }
+    setCorrectingId(null);
+  }
+
+  async function appendCorrection(c: Correction, knowledgeId: string) {
+    const draft = correctionDraft[c.id];
+    if (!reviewerName.trim() || !knowledgeId || !draft?.content.trim()) return;
+    setCorrectingId(c.id);
+    try {
+      await apiFetch(`/admin/corrections/${c.id}/append`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reviewed_by: reviewerName.trim(), knowledge_id: knowledgeId, appended_content: draft.content.trim() }),
+      });
+      await loadCorrections(showReviewedCorrections);
+    } catch (err) {
+      alert(`Append failed: ${err instanceof Error ? err.message : 'server error'}`);
+    }
+    setCorrectingId(null);
+  }
+
+  async function rejectCorrection(c: Correction) {
+    if (!reviewerName.trim()) return;
+    setCorrectingId(c.id);
+    try {
+      await apiFetch(`/admin/corrections/${c.id}/reject`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reviewed_by: reviewerName.trim() }),
+      });
+      await loadCorrections(showReviewedCorrections);
+    } catch (err) {
+      alert(`Reject failed: ${err instanceof Error ? err.message : 'server error'}`);
+    }
+    setCorrectingId(null);
+  }
+
+  async function toggleKnowledgeActive(k: Knowledge) {
+    try {
+      await apiFetch(`/admin/knowledge/${k.id}/active`, {
+        method: 'PATCH',
+        body: JSON.stringify({ active: !k.active }),
+      });
+      setKnowledge(prev => prev.map(x => x.id === k.id ? { ...x, active: !x.active } : x));
+    } catch (err) {
+      alert(`Toggle failed: ${err instanceof Error ? err.message : 'server error'}`);
+    }
   }
 
   async function saveSettings(e: React.FormEvent) {
@@ -278,10 +373,10 @@ export default function AdminPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', borderBottom: '1px solid #27272a', background: '#0c1829', height: 52, flexShrink: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 16 }}>KIBA <span style={{ color: '#38bdf8' }}>Admin</span></div>
         <div style={{ display: 'flex', gap: 4 }}>
-          {(['dashboard', 'users', 'crisis', 'settings'] as Tab[]).map(t => (
+          {(['dashboard', 'users', 'crisis', 'corrections', 'settings'] as Tab[]).map(t => (
             <button key={t} onClick={() => handleTabChange(t)}
               style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: tab === t ? 600 : 400, background: tab === t ? '#1a2d45' : 'transparent', color: tab === t ? '#fafafa' : '#71717a', position: 'relative' }}>
-              {t === 'crisis' ? 'Crisis Alerts' : t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'crisis' ? 'Crisis Alerts' : t === 'corrections' ? 'Corrections' : t.charAt(0).toUpperCase() + t.slice(1)}
               {t === 'crisis' && openAlertCount > 0 && (
                 <span style={{ position: 'absolute', top: 2, right: 2, width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
               )}
@@ -635,6 +730,143 @@ export default function AdminPage() {
                   {resolved && (
                     <div style={{ marginTop: 8, fontSize: 12, color: '#3a6080' }}>
                       Resolved by <span style={{ color: '#7eb4cc' }}>{alert.resolved_by}</span> on {fmt(alert.resolved_at)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Corrections Tab */}
+      {tab === 'corrections' && (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>Corrections</div>
+              <div style={{ fontSize: 13, color: '#3a6080', marginTop: 2 }}>User-submitted #kibi corrections — accept to inject into all users&apos; AI context</div>
+            </div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <input
+                value={reviewerName}
+                onChange={e => setReviewerName(e.target.value)}
+                placeholder="Your name (required to review)"
+                style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', width: 220 }}
+              />
+              <button onClick={toggleShowReviewedCorrections}
+                style={{ fontSize: 12, color: '#7eb4cc', background: '#18181b', border: '1px solid #27272a', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>
+                {showReviewedCorrections ? 'Pending only' : 'Show reviewed'}
+              </button>
+            </div>
+          </div>
+
+          {/* Knowledge entries panel */}
+          <div style={{ background: '#0a1628', border: '1px solid #1e3a5f', borderRadius: 10, padding: '14px 18px', marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#93c5fd', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>
+              Live Knowledge ({knowledge.filter(k => k.active).length} active / {knowledge.length} total)
+            </div>
+            {knowledge.length === 0 && <div style={{ fontSize: 13, color: '#3a6080' }}>No knowledge entries yet — accept a correction to add one.</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {knowledge.map(k => (
+                <div key={k.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderTop: '1px solid #1e3a5f' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: k.active ? '#f0f9ff' : '#52525b' }}>{k.title}</div>
+                    <div style={{ fontSize: 12, color: '#7eb4cc', marginTop: 2, whiteSpace: 'pre-wrap' }}>{k.content}</div>
+                    <div style={{ fontSize: 11, color: '#3a6080', marginTop: 4 }}>by {k.created_by} · {fmt(k.created_at)}</div>
+                  </div>
+                  <button onClick={() => toggleKnowledgeActive(k)}
+                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, border: 'none', cursor: 'pointer', fontWeight: 600,
+                      background: k.active ? '#0a1a0e' : '#27272a', color: k.active ? '#4ade80' : '#a1a1aa' }}>
+                    {k.active ? 'Active' : 'Disabled'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {corrections.length === 0 && <div style={{ color: '#3a6080', fontSize: 14 }}>No corrections{showReviewedCorrections ? '' : ' pending'}.</div>}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {corrections.map(c => {
+              const isPending = c.status === 'pending';
+              const score = c.ai_validity_score;
+              const scoreColor = score == null ? '#52525b' : score >= 70 ? '#4ade80' : score >= 40 ? '#fbbf24' : '#f87171';
+              const statusColor = c.status === 'accepted' ? '#22c55e' : c.status === 'appended' ? '#0ea5e9' : c.status === 'rejected' ? '#71717a' : '#f59e0b';
+              const draft = correctionDraft[c.id] ?? { title: '', content: '' };
+              return (
+                <div key={c.id} style={{ background: '#0c1829', border: `1px solid ${isPending ? statusColor : '#27272a'}`, borderLeft: `4px solid ${statusColor}`, borderRadius: 10, padding: '16px 20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: statusColor + '33', color: statusColor, textTransform: 'uppercase', fontWeight: 600 }}>{c.status}</span>
+                      {score != null && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: scoreColor + '22', color: scoreColor }}>AI validity {score}/100</span>
+                      )}
+                      <span style={{ fontSize: 12, color: '#3a6080' }}>from user {c.user_id.slice(0, 8)}</span>
+                    </div>
+                    <span style={{ fontSize: 12, color: '#3a6080' }}>{timeAgo(c.created_at)}</span>
+                  </div>
+
+                  <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>User said</div>
+                  <div style={{ fontSize: 13, color: '#f0f9ff', background: '#081422', borderRadius: 6, padding: '8px 12px', marginBottom: 12, whiteSpace: 'pre-wrap' }}>{c.correction_text}</div>
+
+                  {c.ai_analysis && (
+                    <>
+                      <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>AI analysis</div>
+                      <div style={{ fontSize: 13, color: '#7eb4cc', marginBottom: 12 }}>{c.ai_analysis}</div>
+                    </>
+                  )}
+
+                  {isPending ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, color: '#3a6080', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>Knowledge title (for Accept)</label>
+                        <input
+                          value={draft.title}
+                          onChange={e => setCorrectionDraft(prev => ({ ...prev, [c.id]: { ...draft, title: e.target.value } }))}
+                          placeholder="Short title for this knowledge entry"
+                          style={{ width: '100%', fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, color: '#3a6080', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>Knowledge content (injected into AI prompt for all users)</label>
+                        <textarea
+                          value={draft.content}
+                          onChange={e => setCorrectionDraft(prev => ({ ...prev, [c.id]: { ...draft, content: e.target.value } }))}
+                          rows={3}
+                          style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 6, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button onClick={() => acceptCorrection(c)} disabled={correctingId === c.id || !reviewerName.trim() || !draft.title.trim() || !draft.content.trim()}
+                          style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, background: '#14532d', color: '#86efac', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                          {correctingId === c.id ? '...' : '✓ Accept (new entry)'}
+                        </button>
+                        {knowledge.length > 0 && (
+                          <select
+                            onChange={e => { if (e.target.value) appendCorrection(c, e.target.value); e.currentTarget.value = ''; }}
+                            disabled={correctingId === c.id || !reviewerName.trim() || !draft.content.trim()}
+                            defaultValue=""
+                            style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, background: '#1e3a5f', color: '#93c5fd', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                            <option value="">+ Append to…</option>
+                            {knowledge.map(k => (
+                              <option key={k.id} value={k.id}>{k.title}</option>
+                            ))}
+                          </select>
+                        )}
+                        <button onClick={() => rejectCorrection(c)} disabled={correctingId === c.id || !reviewerName.trim()}
+                          style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, background: '#3b0a0a', color: '#f87171', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                          ✕ Reject
+                        </button>
+                      </div>
+                      {!reviewerName.trim() && (
+                        <div style={{ fontSize: 12, color: '#fbbf24' }}>Enter your name above to enable review actions.</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: '#3a6080' }}>
+                      Reviewed by <span style={{ color: '#7eb4cc' }}>{c.reviewed_by}</span> on {fmt(c.reviewed_at)}
+                      {c.admin_note && <div style={{ marginTop: 4 }}>Note: {c.admin_note}</div>}
                     </div>
                   )}
                 </div>

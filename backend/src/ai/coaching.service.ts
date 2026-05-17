@@ -10,6 +10,7 @@ import { PsychologicalProfile } from '../data/entities/psychological-profile.ent
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { Strike } from '../data/entities/strike.entity';
 import { buildSystemPrompt } from './prompts/coaching.prompt';
+import { CorrectionService } from '../data/correction.service';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
 @Injectable()
@@ -25,6 +26,7 @@ export class CoachingService {
     private readonly scoreRepo: Repository<ExecutionScore>,
     @InjectRepository(Strike)
     private readonly strikeRepo: Repository<Strike>,
+    private readonly correctionService: CorrectionService,
   ) {
     this.client = createAnthropicClient(config);
   }
@@ -47,7 +49,7 @@ export class CoachingService {
     imageUrl?: string,
     imageContentType?: string,
   ): Promise<{ reply: string; tokenCount: number }> {
-    const [profile, latestScore, strikeCount] = await Promise.all([
+    const [profile, latestScore, strikeCount, knowledge] = await Promise.all([
       this.profileRepo.findOne({ where: { user_id: user.id } }),
       this.scoreRepo.findOne({
         where: { user_id: user.id },
@@ -59,12 +61,14 @@ export class CoachingService {
           created_at: MoreThanOrEqual(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
         },
       }),
+      this.correctionService.getActiveKnowledge(),
     ]);
 
+    const knowledgeTexts = knowledge.map((k) => k.content);
     const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
     const systemPrompt = profile
-      ? buildSystemPrompt(user, profile, latestScore?.current_score ?? 0, strikeCount, sessionSummary)
-      : `You are Kiba — a psychological accountability system. User: ${user.name}. When asked for plans, workouts, or advice, give them immediately and specifically. Always end with a required action or accountability demand. No hedging, no refusing.`;
+      ? buildSystemPrompt(user, profile, latestScore?.current_score ?? 0, strikeCount, sessionSummary, knowledgeTexts)
+      : `You are Kiba — a psychological accountability system. User: ${user.name}. When asked for plans, workouts, or advice, give them immediately and specifically. Always end with a required action or accountability demand. No hedging, no refusing.${knowledgeTexts.length > 0 ? '\n\nADMIN-CURATED KNOWLEDGE:\n' + knowledgeTexts.map((k) => '- ' + k).join('\n') : ''}`;
 
     type MsgParam = Anthropic.Messages.MessageParam;
     const history: MsgParam[] = recentMessages.map((m) => ({

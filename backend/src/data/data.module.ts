@@ -17,12 +17,15 @@ import { Proof } from './entities/proof.entity';
 import { Strike } from './entities/strike.entity';
 import { ExecutionScore } from './entities/execution-score.entity';
 import { AntiGhostState } from './entities/anti-ghost-state.entity';
+import { Correction } from './entities/correction.entity';
+import { CoachingKnowledge } from './entities/coaching-knowledge.entity';
 import { SessionCacheService } from './session-cache.service';
 import { SessionBoundaryService } from './session-boundary.service';
 import { DataRightsService } from './data-rights.service';
 import { DataRightsController } from './data-rights.controller';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
+import { CorrectionService } from './correction.service';
 import { StripeService } from '../onboarding/stripe.service';
 
 const ENTITIES = [
@@ -41,6 +44,8 @@ const ENTITIES = [
   Strike,
   ExecutionScore,
   AntiGhostState,
+  Correction,
+  CoachingKnowledge,
 ];
 
 @Module({
@@ -58,7 +63,7 @@ const ENTITIES = [
     }),
   ],
   controllers: [DataRightsController, AdminController],
-  providers: [SessionCacheService, SessionBoundaryService, DataRightsService, AdminService, StripeService],
-  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule, StripeService],
+  providers: [SessionCacheService, SessionBoundaryService, DataRightsService, AdminService, CorrectionService, StripeService],
+  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule, StripeService, CorrectionService],
 })
 export class DataModule {}

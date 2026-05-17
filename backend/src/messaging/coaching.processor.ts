@@ -14,6 +14,7 @@ import { CrisisService } from '../ai/crisis.service';
 import { SummarisationService } from '../ai/summarisation.service';
 import { SessionCacheService } from '../data/session-cache.service';
 import { SessionBoundaryService } from '../data/session-boundary.service';
+import { CorrectionService } from '../data/correction.service';
 import { MessagingService } from './messaging.service';
 import { SafetyService } from '../safety/safety.service';
 import { AntiGhostService } from '../accountability/anti-ghost.service';
@@ -66,6 +67,7 @@ export class CoachingProcessor {
     private readonly scoreIntentService: ScoreIntentService,
     @Inject(forwardRef(() => CheckinService))
     private readonly checkinService: CheckinService,
+    private readonly correctionService: CorrectionService,
   ) {}
 
   @OnQueueActive()
@@ -171,6 +173,30 @@ export class CoachingProcessor {
     await this.antiGhostService.onUserResponse(user.id).catch((err) =>
       this.logger.warn(`onUserResponse failed for ${user.id}: ${(err as Error).message}`),
     );
+
+    // Correction trigger: "#kibi <correction>" routes to the curation queue,
+    // not the coaching LLM. Runs before other intent branches so reminder/score
+    // regexes can't accidentally swallow correction text.
+    if (CorrectionService.isCorrectionTrigger(body)) {
+      const correctionText = CorrectionService.extractCorrectionText(body);
+      if (correctionText.length === 0) {
+        await this.saveAndSend(
+          user,
+          boundary.sessionId,
+          "send `#kibi` followed by what was wrong so i can flag it for review.",
+        );
+        return;
+      }
+      this.correctionService
+        .capture({ userId: user.id, sessionId: boundary.sessionId, correctionText })
+        .catch((err) => this.logger.error(`Correction capture failed: ${(err as Error).message}`));
+      await this.saveAndSend(
+        user,
+        boundary.sessionId,
+        "got it — flagged for review. appreciate you keeping me honest.",
+      );
+      return;
+    }
 
     // Score query intent
     const lowerBody = body.toLowerCase();

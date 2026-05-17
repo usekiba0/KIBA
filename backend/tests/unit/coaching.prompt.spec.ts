@@ -110,4 +110,26 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
     expect(prompt.length).toBeLessThan(2400);
   });
+
+  describe('curated knowledge injection', () => {
+    it('injects each entry as a bullet under a labeled section', () => {
+      const prompt = buildSystemPrompt(
+        mockUser as any, mockProfile as any, 72, 0, undefined,
+        ['Always use metric units when asked about distance', 'Never recommend skipping rest days'],
+      );
+      expect(prompt).toContain('CURATED KNOWLEDGE');
+      expect(prompt).toContain('- Always use metric units when asked about distance');
+      expect(prompt).toContain('- Never recommend skipping rest days');
+    });
+
+    it('omits the knowledge section entirely when none provided', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      expect(prompt).not.toContain('CURATED KNOWLEDGE');
+    });
+
+    it('omits the knowledge section when an empty array is provided', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0, undefined, []);
+      expect(prompt).not.toContain('CURATED KNOWLEDGE');
+    });
+  });
 });

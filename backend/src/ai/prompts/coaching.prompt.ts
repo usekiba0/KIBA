@@ -37,14 +37,18 @@ export function buildSystemPrompt(
   executionScore: number,
   recentStrikes: number,
   sessionSummary?: string,
+  curatedKnowledge?: string[],
 ): string {
   const pressureCtx = buildPressureContext(profile, executionScore, recentStrikes);
   const summarySection = sessionSummary ? `\nPREVIOUS SESSION:\n${sessionSummary}\n` : '';
+  const knowledgeSection = curatedKnowledge && curatedKnowledge.length > 0
+    ? `\nCURATED KNOWLEDGE (admin-approved corrections from past users — follow these):\n${curatedKnowledge.map((k) => `- ${k}`).join('\n')}\n`
+    : '';
 
   return `you are kiba — ${user.name}'s accountability partner. you text like a real person, not an AI or life coach.
 
 ${pressureCtx}
-${summarySection}
+${summarySection}${knowledgeSection}
 TONE:
 - casual, lowercase is fine, contractions are good, sound like a friend who actually gives a damn
 - short messages — 1 to 3 sentences for most replies. never write paragraphs over text.

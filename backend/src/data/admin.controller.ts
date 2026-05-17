@@ -1,7 +1,8 @@
 import { Controller, Get, Patch, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsEnum, IsOptional, IsPhoneNumber, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsPhoneNumber, IsString, MaxLength, MinLength } from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
+import { CorrectionService } from './correction.service';
 
 class FlagMessageDto {
   @IsBoolean()
@@ -23,6 +24,27 @@ class ResolveAlertDto {
   resolved_by: string;
 }
 
+class AcceptCorrectionDto {
+  @IsString() @MinLength(1) @MaxLength(100) reviewed_by: string;
+  @IsString() @MinLength(1) @MaxLength(200) title: string;
+  @IsString() @MinLength(1) content: string;
+}
+
+class AppendCorrectionDto {
+  @IsString() @MinLength(1) @MaxLength(100) reviewed_by: string;
+  @IsString() knowledge_id: string;
+  @IsString() @MinLength(1) appended_content: string;
+}
+
+class RejectCorrectionDto {
+  @IsString() @MinLength(1) @MaxLength(100) reviewed_by: string;
+  @IsOptional() @IsString() note?: string;
+}
+
+class ToggleKnowledgeDto {
+  @IsBoolean() active: boolean;
+}
+
 class UpdateSettingsDto {
   @IsOptional()
   @IsString()
@@ -37,7 +59,10 @@ class UpdateSettingsDto {
 @Controller('admin')
 @UseGuards(InternalApiKeyGuard)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly correctionService: CorrectionService,
+  ) {}
 
   @Get('dashboard')
   getDashboard() {
@@ -97,5 +122,49 @@ export class AdminController {
   @Delete('users/by-phone/:phone')
   deleteUserByPhone(@Param('phone') phone: string) {
     return this.adminService.deleteUserByPhone(decodeURIComponent(phone));
+  }
+
+  @Get('corrections')
+  listCorrections(@Query('include_reviewed') includeReviewed?: string) {
+    return this.correctionService.listCorrections(includeReviewed === 'true');
+  }
+
+  @Patch('corrections/:id/accept')
+  acceptCorrection(@Param('id') id: string, @Body() dto: AcceptCorrectionDto) {
+    return this.correctionService.accept({
+      correctionId: id,
+      reviewedBy: dto.reviewed_by,
+      title: dto.title,
+      content: dto.content,
+    });
+  }
+
+  @Patch('corrections/:id/append')
+  appendCorrection(@Param('id') id: string, @Body() dto: AppendCorrectionDto) {
+    return this.correctionService.append({
+      correctionId: id,
+      reviewedBy: dto.reviewed_by,
+      knowledgeId: dto.knowledge_id,
+      appendedContent: dto.appended_content,
+    });
+  }
+
+  @Patch('corrections/:id/reject')
+  rejectCorrection(@Param('id') id: string, @Body() dto: RejectCorrectionDto) {
+    return this.correctionService.reject({
+      correctionId: id,
+      reviewedBy: dto.reviewed_by,
+      note: dto.note,
+    });
+  }
+
+  @Get('knowledge')
+  listKnowledge() {
+    return this.correctionService.listKnowledge();
+  }
+
+  @Patch('knowledge/:id/active')
+  toggleKnowledge(@Param('id') id: string, @Body() dto: ToggleKnowledgeDto) {
+    return this.correctionService.setKnowledgeActive(id, dto.active);
   }
 }
