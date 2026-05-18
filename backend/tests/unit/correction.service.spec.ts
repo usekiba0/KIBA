@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { CorrectionService, CORRECTION_PREFIX } from '../../src/data/correction.service';
+import { CorrectionService, CORRECTION_PREFIX, CORRECTION_PREFIXES } from '../../src/data/correction.service';
 import { Correction, CorrectionStatus } from '../../src/data/entities/correction.entity';
 import { CoachingKnowledge } from '../../src/data/entities/coaching-knowledge.entity';
 import { Message, MessageRole } from '../../src/data/entities/message.entity';
@@ -22,6 +22,11 @@ describe('CorrectionService static helpers', () => {
 
     it('returns true for exact lowercase prefix', () => {
       expect(CorrectionService.isCorrectionTrigger('#kibi the answer is wrong')).toBe(true);
+    });
+
+    it('accepts #kiba (brand spelling) too', () => {
+      expect(CorrectionService.isCorrectionTrigger('#kiba you got it wrong')).toBe(true);
+      expect(CorrectionService.isCorrectionTrigger('#KIBA UPPERCASE')).toBe(true);
     });
 
     it('returns true for mixed case', () => {
@@ -51,9 +56,15 @@ describe('CorrectionService static helpers', () => {
       expect(CorrectionService.extractCorrectionText('#kibi  the answer is wrong  ')).toBe('the answer is wrong');
     });
 
+    it('strips #kiba prefix too', () => {
+      expect(CorrectionService.extractCorrectionText('#kiba why did you forget to send motivational quote'))
+        .toBe('why did you forget to send motivational quote');
+    });
+
     it('returns empty string when only the prefix is sent', () => {
       expect(CorrectionService.extractCorrectionText('#kibi')).toBe('');
       expect(CorrectionService.extractCorrectionText('#kibi   ')).toBe('');
+      expect(CorrectionService.extractCorrectionText('#kiba')).toBe('');
     });
 
     it('preserves internal whitespace', () => {
@@ -61,8 +72,9 @@ describe('CorrectionService static helpers', () => {
     });
   });
 
-  it('exports the canonical prefix', () => {
+  it('exports the canonical prefix and list', () => {
     expect(CORRECTION_PREFIX).toBe('#kibi');
+    expect(CORRECTION_PREFIXES).toEqual(['#kibi', '#kiba']);
   });
 });
 

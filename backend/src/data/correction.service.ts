@@ -9,7 +9,9 @@ import { CoachingKnowledge } from './entities/coaching-knowledge.entity';
 import { Message, MessageRole } from './entities/message.entity';
 import { structuredLog } from '../common/logger';
 
-export const CORRECTION_PREFIX = '#kibi';
+export const CORRECTION_PREFIXES = ['#kibi', '#kiba'] as const;
+// Kept for backwards-compat with anything importing the singular constant.
+export const CORRECTION_PREFIX = CORRECTION_PREFIXES[0];
 
 interface AnalysisResult {
   validity_score: number;
@@ -31,15 +33,21 @@ export class CorrectionService {
     this.client = createAnthropicClient(config);
   }
 
-  /** True if the message body starts with the correction trigger (case-insensitive). */
+  /**
+   * True if the message body starts with a correction trigger (case-insensitive).
+   * Accepts both `#kibi` and `#kiba` because users naturally type the brand name.
+   */
   static isCorrectionTrigger(body: string): boolean {
-    return body.trim().toLowerCase().startsWith(CORRECTION_PREFIX);
+    const lower = body.trim().toLowerCase();
+    return CORRECTION_PREFIXES.some((p) => lower.startsWith(p));
   }
 
-  /** Strip the `#kibi` prefix and return the correction text (may be empty). */
+  /** Strip the trigger prefix and return the correction text (may be empty). */
   static extractCorrectionText(body: string): string {
     const trimmed = body.trim();
-    return trimmed.slice(CORRECTION_PREFIX.length).trim();
+    const lower = trimmed.toLowerCase();
+    const matched = CORRECTION_PREFIXES.find((p) => lower.startsWith(p));
+    return matched ? trimmed.slice(matched.length).trim() : trimmed;
   }
 
   /**

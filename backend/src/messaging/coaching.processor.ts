@@ -183,7 +183,7 @@ export class CoachingProcessor {
         await this.saveAndSend(
           user,
           boundary.sessionId,
-          "send `#kibi` followed by what was wrong so i can flag it for review.",
+          "send `#kibi` or `#kiba` followed by what was wrong so i can flag it for review.",
         );
         return;
       }
