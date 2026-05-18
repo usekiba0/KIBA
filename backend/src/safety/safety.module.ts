@@ -9,7 +9,7 @@ import { SafetyController } from './safety.controller';
 
 @Module({
   imports: [
-    DataModule,
+    forwardRef(() => DataModule),
     forwardRef(() => MessagingModule),
     AiModule,
     BullModule.registerQueue({ name: 'crisis-detection' }),

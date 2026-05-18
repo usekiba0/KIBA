@@ -14,7 +14,7 @@ import { ScoreIntentService } from '../accountability/score-intent.service';
 
 @Module({
   imports: [
-    DataModule,
+    forwardRef(() => DataModule),
     AiModule,
     forwardRef(() => SafetyModule),
     forwardRef(() => AccountabilityModule),
