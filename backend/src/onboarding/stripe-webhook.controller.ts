@@ -8,8 +8,8 @@ import { Repository, QueryFailedError } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { StripeService } from './stripe.service';
-import { Subscription, SubscriptionStatus } from '../data/entities/subscription.entity';
-import { User, UserStatus } from '../data/entities/user.entity';
+import { Subscription, SubscriptionStatus, SubscriptionPlan } from '../data/entities/subscription.entity';
+import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
 import { ProcessedStripeEvent } from '../data/entities/processed-stripe-event.entity';
 import { structuredLog } from '../common/logger';
 import Stripe from 'stripe';
@@ -63,6 +63,61 @@ export class StripeWebhookController {
     const data = event.data.object as any;
 
     switch (event.type) {
+      case 'checkout.session.completed': {
+        // SMS-first onboarding completed payment. Promote the user from
+        // payment_pending -> complete and create their subscription row.
+        const session = data as Stripe.Checkout.Session;
+        const userId = session.metadata?.user_id;
+        if (!userId) {
+          this.logger.warn(`checkout.session.completed without user_id metadata: ${session.id}`);
+          break;
+        }
+        const user = await this.userRepo.findOne({ where: { id: userId } });
+        if (!user) {
+          this.logger.warn(`checkout.session.completed for unknown user_id ${userId}`);
+          break;
+        }
+
+        // Find or create the subscription row. The customer.subscription.created
+        // event may have already created one — if so, just promote the user.
+        let sub = await this.subRepo.findOne({ where: { user_id: user.id } });
+        if (!sub && session.subscription) {
+          // Pull the Stripe subscription so we know the trial_end + status.
+          const stripeSub = await this.stripeService.getSubscription(
+            typeof session.subscription === 'string' ? session.subscription : session.subscription.id,
+          );
+          const now = new Date();
+          sub = this.subRepo.create({
+            user_id: user.id,
+            stripe_customer_id: typeof session.customer === 'string' ? session.customer : session.customer?.id ?? '',
+            stripe_subscription_id: stripeSub.id,
+            plan: SubscriptionPlan.INDIVIDUAL,
+            status: (stripeSub.status as SubscriptionStatus) ?? SubscriptionStatus.TRIALING,
+            trial_start: stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : now,
+            trial_end: stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : now,
+          });
+          await this.subRepo.save(sub);
+        }
+
+        user.onboarding_stage = OnboardingStage.COMPLETE;
+        user.status = UserStatus.TRIAL;
+        await this.userRepo.save(user);
+
+        await this.messagingQueue.add('send-message', {
+          to: user.phone_number,
+          body: "you're in. coaching mode unlocked — tell me what we're locking in today.",
+          type: 'sms_onboarding_complete',
+        });
+
+        structuredLog(this.logger, 'log', {
+          service: 'stripe-webhook',
+          operation: 'sms_onboarding_complete',
+          userId: user.id,
+          sessionId: session.id,
+        });
+        break;
+      }
+
       case 'customer.subscription.created': {
         const sub = await this.subRepo.findOne({ where: { stripe_subscription_id: data.id } });
         if (sub) {

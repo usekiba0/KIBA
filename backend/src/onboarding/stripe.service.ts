@@ -73,4 +73,36 @@ export class StripeService {
     const secret = this.config.getOrThrow<string>('STRIPE_WEBHOOK_SECRET');
     return this.stripe.webhooks.constructEvent(payload, signature, secret);
   }
+
+  /**
+   * Create a Stripe Checkout Session for SMS-first onboarding. Returns a hosted
+   * URL we SMS to the user. The session metadata embeds our internal user_id so
+   * the webhook can route the success event back to the right user.
+   */
+  async createCheckoutSession(args: {
+    customerId: string;
+    priceId: string;
+    trialDays: number;
+    userId: string;
+    successUrl: string;
+    cancelUrl: string;
+  }): Promise<Stripe.Checkout.Session> {
+    return this.stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: args.customerId,
+      line_items: [{ price: args.priceId, quantity: 1 }],
+      subscription_data: {
+        trial_period_days: args.trialDays,
+        metadata: { user_id: args.userId },
+      },
+      metadata: { user_id: args.userId },
+      success_url: args.successUrl,
+      cancel_url: args.cancelUrl,
+      allow_promotion_codes: true,
+    });
+  }
+
+  async expireCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+    return this.stripe.checkout.sessions.expire(sessionId);
+  }
 }

@@ -108,6 +108,7 @@ export class AdminService {
       SELECT
         u.id, u.name, u.phone_number, u.coaching_focus, u.goals, u.status,
         u.crisis_hold, u.last_active_at, u.registered_at,
+        u.onboarding_stage, u.payment_link_sent_at, u.dunning_nudges_sent,
         s.id AS sub_id, s.plan AS sub_plan, s.status AS sub_status,
         s.trial_end, s.current_period_end,
         es.current_score AS execution_score,
@@ -139,6 +140,9 @@ export class AdminService {
       crisis_hold: r.crisis_hold,
       last_active_at: r.last_active_at,
       registered_at: r.registered_at,
+      onboarding_stage: r.onboarding_stage,
+      payment_link_sent_at: r.payment_link_sent_at,
+      dunning_nudges_sent: r.dunning_nudges_sent ?? 0,
       execution_score: r.execution_score ?? null,
       strike_count: r.strike_count ?? 0,
       plan_status: r.plan_status ?? 'pending',
@@ -174,6 +178,12 @@ export class AdminService {
         status: u.status, crisis_hold: u.crisis_hold,
         checkin_time: u.checkin_time, last_active_at: u.last_active_at,
         registered_at: u.registered_at,
+        utc_offset_minutes: u.utc_offset_minutes,
+        onboarding_stage: u.onboarding_stage,
+        intake_data: u.intake_data ?? {},
+        payment_link_sent_at: u.payment_link_sent_at,
+        sample_coaching_given: u.sample_coaching_given,
+        dunning_nudges_sent: u.dunning_nudges_sent ?? 0,
         subscription: u.sub_id
           ? { id: u.sub_id, plan: u.sub_plan, status: u.sub_status, trial_end: u.trial_end, current_period_end: u.current_period_end }
           : null,
