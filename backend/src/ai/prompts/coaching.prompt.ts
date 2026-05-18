@@ -41,15 +41,41 @@ export interface TimeContext {
 function formatTimeContext(ctx: TimeContext): string {
   const utcIso = ctx.nowUtc.toISOString();
   if (ctx.userOffsetMinutes === null) {
-    return `CURRENT TIME:\n- Server UTC: ${utcIso}\n- User timezone: unknown (ask the user before scheduling)\n`;
+    return [
+      'CURRENT TIME:',
+      `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
+      '- USER TIMEZONE: unknown — ask the user before scheduling anything time-specific.',
+      '',
+    ].join('\n');
   }
+  // Build a human-friendly local clock string so the AI can talk to the user
+  // about their day naturally, but NEVER mistake it for a UTC timestamp.
   const localMs = ctx.nowUtc.getTime() + ctx.userOffsetMinutes * 60_000;
   const local = new Date(localMs);
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const hh = local.getUTCHours();
+  const mm = local.getUTCMinutes().toString().padStart(2, '0');
+  const period = hh >= 12 ? 'PM' : 'AM';
+  const hh12 = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
+  const localPretty = `${hh12}:${mm} ${period}, ${days[local.getUTCDay()]} ${months[local.getUTCMonth()]} ${local.getUTCDate()}`;
   const sign = ctx.userOffsetMinutes >= 0 ? '+' : '-';
   const absMin = Math.abs(ctx.userOffsetMinutes);
   const h = Math.floor(absMin / 60).toString().padStart(2, '0');
   const m = (absMin % 60).toString().padStart(2, '0');
-  return `CURRENT TIME:\n- Server UTC: ${utcIso}\n- User local time: ${local.toISOString().replace('Z', '')} (UTC${sign}${h}:${m})\n`;
+  return [
+    'CURRENT TIME:',
+    `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
+    `- USER LOCAL CLOCK (for display only, NOT for tool input): ${localPretty} — user offset is UTC${sign}${h}:${m}`,
+    '',
+    'SCHEDULING MATH RULES (read carefully — getting this wrong wastes user trust):',
+    '- For RELATIVE phrases ("in 30 min", "in an hour"): fire_at_iso = NOW IN UTC + the relative amount. Ignore the user local clock entirely.',
+    '  Example: now is 16:14 UTC, user says "in 5 min" → fire_at_iso = "2026-05-18T16:19:00Z".',
+    '- For ABSOLUTE local phrases ("at 9pm", "tomorrow at 7am"): take the local target time and SUBTRACT the user offset to get UTC.',
+    `  Example: now ${utcIso}, user at UTC${sign}${h}:${m} says "remind me at 9pm tonight" → 21:00 local minus (${sign}${h}h${m}) → fire_at_iso accordingly.`,
+    '- If you are unsure whether the user meant local or UTC, ask them. Never guess.',
+    '',
+  ].join('\n');
 }
 
 export function buildSystemPrompt(

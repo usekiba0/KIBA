@@ -257,6 +257,12 @@ export class AdminService {
     return { subscription, stats: statsRow[0] };
   }
 
+  async updateUserOffset(userId: string, utcOffsetMinutes: number) {
+    await this.userRepo.update(userId, { utc_offset_minutes: utcOffsetMinutes });
+    const user = await this.userRepo.findOneOrFail({ where: { id: userId } });
+    return { user_id: user.id, utc_offset_minutes: user.utc_offset_minutes };
+  }
+
   async updateUserStatus(userId: string, status: 'active' | 'paused' | 'cancelled') {
     const subStatus = status === 'active' ? 'active' : status === 'paused' ? 'past_due' : 'cancelled';
     await this.dataSource.transaction(async (em) => {

@@ -489,6 +489,17 @@ export class CoachingProcessor {
         }
         return { ok: false as const, error: result.reason };
       },
+      listMyReminders: async () => {
+        const reminders = await this.scheduleService.listPendingForUser(userId);
+        return {
+          ok: true as const,
+          reminders: reminders.map((r) => ({
+            reminder_id: r.id,
+            fire_at_iso: r.fire_at.toISOString(),
+            message: r.message,
+          })),
+        };
+      },
     };
   }
 

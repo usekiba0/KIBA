@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RedisModule } from '@nestjs-modules/ioredis';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AccountabilityModule } from '../accountability/accountability.module';
 import { User } from './entities/user.entity';
 import { Subscription } from './entities/subscription.entity';
 import { ConversationSession } from './entities/conversation-session.entity';
@@ -63,6 +64,9 @@ const ENTITIES = [
           `redis://${config.get('REDIS_HOST', 'localhost')}:${config.get('REDIS_PORT', 6379)}`,
       }),
     }),
+    // forwardRef avoids the cycle: AccountabilityModule already imports DataModule.
+    // AdminController needs ScheduleService for the new reminders endpoints.
+    forwardRef(() => AccountabilityModule),
   ],
   controllers: [DataRightsController, AdminController],
   providers: [SessionCacheService, SessionBoundaryService, DataRightsService, AdminService, CorrectionService, StripeService],

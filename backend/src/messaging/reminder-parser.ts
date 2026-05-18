@@ -46,7 +46,32 @@ const NAMED_TZ_OFFSETS: Record<string, number> = {
   cst_cn: 480, sgt: 480, jst: 540, kst: 540, aest: 600, nzst: 720,
 };
 
-export function parseTimezoneOffset(text: string): number | null {
+// US Daylight Saving promotion: most users in the US/Canada type the WINTER
+// abbreviation (CST, EST, PST, MST) year-round because it's what they've
+// always called it. During DST months we should treat those as the summer
+// variant or every reminder lands 1 hour off.
+const US_DST_PROMOTIONS: Record<string, string> = {
+  pst: 'pdt', mst: 'mdt', cst: 'cdt', est: 'edt',
+};
+
+/**
+ * True if the given UTC moment falls in US Daylight Saving Time, which runs
+ * from the 2nd Sunday of March (2am local) to the 1st Sunday of November (2am local).
+ */
+export function isUsDstActive(now: Date): boolean {
+  const year = now.getUTCFullYear();
+  // 2nd Sunday of March, 2am EST = 07:00 UTC
+  const march1 = new Date(Date.UTC(year, 2, 1));
+  const firstSundayMarch = 1 + ((7 - march1.getUTCDay()) % 7);
+  const dstStart = new Date(Date.UTC(year, 2, firstSundayMarch + 7, 7));
+  // 1st Sunday of November, 2am EDT = 06:00 UTC
+  const nov1 = new Date(Date.UTC(year, 10, 1));
+  const firstSundayNov = 1 + ((7 - nov1.getUTCDay()) % 7);
+  const dstEnd = new Date(Date.UTC(year, 10, firstSundayNov, 6));
+  return now >= dstStart && now < dstEnd;
+}
+
+export function parseTimezoneOffset(text: string, now: Date = new Date()): number | null {
   // Match UTC/GMT±offset e.g. "UTC+5", "GMT-5:30", "UTC +5"
   const utcMatch = text.match(/\b(?:utc|gmt)\s*([+-])\s*(\d{1,2})(?::(\d{2}))?\b/i);
   if (utcMatch) {
@@ -58,7 +83,13 @@ export function parseTimezoneOffset(text: string): number | null {
   // Match named zone + optional offset e.g. "PKT+5", "PKT", "EST"
   const namedMatch = text.match(/\b(pst|pdt|mst|mdt|cst|cdt|est|edt|ast|gmt|bst|cet|eet|msk|pkt|ict|sgt|jst|kst|aest|nzst|ist)\s*(?:[+-]\s*\d{1,2})?\b/i);
   if (namedMatch) {
-    const key = namedMatch[1].toLowerCase();
+    let key = namedMatch[1].toLowerCase();
+    // Auto-promote US winter names (CST/EST/MST/PST) to their summer variant
+    // when DST is currently active. Users typing the winter form in May/June/etc.
+    // almost always mean their local clock, not the literal standard offset.
+    if (US_DST_PROMOTIONS[key] && isUsDstActive(now)) {
+      key = US_DST_PROMOTIONS[key];
+    }
     return NAMED_TZ_OFFSETS[key] ?? null;
   }
   return null;

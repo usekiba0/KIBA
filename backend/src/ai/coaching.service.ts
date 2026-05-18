@@ -18,6 +18,8 @@ import { structuredLog, warnTokenBudget } from '../common/logger';
 export interface CoachingToolHandlers {
   scheduleReminder: (input: { fire_at_iso: string; message: string }) =>
     Promise<{ ok: true; reminder_id: string; fire_at_iso: string } | { ok: false; error: string }>;
+  listMyReminders: () =>
+    Promise<{ ok: true; reminders: Array<{ reminder_id: string; fire_at_iso: string; message: string }> }>;
 }
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
@@ -33,19 +35,20 @@ type Tool = Anthropic.Messages.Tool;
 const SCHEDULE_REMINDER_TOOL: Tool = {
   name: 'schedule_reminder',
   description:
-    'Schedule a text message to be sent to the user at a future absolute time. ' +
-    'Use this whenever the user asks to be reminded, nudged, pinged, texted, or messaged at any future time — ' +
-    'including phrases like "in 30 min", "tomorrow morning", "tonight at 9", "next Thursday at 6pm". ' +
-    'Resolve relative phrases against the CURRENT TIME provided in the system prompt. ' +
-    'Always provide fire_at_iso in UTC ISO 8601 form (e.g. 2026-05-19T14:30:00Z). ' +
-    'If the user\'s timezone is unknown, ask them before calling this tool — do NOT guess. ' +
-    'After calling the tool, write a short one-line confirmation to the user.',
+    'Schedule a text to fire at a future UTC time. Use whenever the user asks to be reminded, nudged, pinged, ' +
+    'texted, or messaged later — "in 30 min", "tomorrow morning", "tonight at 9", "next Thursday at 6pm". ' +
+    'Follow the SCHEDULING MATH RULES in the system prompt EXACTLY — relative phrases use NOW IN UTC directly ' +
+    '(do NOT add the user offset); absolute local phrases convert local→UTC by subtracting the user offset. ' +
+    'MINIMUM DELAY: 2 minutes from now. If the user asks for sooner (e.g. "in 30 seconds", "in 1 min"), ' +
+    'DO NOT call the tool — instead reply that the minimum is 2 minutes and ask them to pick a longer delay. ' +
+    'If the user\'s timezone is unknown, ask before calling this tool — never guess. ' +
+    'After a successful call, write ONE short confirmation line.',
   input_schema: {
     type: 'object' as const,
     properties: {
       fire_at_iso: {
         type: 'string',
-        description: 'Absolute UTC time in ISO 8601 format. Must be at least 30 seconds in the future.',
+        description: 'Absolute UTC time in ISO 8601 format with the Z suffix (e.g. "2026-05-19T14:30:00Z"). Must be at least 2 minutes in the future.',
       },
       message: {
         type: 'string',
@@ -53,6 +56,21 @@ const SCHEDULE_REMINDER_TOOL: Tool = {
       },
     },
     required: ['fire_at_iso', 'message'],
+  },
+};
+
+const LIST_MY_REMINDERS_TOOL: Tool = {
+  name: 'list_my_reminders',
+  description:
+    'Return the user\'s currently-pending scheduled reminders (id, fire_at_iso UTC, message). ' +
+    'Call this whenever the user asks about a reminder you already set — "how long until that", ' +
+    '"what reminders do i have", "did you set the reminder", "what time was it for". ' +
+    'NEVER answer those from memory or guess time deltas — always call this first, then translate ' +
+    'fire_at_iso into the user\'s local clock before replying.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {},
+    required: [],
   },
 };
 
@@ -171,7 +189,7 @@ export class CoachingService {
         )
       : `You are Kiba — a psychological accountability system. User: ${userName}. When asked for plans, workouts, or advice, give them immediately and specifically. Always end with a required action or accountability demand. No hedging, no refusing.${knowledgeTexts.length > 0 ? '\n\nADMIN-CURATED KNOWLEDGE:\n' + knowledgeTexts.map((k) => '- ' + k).join('\n') : ''}\n\nCURRENT TIME (UTC): ${timeContext.nowUtc.toISOString()}`;
 
-    const tools = toolHandlers ? [SCHEDULE_REMINDER_TOOL] : undefined;
+    const tools = toolHandlers ? [SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL] : undefined;
     const dispatch = toolHandlers
       ? (block: Anthropic.Messages.ToolUseBlock) => this.dispatchCoachingTool(block, toolHandlers, user.id)
       : undefined;
@@ -347,6 +365,14 @@ export class CoachingService {
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_schedule_reminder',
         userId, ok: result.ok, fireAtIso: input.fire_at_iso,
+      });
+      return result;
+    }
+    if (block.name === 'list_my_reminders') {
+      const result = await toolHandlers.listMyReminders();
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_list_my_reminders',
+        userId, count: result.ok ? result.reminders.length : 0,
       });
       return result;
     }

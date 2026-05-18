@@ -8,7 +8,11 @@ import { User } from '../data/entities/user.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { structuredLog } from '../common/logger';
 
-const MIN_DELAY_MS = 30_000; // never schedule less than 30s out
+// 2-minute floor: SendBlue queue + iMessage delivery has 30-90s of inherent
+// latency. Below this we can't promise the user a useful reminder, so we
+// reject upfront rather than firing late.
+export const MIN_DELAY_MS = 2 * 60_000;
+export const MIN_DELAY_MINUTES = MIN_DELAY_MS / 60_000;
 const MAX_DELAY_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
 
 export interface EnqueueArgs {
@@ -53,7 +57,7 @@ export class ScheduleService {
       return { ok: false, reason: 'fire_at is not a valid date' };
     }
     if (delayMs < MIN_DELAY_MS) {
-      return { ok: false, reason: `fire_at must be at least ${MIN_DELAY_MS / 1000}s in the future` };
+      return { ok: false, reason: `minimum is ${MIN_DELAY_MINUTES} minutes from now — anything sooner can't reliably deliver` };
     }
     if (delayMs > MAX_DELAY_MS) {
       return { ok: false, reason: 'fire_at must be within 1 year' };
@@ -149,6 +153,15 @@ export class ScheduleService {
       where: { user_id: userId },
       order: { fire_at: 'DESC' },
       take: limit,
+    });
+  }
+
+  /** Pending (not yet fired/cancelled/failed) reminders for a user, oldest fire_at first. */
+  async listPendingForUser(userId: string): Promise<ScheduledReminder[]> {
+    return this.reminderRepo.find({
+      where: { user_id: userId, status: ScheduledReminderStatus.PENDING },
+      order: { fire_at: 'ASC' },
+      take: 50,
     });
   }
 

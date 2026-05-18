@@ -1,8 +1,9 @@
 import { Controller, Get, Patch, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsEnum, IsOptional, IsPhoneNumber, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsPhoneNumber, IsString, MaxLength, Min, Max, MinLength } from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
 import { CorrectionService } from './correction.service';
+import { ScheduleService } from '../accountability/schedule.service';
 
 class FlagMessageDto {
   @IsBoolean()
@@ -45,6 +46,10 @@ class ToggleKnowledgeDto {
   @IsBoolean() active: boolean;
 }
 
+class UpdateUserOffsetDto {
+  @IsInt() @Min(-720) @Max(840) utc_offset_minutes: number;
+}
+
 class UpdateSettingsDto {
   @IsOptional()
   @IsString()
@@ -62,6 +67,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly correctionService: CorrectionService,
+    private readonly scheduleService: ScheduleService,
   ) {}
 
   @Get('dashboard')
@@ -166,5 +172,22 @@ export class AdminController {
   @Patch('knowledge/:id/active')
   toggleKnowledge(@Param('id') id: string, @Body() dto: ToggleKnowledgeDto) {
     return this.correctionService.setKnowledgeActive(id, dto.active);
+  }
+
+  @Get('users/:userId/reminders')
+  listUserReminders(@Param('userId') userId: string) {
+    return this.scheduleService.listForUser(userId);
+  }
+
+  @Delete('reminders/:reminderId')
+  async cancelReminder(@Param('reminderId') reminderId: string) {
+    const reminder = await this.scheduleService.cancel(reminderId);
+    if (!reminder) return { cancelled: false, message: 'reminder not found' };
+    return { cancelled: true, reminder };
+  }
+
+  @Patch('users/:userId/timezone')
+  updateUserTimezone(@Param('userId') userId: string, @Body() dto: UpdateUserOffsetDto) {
+    return this.adminService.updateUserOffset(userId, dto.utc_offset_minutes);
   }
 }
