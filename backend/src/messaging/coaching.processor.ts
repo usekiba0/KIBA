@@ -169,9 +169,12 @@ export class CoachingProcessor {
       return;
     }
 
-    // Cancel any anti-ghost timers — user is actively responding
-    await this.antiGhostService.onUserResponse(user.id).catch((err) =>
-      this.logger.warn(`onUserResponse failed for ${user.id}: ${(err as Error).message}`),
+    // Cancel any anti-ghost timers — user is actively responding.
+    // Capture id to a const so the `.catch` closure doesn't re-widen `user`
+    // (TS loses null-narrowing on a `let` that's reassigned later in the function).
+    const userIdForAntiGhost = user.id;
+    await this.antiGhostService.onUserResponse(userIdForAntiGhost).catch((err) =>
+      this.logger.warn(`onUserResponse failed for ${userIdForAntiGhost}: ${(err as Error).message}`),
     );
 
     // Correction trigger: "#kibi <correction>" routes to the curation queue,
