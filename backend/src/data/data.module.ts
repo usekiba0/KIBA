@@ -19,6 +19,7 @@ import { ExecutionScore } from './entities/execution-score.entity';
 import { AntiGhostState } from './entities/anti-ghost-state.entity';
 import { Correction } from './entities/correction.entity';
 import { CoachingKnowledge } from './entities/coaching-knowledge.entity';
+import { ScheduledReminder } from './entities/scheduled-reminder.entity';
 import { SessionCacheService } from './session-cache.service';
 import { SessionBoundaryService } from './session-boundary.service';
 import { DataRightsService } from './data-rights.service';
@@ -46,6 +47,7 @@ const ENTITIES = [
   AntiGhostState,
   Correction,
   CoachingKnowledge,
+  ScheduledReminder,
 ];
 
 @Module({

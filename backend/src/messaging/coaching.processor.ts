@@ -20,15 +20,9 @@ import { SafetyService } from '../safety/safety.service';
 import { AntiGhostService } from '../accountability/anti-ghost.service';
 import { ProofService } from '../accountability/proof.service';
 import { ScoreIntentService } from '../accountability/score-intent.service';
-import { CheckinService } from '../accountability/checkin.service';
+import { ScheduleService } from '../accountability/schedule.service';
 import { structuredLog } from '../common/logger';
-import {
-  REMINDER_REGEX,
-  parseReminderTime,
-  parseRelativeDelayMs,
-  parseTimezoneOffset,
-  formatDisplayTime,
-} from './reminder-parser';
+import { parseTimezoneOffset } from './reminder-parser';
 
 interface CoachingJob {
   from: string;
@@ -65,8 +59,8 @@ export class CoachingProcessor {
     @Inject(forwardRef(() => ProofService))
     private readonly proofService: ProofService,
     private readonly scoreIntentService: ScoreIntentService,
-    @Inject(forwardRef(() => CheckinService))
-    private readonly checkinService: CheckinService,
+    @Inject(forwardRef(() => ScheduleService))
+    private readonly scheduleService: ScheduleService,
     private readonly correctionService: CorrectionService,
   ) {}
 
@@ -216,44 +210,6 @@ export class CoachingProcessor {
       user = { ...user, utc_offset_minutes: tzOffset };
     }
 
-    const userOffset = user.utc_offset_minutes ?? 0;
-
-    // Reminder scheduling intent
-    if (REMINDER_REGEX.test(lowerBody)) {
-      const relativeDelayMs = parseRelativeDelayMs(lowerBody);
-      const time = parseReminderTime(lowerBody);
-
-      if (relativeDelayMs !== null) {
-        // "in X min/hours" — use exact relative delay, bypasses server timezone issues
-        await this.checkinService.scheduleOneShot(user.id, relativeDelayMs);
-        if (time) await this.userRepo.update(user.id, { checkin_time: time });
-        const mins = Math.round(relativeDelayMs / 60_000);
-        await this.saveAndSend(user, boundary.sessionId, `got it — hitting you in ${mins} minute${mins !== 1 ? 's' : ''}.`);
-        return;
-      }
-
-      if (time) {
-        await this.userRepo.update(user.id, { checkin_time: time });
-        const delay = this.checkinService.computeDelayMs(time, userOffset);
-        await this.checkinService.scheduleCheckin({ ...user, checkin_time: time } as User);
-        const when = delay < 20 * 3_600_000
-          ? `today at ${formatDisplayTime(time)}`
-          : `tomorrow at ${formatDisplayTime(time)}`;
-        await this.saveAndSend(user, boundary.sessionId, `got it — i'll hit you ${when}.`);
-        return;
-      }
-
-      // Intent matched but neither parser produced a value. Reply deterministically —
-      // do NOT fall through to the LLM, which would fabricate a confirmation for a
-      // reminder that was never scheduled.
-      await this.saveAndSend(
-        user,
-        boundary.sessionId,
-        "got it — in how many minutes, or at what time?",
-      );
-      return;
-    }
-
     // Context reset intent
     if (RESET_INTENTS.some((intent) => lowerBody.includes(intent))) {
       await this.sessionCache.invalidateSession(user.id);
@@ -296,6 +252,7 @@ export class CoachingProcessor {
         // No pending task today — route to coaching AI with vision
         const { reply, tokenCount } = await this.coachingService.generateReply(
           user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaContentTypes[0],
+          this.buildToolHandlers(user.id, boundary.sessionId, inboundMsg.id),
         );
         await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
         await this.saveAndSend(user, boundary.sessionId, reply);
@@ -309,9 +266,36 @@ export class CoachingProcessor {
       dbMessages,
       body,
       latestSummary?.summary,
+      undefined,
+      undefined,
+      this.buildToolHandlers(user.id, boundary.sessionId, inboundMsg.id),
     );
     await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
     await this.saveAndSend(user, boundary.sessionId, reply);
+  }
+
+  /**
+   * Tool handlers exposed to the coaching LLM. Keeps the AI module decoupled
+   * from AccountabilityModule — the processor (which already wires both)
+   * stitches them together.
+   */
+  private buildToolHandlers(userId: string, sessionId: string, userMessageId: string) {
+    return {
+      scheduleReminder: async (input: { fire_at_iso: string; message: string }) => {
+        const fireAt = new Date(input.fire_at_iso);
+        const result = await this.scheduleService.enqueue({
+          userId,
+          sessionId,
+          createdByMessageId: userMessageId,
+          fireAt,
+          message: input.message,
+        });
+        if (result.ok) {
+          return { ok: true as const, reminder_id: result.reminderId, fire_at_iso: result.fireAtIso };
+        }
+        return { ok: false as const, error: result.reason };
+      },
+    };
   }
 
   private async saveAndSend(user: User, sessionId: string, reply: string) {

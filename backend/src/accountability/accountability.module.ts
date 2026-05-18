@@ -9,7 +9,9 @@ import { AntiGhostState } from '../data/entities/anti-ghost-state.entity';
 import { Goal } from '../data/entities/goal.entity';
 import { User } from '../data/entities/user.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
+import { ScheduledReminder } from '../data/entities/scheduled-reminder.entity';
 import { ScoreService } from './score.service';
+import { ScheduleService } from './schedule.service';
 import { StrikeService } from './strike.service';
 import { AntiGhostService } from './anti-ghost.service';
 import { CheckinService } from './checkin.service';
@@ -21,11 +23,11 @@ import { MessagingModule } from '../messaging/messaging.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DailyTask, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User, PsychologicalProfile]),
+    TypeOrmModule.forFeature([DailyTask, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User, PsychologicalProfile, ScheduledReminder]),
     BullModule.registerQueue({ name: 'accountability' }),
     forwardRef(() => MessagingModule),
   ],
-  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService],
-  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService],
+  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService],
+  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService],
 })
 export class AccountabilityModule {}

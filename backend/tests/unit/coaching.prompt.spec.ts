@@ -106,9 +106,11 @@ describe('buildSystemPrompt', () => {
     expect(() => buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0)).not.toThrow();
   });
 
-  it('stays under 600 tokens estimated (rough char count < 2400)', () => {
+  it('stays under ~700 tokens estimated (rough char count < 2800)', () => {
+    // Bumped from 2400 after adding curated-knowledge and schedule_reminder
+    // tool-use instructions to the prompt. Still small compared to 200K context.
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(2400);
+    expect(prompt.length).toBeLessThan(2800);
   });
 
   describe('curated knowledge injection', () => {
@@ -130,6 +132,46 @@ describe('buildSystemPrompt', () => {
     it('omits the knowledge section when an empty array is provided', () => {
       const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0, undefined, []);
       expect(prompt).not.toContain('CURATED KNOWLEDGE');
+    });
+  });
+
+  describe('time context injection', () => {
+    it('includes server UTC and computed local time when offset is known', () => {
+      const nowUtc = new Date('2026-05-18T10:00:00Z');
+      const prompt = buildSystemPrompt(
+        mockUser as any, mockProfile as any, 72, 0, undefined, undefined,
+        { nowUtc, userOffsetMinutes: 300 }, // PKT, UTC+5
+      );
+      expect(prompt).toContain('CURRENT TIME');
+      expect(prompt).toContain('Server UTC: 2026-05-18T10:00:00.000Z');
+      expect(prompt).toContain('User local time: 2026-05-18T15:00:00.000 (UTC+05:00)');
+    });
+
+    it('includes a fallback message when offset is unknown so the AI asks before scheduling', () => {
+      const prompt = buildSystemPrompt(
+        mockUser as any, mockProfile as any, 72, 0, undefined, undefined,
+        { nowUtc: new Date('2026-05-18T10:00:00Z'), userOffsetMinutes: null },
+      );
+      expect(prompt).toContain('User timezone: unknown');
+      expect(prompt).toMatch(/ask the user/i);
+    });
+
+    it('formats negative offsets correctly', () => {
+      const nowUtc = new Date('2026-05-18T20:00:00Z');
+      const prompt = buildSystemPrompt(
+        mockUser as any, mockProfile as any, 72, 0, undefined, undefined,
+        { nowUtc, userOffsetMinutes: -480 }, // PST, UTC-8
+      );
+      expect(prompt).toContain('User local time: 2026-05-18T12:00:00.000 (UTC-08:00)');
+    });
+
+    it('omits time section when no context provided', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      // The literal "CURRENT TIME" phrase appears in CAPABILITIES prose referencing
+      // the section, so test for the unique structural marker instead.
+      expect(prompt).not.toContain('Server UTC:');
+      expect(prompt).not.toContain('User local time:');
+      expect(prompt).not.toContain('User timezone: unknown');
     });
   });
 });

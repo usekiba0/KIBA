@@ -9,6 +9,7 @@ import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { AntiGhostService } from './anti-ghost.service';
+import { ScheduleService } from './schedule.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { structuredLog } from '../common/logger';
 
@@ -24,6 +25,7 @@ export class CheckinProcessor {
     @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
     private readonly messagingService: MessagingService,
     private readonly antiGhostService: AntiGhostService,
+    private readonly scheduleService: ScheduleService,
     @InjectQueue('accountability') private readonly queue: Queue,
   ) {}
 
@@ -62,6 +64,11 @@ export class CheckinProcessor {
       userId,
       taskId: task?.id ?? null,
     });
+  }
+
+  @Process('send-scheduled-reminder')
+  async handleScheduledReminder(job: Job<{ reminderId: string }>): Promise<void> {
+    await this.scheduleService.fire(job.data.reminderId);
   }
 
   @Process('checkin-missed')

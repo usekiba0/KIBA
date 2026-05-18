@@ -13,6 +13,44 @@ import { buildSystemPrompt } from './prompts/coaching.prompt';
 import { CorrectionService } from '../data/correction.service';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
+/**
+ * Tool handlers passed in from the caller (the processor) so this service
+ * doesn't need a hard dependency on AccountabilityModule. Each handler returns
+ * a stringifiable result that gets sent back to Claude as the tool_result.
+ */
+export interface ToolHandlers {
+  scheduleReminder: (input: { fire_at_iso: string; message: string }) =>
+    Promise<{ ok: true; reminder_id: string; fire_at_iso: string } | { ok: false; error: string }>;
+}
+
+const SCHEDULE_REMINDER_TOOL = {
+  name: 'schedule_reminder',
+  description:
+    'Schedule a text message to be sent to the user at a future absolute time. ' +
+    'Use this whenever the user asks to be reminded, nudged, pinged, texted, or messaged at any future time — ' +
+    'including phrases like "in 30 min", "tomorrow morning", "tonight at 9", "next Thursday at 6pm". ' +
+    'Resolve relative phrases against the CURRENT TIME provided in the system prompt. ' +
+    'Always provide fire_at_iso in UTC ISO 8601 form (e.g. 2026-05-19T14:30:00Z). ' +
+    'If the user\'s timezone is unknown, ask them before calling this tool — do NOT guess. ' +
+    'After calling the tool, write a short one-line confirmation to the user.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      fire_at_iso: {
+        type: 'string',
+        description: 'Absolute UTC time in ISO 8601 format. Must be at least 30 seconds in the future.',
+      },
+      message: {
+        type: 'string',
+        description: 'The exact text to send when the reminder fires. Speak directly to the user (e.g. "time to hit the workout you locked in").',
+      },
+    },
+    required: ['fire_at_iso', 'message'],
+  },
+};
+
+const MAX_TOOL_ITERATIONS = 3;
+
 @Injectable()
 export class CoachingService {
   private readonly logger = new Logger(CoachingService.name);
@@ -48,6 +86,7 @@ export class CoachingService {
     sessionSummary?: string,
     imageUrl?: string,
     imageContentType?: string,
+    toolHandlers?: ToolHandlers,
   ): Promise<{ reply: string; tokenCount: number }> {
     const [profile, latestScore, strikeCount, knowledge] = await Promise.all([
       this.profileRepo.findOne({ where: { user_id: user.id } }),
@@ -65,10 +104,14 @@ export class CoachingService {
     ]);
 
     const knowledgeTexts = knowledge.map((k) => k.content);
+    const timeContext = {
+      nowUtc: new Date(),
+      userOffsetMinutes: user.utc_offset_minutes ?? null,
+    };
     const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
     const systemPrompt = profile
-      ? buildSystemPrompt(user, profile, latestScore?.current_score ?? 0, strikeCount, sessionSummary, knowledgeTexts)
-      : `You are Kiba — a psychological accountability system. User: ${user.name}. When asked for plans, workouts, or advice, give them immediately and specifically. Always end with a required action or accountability demand. No hedging, no refusing.${knowledgeTexts.length > 0 ? '\n\nADMIN-CURATED KNOWLEDGE:\n' + knowledgeTexts.map((k) => '- ' + k).join('\n') : ''}`;
+      ? buildSystemPrompt(user, profile, latestScore?.current_score ?? 0, strikeCount, sessionSummary, knowledgeTexts, timeContext)
+      : `You are Kiba — a psychological accountability system. User: ${user.name}. When asked for plans, workouts, or advice, give them immediately and specifically. Always end with a required action or accountability demand. No hedging, no refusing.${knowledgeTexts.length > 0 ? '\n\nADMIN-CURATED KNOWLEDGE:\n' + knowledgeTexts.map((k) => '- ' + k).join('\n') : ''}\n\nCURRENT TIME (UTC): ${timeContext.nowUtc.toISOString()}`;
 
     type MsgParam = Anthropic.Messages.MessageParam;
     const history: MsgParam[] = recentMessages.map((m) => ({
@@ -85,46 +128,114 @@ export class CoachingService {
       : (incomingText || (imageUrl ? 'I sent you a photo.' : 'I sent you a message.'));
     history.push({ role: 'user', content: lastContent });
 
-    let response: Awaited<ReturnType<typeof this.client.messages.create>>;
-    try {
-      response = await this.client.messages.create({
-        model,
-        max_tokens: 256,
-        system: systemPrompt,
-        messages: history,
-      });
-    } catch (err: unknown) {
-      const isImageError = usingImage &&
-        err instanceof Error &&
-        (err.message.includes('invalid_request_error') || err.message.includes('image'));
-      if (!isImageError) throw err;
+    const tools = toolHandlers ? [SCHEDULE_REMINDER_TOOL] : undefined;
 
-      this.logger.warn(`Image rejected by Anthropic for user ${user.id} — unsupported format`);
-      return { reply: 'heic photos don\'t work — screenshot it and send as a jpeg or png instead.', tokenCount: 0 };
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let response: Anthropic.Messages.Message | undefined;
+
+    for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+      try {
+        response = await this.client.messages.create({
+          model,
+          max_tokens: 512,
+          system: systemPrompt,
+          tools,
+          messages: history,
+        });
+      } catch (err: unknown) {
+        const isImageError = usingImage && iter === 0 &&
+          err instanceof Error &&
+          (err.message.includes('invalid_request_error') || err.message.includes('image'));
+        if (!isImageError) throw err;
+
+        this.logger.warn(`Image rejected by Anthropic for user ${user.id} — unsupported format`);
+        return { reply: 'heic photos don\'t work — screenshot it and send as a jpeg or png instead.', tokenCount: 0 };
+      }
+
+      totalInputTokens += response.usage.input_tokens;
+      totalOutputTokens += response.usage.output_tokens;
+
+      if (response.stop_reason !== 'tool_use' || !toolHandlers) break;
+
+      // Echo the assistant turn so the next call has full context.
+      history.push({ role: 'assistant', content: response.content });
+
+      const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
+      for (const block of response.content) {
+        if (block.type !== 'tool_use') continue;
+        if (block.name === 'schedule_reminder') {
+          const result = await this.dispatchSchedule(block, toolHandlers, user.id);
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify(result),
+            is_error: !('ok' in result) || !result.ok,
+          });
+        } else {
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify({ error: `unknown tool: ${block.name}` }),
+            is_error: true,
+          });
+        }
+      }
+      history.push({ role: 'user', content: toolResults });
     }
 
-    const reply = response.content[0].type === 'text' ? response.content[0].text : '';
-    const inputTokens = response.usage.input_tokens;
-    const outputTokens = response.usage.output_tokens;
-    const totalTokens = inputTokens + outputTokens;
+    const finalReply = response && Array.isArray(response.content)
+      ? response.content
+          .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+          .map((b) => b.text)
+          .join('\n')
+          .trim()
+      : '';
 
     structuredLog(this.logger, 'log', {
       service: 'ai',
       operation: 'coaching_reply',
       userId: user.id,
       model,
-      inputTokens,
-      outputTokens,
-      totalTokens,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      totalTokens: totalInputTokens + totalOutputTokens,
     });
     warnTokenBudget(this.logger, {
       service: 'ai',
       operation: 'coaching_reply',
       userId: user.id,
-      inputTokens,
-      outputTokens,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
     });
 
-    return { reply, tokenCount: totalTokens };
+    return { reply: finalReply, tokenCount: totalInputTokens + totalOutputTokens };
+  }
+
+  private async dispatchSchedule(
+    block: Anthropic.Messages.ToolUseBlock,
+    toolHandlers: ToolHandlers,
+    userId: string,
+  ): Promise<{ ok: true; reminder_id: string; fire_at_iso: string } | { ok: false; error: string }> {
+    const input = block.input as { fire_at_iso?: unknown; message?: unknown };
+    if (typeof input.fire_at_iso !== 'string' || typeof input.message !== 'string') {
+      return { ok: false, error: 'fire_at_iso and message must both be strings' };
+    }
+    try {
+      const result = await toolHandlers.scheduleReminder({
+        fire_at_iso: input.fire_at_iso,
+        message: input.message,
+      });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_schedule_reminder',
+        userId,
+        ok: result.ok,
+        fireAtIso: input.fire_at_iso,
+      });
+      return result;
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   }
 }
