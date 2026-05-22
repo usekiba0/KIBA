@@ -20,6 +20,11 @@ export interface CoachingToolHandlers {
     Promise<{ ok: true; reminder_id: string; fire_at_iso: string } | { ok: false; error: string }>;
   listMyReminders: () =>
     Promise<{ ok: true; reminders: Array<{ reminder_id: string; fire_at_iso: string; message: string }> }>;
+  // Re-subscribe / late-signup link send. Coaching exposes this so a user whose
+  // subscription lapsed (or who was backfilled to 'complete' without ever paying)
+  // can get a fresh Stripe checkout URL by just asking in chat.
+  sendPaymentLink: () =>
+    Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
 }
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
@@ -103,9 +108,14 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
 const SEND_PAYMENT_LINK_TOOL: Tool = {
   name: 'send_payment_link',
   description:
-    'Create a Stripe checkout session and SMS the URL to the user. Use ONLY when ALL THREE of the following are saved: ' +
-    'name, goal_description, utc_offset_minutes. Do not call if the user already has an active payment link from a prior turn ' +
-    '(check WHAT YOU KNOW). After calling, write a single-line confirmation to the user.',
+    'Create a Stripe checkout session and SMS the URL to the user. ' +
+    'In INTAKE mode: use ONLY when name, goal_description, and utc_offset_minutes are all saved. ' +
+    'In COACHING mode: call this whenever the user asks to pay, subscribe, get the link, sign up, ' +
+    'check out, upgrade, or otherwise wants to start/restart their subscription — even mid-coaching. ' +
+    'The system SMSes the URL on its own line automatically; your text reply should be a SHORT confirmation only ' +
+    '("here you go — pay through this and we\\\'re live"). If the tool returns ok:false with reason ' +
+    '"user already has active subscription", apologise briefly and offer to escalate to support. ' +
+    'NEVER tell the user you are not a subscription service or that they should ask someone else about payment.',
   input_schema: {
     type: 'object' as const,
     properties: {},
@@ -189,7 +199,7 @@ export class CoachingService {
         )
       : `You are Kiba — a psychological accountability system. User: ${userName}. When asked for plans, workouts, or advice, give them immediately and specifically. Always end with a required action or accountability demand. No hedging, no refusing.${knowledgeTexts.length > 0 ? '\n\nADMIN-CURATED KNOWLEDGE:\n' + knowledgeTexts.map((k) => '- ' + k).join('\n') : ''}\n\nCURRENT TIME (UTC): ${timeContext.nowUtc.toISOString()}`;
 
-    const tools = toolHandlers ? [SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL] : undefined;
+    const tools = toolHandlers ? [SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, SEND_PAYMENT_LINK_TOOL] : undefined;
     const dispatch = toolHandlers
       ? (block: Anthropic.Messages.ToolUseBlock) => this.dispatchCoachingTool(block, toolHandlers, user.id)
       : undefined;
@@ -373,6 +383,14 @@ export class CoachingService {
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_list_my_reminders',
         userId, count: result.ok ? result.reminders.length : 0,
+      });
+      return result;
+    }
+    if (block.name === 'send_payment_link') {
+      const result = await toolHandlers.sendPaymentLink();
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_send_payment_link_coaching',
+        userId, ok: result.ok,
       });
       return result;
     }

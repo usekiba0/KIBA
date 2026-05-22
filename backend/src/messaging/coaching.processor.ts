@@ -5,6 +5,7 @@ import { Job, Queue } from 'bull';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User, OnboardingStage, UserStatus, IntakeData } from '../data/entities/user.entity';
+import { Subscription, SubscriptionStatus } from '../data/entities/subscription.entity';
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { SessionSummary, SummaryTrigger } from '../data/entities/session-summary.entity';
 import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
@@ -37,12 +38,22 @@ interface CoachingJob {
 
 const RESET_INTENTS = ['reset my coaching', 'start fresh', 'clear my history', 'reset context'];
 
+// Hard guard for billing-intent messages from COMPLETE users without an active
+// subscription. Catches the case where migration 1779300000000 backfilled
+// pre-existing users to 'complete' even though they never actually paid — the
+// coaching LLM has no reliable way to handle a "send me the link" ask, so we
+// short-circuit to the same sendPaymentLink path the intake AI uses.
+// False positives are fine (extra link sent) — false negatives (LLM refuses
+// a paying customer) burned us in production, so the regex stays broad.
+const BILLING_INTENT_RE = /\b(subscri(be|ption|bed|bing)|stripe|checkout|billing|membership)\b|\b(payment|pay)\s+(link|me|the|for|to|via|by)|\b(sign\s*up|signup)\b/i;
+
 @Processor('coaching')
 export class CoachingProcessor {
   private readonly logger = new Logger(CoachingProcessor.name);
 
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(Subscription) private readonly subscriptionRepo: Repository<Subscription>,
     @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
     @InjectRepository(SessionSummary) private readonly summaryRepo: Repository<SessionSummary>,
     @InjectRepository(DailyTask) private readonly dailyTaskRepo: Repository<DailyTask>,
@@ -224,6 +235,36 @@ export class CoachingProcessor {
       return;
     }
 
+    // Billing-intent guard: a COMPLETE user with no active/trialing subscription
+    // is the broken backfill case (or a churned user) — bypass the LLM entirely
+    // and send a fresh Stripe checkout link. Active subscribers fall through so
+    // the LLM can use the send_payment_link tool with full context (or refuse
+    // gracefully when the tool reports they're already in).
+    if (BILLING_INTENT_RE.test(lowerBody)) {
+      const activeSub = await this.subscriptionRepo.findOne({
+        where: [
+          { user_id: user.id, status: SubscriptionStatus.ACTIVE },
+          { user_id: user.id, status: SubscriptionStatus.TRIALING },
+        ],
+      });
+      if (!activeSub) {
+        await this.saveAndSend(user, boundary.sessionId, "got you — here's the link to lock this in:");
+        const linkResult = await this.sendPaymentLink(user, inboundMsg.id, { requireFullIntake: false });
+        if (!linkResult.ok) {
+          this.logger.warn(`[BillingGuard] sendPaymentLink failed for ${user.id}: ${linkResult.error}`);
+          await this.saveAndSend(
+            user, boundary.sessionId,
+            "i'm having trouble generating that — an admin will reach out shortly.",
+          );
+        }
+        structuredLog(this.logger, 'log', {
+          service: 'messaging', operation: 'billing_intent_guard',
+          userId: user.id, ok: linkResult.ok,
+        });
+        return;
+      }
+    }
+
     // Score query intent
     if (this.scoreIntentService.isScoreIntent(lowerBody)) {
       const reply = await this.scoreIntentService.buildScoreReply(user.id);
@@ -273,7 +314,7 @@ export class CoachingProcessor {
         // No pending task today — route to coaching AI with vision
         const { reply, tokenCount } = await this.coachingService.generateReply(
           user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaContentTypes[0],
-          this.buildToolHandlers(user.id, boundary.sessionId, inboundMsg.id),
+          this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
         );
         await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
         await this.saveAndSend(user, boundary.sessionId, reply);
@@ -289,7 +330,7 @@ export class CoachingProcessor {
       latestSummary?.summary,
       undefined,
       undefined,
-      this.buildToolHandlers(user.id, boundary.sessionId, inboundMsg.id),
+      this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
     );
     await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
     await this.saveAndSend(user, boundary.sessionId, reply);
@@ -325,7 +366,7 @@ export class CoachingProcessor {
         return this.saveIntakeField(liveUser, input.field, input.value);
       },
       sendPaymentLink: async () => {
-        return this.sendPaymentLink(liveUser, userMessageId);
+        return this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
       },
     };
 
@@ -402,11 +443,24 @@ export class CoachingProcessor {
   /**
    * Create a Stripe checkout session, SMS the URL, mark the user payment_pending,
    * and schedule the dunning auto-nudges. Refuses if a recent link still exists.
+   *
+   * `requireFullIntake` is true for the intake-AI tool (gathers name/goal/tz first)
+   * and false for the re-subscribe paths (legacy users backfilled to 'complete'
+   * who already have a name but no intake_data — we just need to get them paying).
    */
-  private async sendPaymentLink(liveUser: User, userMessageId: string) {
-    // Refuse if the user does not yet have the minimum required intake data.
-    if (!liveUser.name || !liveUser.intake_data?.goal_description || liveUser.utc_offset_minutes === null) {
-      return { ok: false as const, error: 'minimum intake not yet captured (need name, goal_description, utc_offset_minutes)' };
+  private async sendPaymentLink(
+    liveUser: User,
+    userMessageId: string,
+    opts: { requireFullIntake: boolean } = { requireFullIntake: true },
+  ) {
+    // Name is required either way — Stripe customer creation uses it.
+    if (!liveUser.name) {
+      return { ok: false as const, error: 'user has no name yet' };
+    }
+    if (opts.requireFullIntake) {
+      if (!liveUser.intake_data?.goal_description || liveUser.utc_offset_minutes === null) {
+        return { ok: false as const, error: 'minimum intake not yet captured (need name, goal_description, utc_offset_minutes)' };
+      }
     }
 
     // Refuse if a payment link was sent in the last 5 minutes (avoid spam).
@@ -473,7 +527,8 @@ export class CoachingProcessor {
    * from AccountabilityModule — the processor (which already wires both)
    * stitches them together.
    */
-  private buildToolHandlers(userId: string, sessionId: string, userMessageId: string) {
+  private buildToolHandlers(user: User, sessionId: string, userMessageId: string) {
+    const userId = user.id;
     return {
       scheduleReminder: async (input: { fire_at_iso: string; message: string }) => {
         const fireAt = new Date(input.fire_at_iso);
@@ -499,6 +554,23 @@ export class CoachingProcessor {
             message: r.message,
           })),
         };
+      },
+      sendPaymentLink: async () => {
+        // Refuse when the user already has an active/trialing subscription —
+        // the AI should then escalate to support instead of re-charging them.
+        const active = await this.subscriptionRepo.findOne({
+          where: [
+            { user_id: userId, status: SubscriptionStatus.ACTIVE },
+            { user_id: userId, status: SubscriptionStatus.TRIALING },
+          ],
+        });
+        if (active) {
+          return { ok: false as const, error: 'user already has active subscription' };
+        }
+        // Re-load the user — keyword guard or earlier writes may have mutated it.
+        const fresh = await this.userRepo.findOne({ where: { id: userId } });
+        if (!fresh) return { ok: false as const, error: 'user not found' };
+        return this.sendPaymentLink(fresh, userMessageId, { requireFullIntake: false });
       },
     };
   }
