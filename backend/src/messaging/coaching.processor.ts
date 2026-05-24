@@ -114,6 +114,11 @@ export class CoachingProcessor {
         status: UserStatus.TRIAL,
         onboarding_stage: OnboardingStage.INTAKE,
         intake_data: {},
+        // Default 9am local check-in so the daily cadence can kick in the moment
+        // the user pays. Users can override mid-coaching ("check in at 7 instead")
+        // — the save_intake_field tool already accepts checkin_time. Without a
+        // default, scheduleCheckin early-returns and the user never hears from us.
+        checkin_time: '09:00',
       }));
       this.logger.log(`[Onboarding] Created lead ${user.id} for ${from}`);
     }
@@ -492,6 +497,20 @@ export class CoachingProcessor {
       return { ok: false as const, error: 'stripe did not return a checkout url' };
     }
 
+    // SMS the link directly (rather than letting the AI include it in its reply
+    // text) so it lands on its own line and is clickable. CRITICAL: send BEFORE
+    // persisting PAYMENT_PENDING / payment_link_sent_at — otherwise a SendBlue+
+    // Twilio double-failure leaves the user stuck (5-min resend lockout active
+    // but no link in their inbox).
+    try {
+      await this.messagingService.send(liveUser.phone_number, session.url);
+    } catch (err) {
+      this.logger.error(
+        `[sendPaymentLink] SMS delivery failed for ${liveUser.id} — not persisting PAYMENT_PENDING so user can retry: ${(err as Error).message}`,
+      );
+      return { ok: false as const, error: 'failed to deliver payment link sms' };
+    }
+
     const now = new Date();
     await this.userRepo.update(liveUser.id, {
       onboarding_stage: OnboardingStage.PAYMENT_PENDING,
@@ -502,10 +521,6 @@ export class CoachingProcessor {
     liveUser.onboarding_stage = OnboardingStage.PAYMENT_PENDING;
     liveUser.payment_link_sent_at = now;
     liveUser.sample_coaching_given = false;
-
-    // SMS the link directly (rather than letting the AI include it in its reply
-    // text) so it lands on its own line and is clickable.
-    await this.messagingService.send(liveUser.phone_number, session.url);
 
     // Dunning: nudge at 24h, then at 72h (48h after the first nudge).
     await this.accountabilityQueue.add(
@@ -571,6 +586,9 @@ export class CoachingProcessor {
         const fresh = await this.userRepo.findOne({ where: { id: userId } });
         if (!fresh) return { ok: false as const, error: 'user not found' };
         return this.sendPaymentLink(fresh, userMessageId, { requireFullIntake: false });
+      },
+      saveProfileField: async (input: { field: string; value: string }) => {
+        return this.coachingService.saveProfileField(userId, input.field, input.value);
       },
     };
   }

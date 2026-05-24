@@ -87,6 +87,10 @@ export class StripeService {
     successUrl: string;
     cancelUrl: string;
   }): Promise<Stripe.Checkout.Session> {
+    // Stripe's default checkout session expiry is 24h. For SMS-first onboarding
+    // users routinely procrastinate well past that — expire at 30 days (the
+    // Stripe maximum) so the link in their inbox keeps working.
+    const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
     return this.stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: args.customerId,
@@ -98,6 +102,7 @@ export class StripeService {
       metadata: { user_id: args.userId },
       success_url: args.successUrl,
       cancel_url: args.cancelUrl,
+      expires_at: expiresAt,
       allow_promotion_codes: true,
     });
   }

@@ -38,7 +38,9 @@ export class CheckinService {
   async scheduleCheckin(user: User): Promise<any> {
     if (!user.checkin_time) return undefined;
 
-    const delay = this.computeDelayMs(user.checkin_time);
+    // Pass the user's offset so the delay targets THEIR 09:00, not server UTC 09:00.
+    // Without this, US-Eastern users were getting check-ins at 04:00–05:00 local.
+    const delay = this.computeDelayMs(user.checkin_time, user.utc_offset_minutes ?? 0);
     const job = await this.queue.add(
       'send-checkin',
       { userId: user.id },

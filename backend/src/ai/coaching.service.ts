@@ -3,10 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import axios from 'axios';
+import heicConvert = require('heic-convert');
 import { createAnthropicClient } from './anthropic.factory';
-import { User } from '../data/entities/user.entity';
+import { User, IntakeData } from '../data/entities/user.entity';
 import { Message } from '../data/entities/message.entity';
-import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
+import { PsychologicalProfile, PressurePreference } from '../data/entities/psychological-profile.entity';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { Strike } from '../data/entities/strike.entity';
 import { buildSystemPrompt } from './prompts/coaching.prompt';
@@ -25,6 +27,11 @@ export interface CoachingToolHandlers {
   // can get a fresh Stripe checkout URL by just asking in chat.
   sendPaymentLink: () =>
     Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
+  // Lets the coaching AI fill missing psychological-profile fields elicited mid-
+  // conversation (e.g. user reveals their mentor in turn 4). Mirrors the value
+  // into both intake_data JSONB and the PsychologicalProfile row.
+  saveProfileField: (input: { field: string; value: string }) =>
+    Promise<{ ok: true; field: string } | { ok: false; error: string }>;
 }
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
@@ -105,6 +112,30 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
   },
 };
 
+const SAVE_PROFILE_FIELD_TOOL: Tool = {
+  name: 'save_profile_field',
+  description:
+    'Persist a psychological-profile fact the user just revealed mid-coaching. ' +
+    'Use whenever the user names a comparison figure / mentor, a fear, an avoidance pattern, ' +
+    'a public failure scenario, or a typical failure moment — even casually, even mid-sentence. ' +
+    'Field MUST be one of: fears, avoidance_patterns, comparison_figure, public_failure_scenario, ' +
+    'typical_failure_moment, pressure_preference. ' +
+    'For pressure_preference pass "pressure" or "encouragement". Everything else is free text — ' +
+    'paraphrase tightly (3–10 words is ideal, the model reads it back later).',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      field: {
+        type: 'string',
+        enum: ['fears', 'avoidance_patterns', 'comparison_figure',
+               'public_failure_scenario', 'typical_failure_moment', 'pressure_preference'],
+      },
+      value: { type: 'string' },
+    },
+    required: ['field', 'value'],
+  },
+};
+
 const SEND_PAYMENT_LINK_TOOL: Tool = {
   name: 'send_payment_link',
   description:
@@ -132,6 +163,8 @@ export class CoachingService {
 
   constructor(
     private readonly config: ConfigService,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
     @InjectRepository(PsychologicalProfile)
     private readonly profileRepo: Repository<PsychologicalProfile>,
     @InjectRepository(ExecutionScore)
@@ -146,11 +179,133 @@ export class CoachingService {
   private isSupportedImageFormat(url: string, contentType?: string): boolean {
     if (contentType) {
       const ct = contentType.toLowerCase().split(';')[0].trim();
-      return ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'].includes(ct);
+      return ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+              'image/heic', 'image/heif'].includes(ct);
     }
-    const lower = url.toLowerCase();
-    return lower.includes('.jpg') || lower.includes('.jpeg') ||
-           lower.includes('.png') || lower.includes('.gif') || lower.includes('.webp');
+    const lower = url.toLowerCase().split('?')[0];
+    return lower.endsWith('.jpg') || lower.endsWith('.jpeg') ||
+           lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') ||
+           lower.endsWith('.heic') || lower.endsWith('.heif');
+  }
+
+  // Anthropic's vision API rejects HEIC, but iPhone iMessage uploads land as
+  // .heic via SendBlue's CDN. Fetch + transcode to JPEG before sending so we
+  // don't have to tell users to screenshot every photo.
+  private async prepareImageBlock(
+    imageUrl: string,
+    imageContentType?: string,
+  ): Promise<
+    | { ok: true; block: Anthropic.Messages.ImageBlockParam }
+    | { ok: false; reason: string }
+  > {
+    const ct = (imageContentType ?? '').toLowerCase().split(';')[0].trim();
+    const urlLower = imageUrl.toLowerCase().split('?')[0];
+    const isHeic = ct === 'image/heic' || ct === 'image/heif' ||
+      urlLower.endsWith('.heic') || urlLower.endsWith('.heif');
+
+    if (!isHeic) {
+      return {
+        ok: true,
+        block: { type: 'image', source: { type: 'url', url: imageUrl } },
+      };
+    }
+
+    try {
+      const resp = await axios.get<ArrayBuffer>(imageUrl, {
+        responseType: 'arraybuffer',
+        timeout: 15_000,
+      });
+      const jpegBytes = await heicConvert({
+        buffer: resp.data,
+        format: 'JPEG',
+        quality: 0.9,
+      });
+      const data = Buffer.from(jpegBytes).toString('base64');
+      return {
+        ok: true,
+        block: {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/jpeg', data },
+        },
+      };
+    } catch (err) {
+      this.logger.warn(
+        `HEIC conversion failed for ${imageUrl}: ${(err as Error).message}`,
+      );
+      return { ok: false, reason: 'heic_conversion_failed' };
+    }
+  }
+
+  /**
+   * Return the user's PsychologicalProfile, creating one from intake_data if
+   * it doesn't exist yet. Bridges the SMS-first onboarding (which writes only
+   * intake_data JSONB) to the coaching prompt (which reads PsychologicalProfile).
+   */
+  async ensureProfile(userId: string, intakeData: IntakeData | null): Promise<PsychologicalProfile> {
+    const existing = await this.profileRepo.findOne({ where: { user_id: userId } });
+    if (existing) return existing;
+
+    const created = this.profileRepo.create({
+      user_id: userId,
+      fears: intakeData?.fears ?? '',
+      avoidance_patterns: intakeData?.avoidance_patterns ?? '',
+      comparison_figure: intakeData?.comparison_figure ?? '',
+      public_failure_scenario: intakeData?.public_failure_scenario ?? '',
+      typical_failure_moment: intakeData?.typical_failure_moment ?? '',
+      pressure_preference: intakeData?.pressure_preference === 'encouragement'
+        ? PressurePreference.ENCOURAGEMENT
+        : PressurePreference.PRESSURE,
+    });
+    await this.profileRepo.save(created);
+    return created;
+  }
+
+  /**
+   * Persist a single psychological-profile field elicited mid-coaching. Mirrors
+   * into both intake_data JSONB (source of truth for replay/backfill) and the
+   * PsychologicalProfile row (what the coaching prompt reads on the next turn).
+   */
+  async saveProfileField(
+    userId: string,
+    field: string,
+    value: string,
+  ): Promise<{ ok: true; field: string } | { ok: false; error: string }> {
+    const allowed = ['fears', 'avoidance_patterns', 'comparison_figure',
+                     'public_failure_scenario', 'typical_failure_moment', 'pressure_preference'];
+    if (!allowed.includes(field)) return { ok: false, error: `unknown field: ${field}` };
+
+    let trimmed = value.trim().slice(0, 2000);
+    if (!trimmed) return { ok: false, error: 'value must not be empty' };
+
+    if (field === 'pressure_preference') {
+      const lower = trimmed.toLowerCase();
+      if (lower !== 'pressure' && lower !== 'encouragement') {
+        return { ok: false, error: 'pressure_preference must be "pressure" or "encouragement"' };
+      }
+      trimmed = lower;
+    }
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) return { ok: false, error: 'user not found' };
+
+    const intake: IntakeData = { ...(user.intake_data ?? {}) };
+    (intake as Record<string, unknown>)[field] = trimmed;
+    await this.userRepo.update(userId, { intake_data: intake });
+
+    const profile = await this.ensureProfile(userId, intake);
+    if (field === 'pressure_preference') {
+      profile.pressure_preference = trimmed === 'encouragement'
+        ? PressurePreference.ENCOURAGEMENT
+        : PressurePreference.PRESSURE;
+    } else {
+      (profile as unknown as Record<string, string>)[field] = trimmed;
+    }
+    await this.profileRepo.save(profile);
+
+    structuredLog(this.logger, 'log', {
+      service: 'ai', operation: 'save_profile_field', userId, field,
+    });
+    return { ok: true, field };
   }
 
   /**
@@ -167,7 +322,10 @@ export class CoachingService {
     toolHandlers?: CoachingToolHandlers,
   ): Promise<{ reply: string; tokenCount: number }> {
     const [profile, latestScore, strikeCount, knowledge] = await Promise.all([
-      this.profileRepo.findOne({ where: { user_id: user.id } }),
+      // SMS-first onboarding never created a profile row — lazy-create from
+      // intake_data so the coaching prompt always has structured psych context
+      // (and the AI never falls back to the no-profile generic prompt).
+      this.ensureProfile(user.id, user.intake_data ?? null),
       this.scoreRepo.findOne({
         where: { user_id: user.id },
         order: { snapshot_date: 'DESC' },
@@ -187,19 +345,19 @@ export class CoachingService {
       userOffsetMinutes: user.utc_offset_minutes ?? null,
     };
     const userName = user.name ?? 'friend';
-    const systemPrompt = profile
-      ? buildSystemPrompt(
-          { id: user.id, name: userName, phone_number: user.phone_number },
-          profile,
-          latestScore?.current_score ?? 0,
-          strikeCount,
-          sessionSummary,
-          knowledgeTexts,
-          timeContext,
-        )
-      : `You are Kiba — a psychological accountability system. User: ${userName}. When asked for plans, workouts, or advice, give them immediately and specifically. Always end with a required action or accountability demand. No hedging, no refusing.${knowledgeTexts.length > 0 ? '\n\nADMIN-CURATED KNOWLEDGE:\n' + knowledgeTexts.map((k) => '- ' + k).join('\n') : ''}\n\nCURRENT TIME (UTC): ${timeContext.nowUtc.toISOString()}`;
+    const systemPrompt = buildSystemPrompt(
+      { id: user.id, name: userName, phone_number: user.phone_number },
+      profile,
+      latestScore?.current_score ?? 0,
+      strikeCount,
+      sessionSummary,
+      knowledgeTexts,
+      timeContext,
+    );
 
-    const tools = toolHandlers ? [SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, SEND_PAYMENT_LINK_TOOL] : undefined;
+    const tools = toolHandlers
+      ? [SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL]
+      : undefined;
     const dispatch = toolHandlers
       ? (block: Anthropic.Messages.ToolUseBlock) => this.dispatchCoachingTool(block, toolHandlers, user.id)
       : undefined;
@@ -267,13 +425,32 @@ export class CoachingService {
       content: m.content,
     }));
 
-    const usingImage = !!args.imageUrl && this.isSupportedImageFormat(args.imageUrl, args.imageContentType);
-    const lastContent = usingImage
-      ? [
-          { type: 'image' as const, source: { type: 'url' as const, url: args.imageUrl! } },
-          { type: 'text' as const, text: args.incomingText || 'What do you see? Respond as my accountability coach.' },
-        ]
-      : (args.incomingText || (args.imageUrl ? 'I sent you a photo.' : 'I sent you a message.'));
+    let usingImage = false;
+    let lastContent: string | Array<Anthropic.Messages.ImageBlockParam | Anthropic.Messages.TextBlockParam>;
+    if (args.imageUrl && this.isSupportedImageFormat(args.imageUrl, args.imageContentType)) {
+      const prep = await this.prepareImageBlock(args.imageUrl, args.imageContentType);
+      if (prep.ok) {
+        usingImage = true;
+        lastContent = [
+          prep.block,
+          { type: 'text', text: args.incomingText || 'What do you see? Respond as my accountability coach.' },
+        ];
+      } else {
+        return {
+          reply: "couldn't open that photo — try sending it again as a screenshot or jpeg.",
+          tokenCount: 0,
+        };
+      }
+    } else if (args.imageUrl) {
+      // Format we can't handle at all (not jpeg/png/gif/webp/heic). Tell the user
+      // instead of silently dropping the image and letting the model hallucinate.
+      return {
+        reply: "i can't read that file type — send a jpeg, png, or screenshot.",
+        tokenCount: 0,
+      };
+    } else {
+      lastContent = args.incomingText || 'I sent you a message.';
+    }
     history.push({ role: 'user', content: lastContent });
 
     let totalInputTokens = 0;
@@ -295,8 +472,8 @@ export class CoachingService {
           (err.message.includes('invalid_request_error') || err.message.includes('image'));
         if (!isImageError) throw err;
 
-        this.logger.warn(`Image rejected by Anthropic for user ${args.userId} — unsupported format`);
-        return { reply: 'heic photos don\'t work — screenshot it and send as a jpeg or png instead.', tokenCount: 0 };
+        this.logger.warn(`Image rejected by Anthropic for user ${args.userId} — ${(err as Error).message}`);
+        return { reply: "couldn't read that photo — try a screenshot or resend.", tokenCount: 0 };
       }
 
       totalInputTokens += response.usage.input_tokens;
@@ -391,6 +568,18 @@ export class CoachingService {
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_send_payment_link_coaching',
         userId, ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'save_profile_field') {
+      const input = block.input as { field?: unknown; value?: unknown };
+      if (typeof input.field !== 'string' || typeof input.value !== 'string') {
+        return { ok: false, error: 'field and value must both be strings' };
+      }
+      const result = await toolHandlers.saveProfileField({ field: input.field, value: input.value });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_save_profile_field',
+        userId, ok: result.ok, field: input.field,
       });
       return result;
     }

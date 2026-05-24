@@ -8,6 +8,7 @@ import { MessagingService } from './messaging.service';
 import { MessagingController } from './messaging.controller';
 import { MessagingProcessor } from './messaging.processor';
 import { CoachingProcessor } from './coaching.processor';
+import { MessageDebouncerService } from './message-debouncer.service';
 import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
 import { SendBlueWebhookGuard } from './guards/sendblue-webhook.guard';
 import { ScoreIntentService } from '../accountability/score-intent.service';
@@ -27,7 +28,7 @@ import { ScoreIntentService } from '../accountability/score-intent.service';
   ],
   controllers: [MessagingController],
   providers: [
-    MessagingService, MessagingProcessor, CoachingProcessor,
+    MessagingService, MessagingProcessor, CoachingProcessor, MessageDebouncerService,
     TwilioWebhookGuard, SendBlueWebhookGuard, ScoreIntentService,
   ],
   exports: [MessagingService, BullModule, ScoreIntentService],

@@ -4,12 +4,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Job, Queue } from 'bull';
-import { User, OnboardingStage } from '../data/entities/user.entity';
+import { User, OnboardingStage, UserStatus } from '../data/entities/user.entity';
 import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { AntiGhostService } from './anti-ghost.service';
 import { ScheduleService } from './schedule.service';
+import { CheckinService } from './checkin.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { structuredLog } from '../common/logger';
 
@@ -26,6 +27,7 @@ export class CheckinProcessor {
     private readonly messagingService: MessagingService,
     private readonly antiGhostService: AntiGhostService,
     private readonly scheduleService: ScheduleService,
+    private readonly checkinService: CheckinService,
     @InjectQueue('accountability') private readonly queue: Queue,
   ) {}
 
@@ -35,36 +37,55 @@ export class CheckinProcessor {
 
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) return;
-    if (user.crisis_hold) return;
+    // Stop the daily loop if user cancelled or never finished onboarding.
+    // crisis_hold suppresses today's send but we still re-enqueue tomorrow's
+    // — the user might be unflagged by then and shouldn't lose the cadence.
+    if (user.status === UserStatus.CANCELLED) return;
+    if (user.onboarding_stage !== OnboardingStage.COMPLETE) return;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const [task, profile] = await Promise.all([
-      this.taskRepo.findOne({ where: { user_id: userId, scheduled_date: today, status: TaskStatus.PENDING } }),
-      this.profileRepo.findOne({ where: { user_id: userId } }),
-    ]);
+    if (!user.crisis_hold) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const [task, profile] = await Promise.all([
+        this.taskRepo.findOne({ where: { user_id: userId, scheduled_date: today, status: TaskStatus.PENDING } }),
+        this.profileRepo.findOne({ where: { user_id: userId } }),
+      ]);
 
-    const safeName = user.name ?? 'friend';
-    const message = task
-      ? buildCheckinMessage(safeName, profile, task.task_description)
-      : buildCheckinMessage(safeName, profile, null);
+      const safeName = user.name ?? 'friend';
+      const message = task
+        ? buildCheckinMessage(safeName, profile, task.task_description)
+        : buildCheckinMessage(safeName, profile, null);
 
-    await this.messagingService.send(user.phone_number, message);
+      await this.messagingService.send(user.phone_number, message);
 
-    if (task) {
-      await this.queue.add(
-        'checkin-missed',
-        { userId, taskId: task.id },
-        { delay: TWO_HOURS_MS },
-      );
+      if (task) {
+        await this.queue.add(
+          'checkin-missed',
+          { userId, taskId: task.id },
+          { delay: TWO_HOURS_MS },
+        );
+      }
+
+      structuredLog(this.logger, 'log', {
+        service: 'accountability',
+        operation: 'checkin_sent',
+        userId,
+        taskId: task?.id ?? null,
+      });
     }
 
-    structuredLog(this.logger, 'log', {
-      service: 'accountability',
-      operation: 'checkin_sent',
-      userId,
-      taskId: task?.id ?? null,
-    });
+    // Re-enqueue tomorrow's check-in. Daily cadence is the whole product —
+    // without this self-reschedule each user gets exactly one check-in then
+    // silence forever. computeDelayMs already rolls forward to the next day
+    // if the target is in the past, and now respects utc_offset_minutes so
+    // 09:00 means 09:00 in the user's timezone, not server UTC.
+    if (user.checkin_time) {
+      const delay = this.checkinService.computeDelayMs(
+        user.checkin_time,
+        user.utc_offset_minutes ?? 0,
+      );
+      await this.queue.add('send-checkin', { userId }, { delay });
+    }
   }
 
   @Process('send-scheduled-reminder')

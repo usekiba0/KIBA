@@ -16,19 +16,43 @@ export function buildPressureContext(
       ? 'encouragement-leaning (still hold accountable, soften tone slightly)'
       : 'pressure (direct, sharp, zero softening)';
 
-  return [
-    `PSYCHOLOGICAL PROFILE:`,
-    `- Fear: ${profile.fears}`,
-    `- Avoidance pattern: ${profile.avoidance_patterns}`,
-    `- Comparison figure: ${profile.comparison_figure}`,
-    `- Public failure scenario: ${profile.public_failure_scenario}`,
-    `- Typical failure moment: ${profile.typical_failure_moment}`,
-    `- Tone preference: ${preferenceLabel}`,
-    ``,
-    `PERFORMANCE:`,
-    `- Execution score: ${executionScore}/100`,
-    `- Recent strikes (last 7 days): ${recentStrikes}`,
-  ].join('\n');
+  // Skip empty/blank profile fields — listing them as "- Fear: " primed the AI
+  // to reference the field abstractly ("your fear", "your mentor") and then
+  // honestly admit it didn't have the value when the user asked for specifics.
+  const known: string[] = ['PSYCHOLOGICAL PROFILE:'];
+  const missing: string[] = [];
+  const field = (label: string, value: string | undefined | null, key: string) => {
+    if (value && value.trim()) known.push(`- ${label}: ${value.trim()}`);
+    else missing.push(key);
+  };
+  field('Fear', profile.fears, 'fears');
+  field('Avoidance pattern', profile.avoidance_patterns, 'avoidance_patterns');
+  field('Comparison figure', profile.comparison_figure, 'comparison_figure');
+  field('Public failure scenario', profile.public_failure_scenario, 'public_failure_scenario');
+  field('Typical failure moment', profile.typical_failure_moment, 'typical_failure_moment');
+  known.push(`- Tone preference: ${preferenceLabel}`);
+
+  const sections: string[] = [
+    known.join('\n'),
+    '',
+    `PERFORMANCE:\n- Execution score: ${executionScore}/100\n- Recent strikes (last 7 days): ${recentStrikes}`,
+  ];
+
+  if (missing.length > 0) {
+    sections.push(
+      '',
+      `MISSING PROFILE FIELDS (you do NOT have this info): ${missing.join(', ')}`,
+      '',
+      'ELICITATION RULES:',
+      '- Never reference a missing field as if you knew it. Do not write "your mentor", "your fear", "what you avoid" when the matching field above is in the missing list — that lies to the user.',
+      '- When a reply has natural room (user is reflective, stuck, or asking for guidance), fold ONE casual question into the reply to fill the most relevant missing field. Phrase it like a friend, not a survey.',
+      '- One elicitation max per turn. Never stack with another question.',
+      '- The moment the user reveals one of these in plain language (e.g. "i keep comparing myself to my brother" → comparison_figure="my brother"), call save_profile_field IMMEDIATELY with the value. Do not wait for a confirmation.',
+      '- If the user dodges or ignores an elicitation, drop that field for the rest of this session and just coach.',
+    );
+  }
+
+  return sections.join('\n');
 }
 
 export interface TimeContext {

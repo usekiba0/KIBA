@@ -6,7 +6,7 @@ import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
 import { SendBlueWebhookGuard } from './guards/sendblue-webhook.guard';
 import { TwilioWebhookDto } from './dto/twilio-webhook.dto';
 import { SendBlueWebhookDto } from './dto/sendblue-webhook.dto';
-import { CoachingProcessor } from './coaching.processor';
+import { MessageDebouncerService } from './message-debouncer.service';
 import { Message } from '../data/entities/message.entity';
 import { ConversationSession } from '../data/entities/conversation-session.entity';
 import { User } from '../data/entities/user.entity';
@@ -21,7 +21,7 @@ export class MessagingController {
     @InjectRepository(ConversationSession)
     private readonly sessionRepo: Repository<ConversationSession>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    private readonly coachingProcessor: CoachingProcessor,
+    private readonly debouncer: MessageDebouncerService,
   ) {}
 
   @Post('sms')
@@ -30,24 +30,27 @@ export class MessagingController {
   async handleTwilioSms(@Body() body: TwilioWebhookDto, @Res() res: Response) {
     res.type('text/xml').send('');
 
-    // Idempotency: skip if already processed
-    const existing = await this.messageRepo.findOne({ where: { twilio_sid: body.SmsMessageSid } });
-    if (existing) return;
+    // Idempotency: skip if already processed (debouncer also dedupes by SID
+    // in-memory, but this catches webhook retries that arrive after the buffer
+    // has already flushed and a Message row exists for the SID).
+    if (body.SmsMessageSid) {
+      const existing = await this.messageRepo.findOne({ where: { twilio_sid: body.SmsMessageSid } });
+      if (existing) return;
+    }
 
     const mediaUrls = this.extractMediaUrls(body);
-    const smsData = {
+    this.debouncer.push({
       from: body.From,
-      body: body.Body ?? '',
+      text: body.Body ?? '',
       twilioSid: body.SmsMessageSid ?? null,
-      numMedia: parseInt(body.NumMedia || '0'),
       mediaUrls,
       mediaContentTypes: mediaUrls.map((_, i) => body[`MediaContentType${i}`] ?? ''),
-      channel: 'sms' as const,
-    };
-    // Process directly — Bull/Upstash blocking connections are unreliable on Render
-    this.coachingProcessor.process(smsData).catch((err) =>
-      this.logger.error(`[SMS] Processing failed for ${body.From}: ${(err as Error).message}\n${(err as Error).stack}`),
-    );
+      channel: 'sms',
+      // Twilio webhooks have no client-side timestamp; receipt order is the best
+      // proxy and is usually correct for SMS (no multi-part bursts like iMessage).
+      dateSent: Date.now(),
+      uniqueId: body.SmsMessageSid ?? null,
+    });
 
     structuredLog(this.logger, 'log', {
       service: 'messaging',
@@ -65,6 +68,9 @@ export class MessagingController {
     const from = ((body.number || body.from_number || body.sender) as string) || '';
     const content = ((body.content || body.body || body.text || '') as string);
     const mediaUrl = ((body.media_url || body.mediaUrl || body.attachment_url) as string) || undefined;
+    const messageHandle = (body.message_handle as string) || null;
+    const dateSentIso = (body.date_sent as string) || '';
+    const dateSent = dateSentIso ? Date.parse(dateSentIso) || Date.now() : Date.now();
 
     if (!from || (!content && !mediaUrl)) {
       this.logger.warn(`[SendBlue] Missing from or content/media — from:${from}`);
@@ -73,19 +79,16 @@ export class MessagingController {
 
     const mediaUrls = mediaUrl ? [mediaUrl] : [];
     const mediaContentTypes = mediaUrl ? [this.guessContentType(mediaUrl)] : [];
-    const imsgData = {
+    this.debouncer.push({
       from,
-      body: content || '[image]',
+      text: content,
       twilioSid: null,
-      numMedia: mediaUrl ? 1 : 0,
       mediaUrls,
       mediaContentTypes,
-      channel: 'imessage' as const,
-    };
-    // Process directly — Bull/Upstash blocking connections are unreliable on Render
-    this.coachingProcessor.process(imsgData).catch((err) =>
-      this.logger.error(`[iMsg] Processing failed for ${from}: ${(err as Error).message}\n${(err as Error).stack}`),
-    );
+      channel: 'imessage',
+      dateSent,
+      uniqueId: messageHandle,
+    });
 
     structuredLog(this.logger, 'log', {
       service: 'messaging',
