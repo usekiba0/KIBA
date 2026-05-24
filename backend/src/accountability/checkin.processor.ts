@@ -76,16 +76,10 @@ export class CheckinProcessor {
 
     // Re-enqueue tomorrow's check-in. Daily cadence is the whole product —
     // without this self-reschedule each user gets exactly one check-in then
-    // silence forever. computeDelayMs already rolls forward to the next day
-    // if the target is in the past, and now respects utc_offset_minutes so
-    // 09:00 means 09:00 in the user's timezone, not server UTC.
-    if (user.checkin_time) {
-      const delay = this.checkinService.computeDelayMs(
-        user.checkin_time,
-        user.utc_offset_minutes ?? 0,
-      );
-      await this.queue.add('send-checkin', { userId }, { delay });
-    }
+    // silence forever. Delegating to checkinService.scheduleCheckin keeps
+    // jobId-based idempotency in one place so a Stripe webhook + bootstrap
+    // script + this self-reschedule can't all double-enqueue.
+    await this.checkinService.scheduleCheckin(user);
   }
 
   @Process('send-scheduled-reminder')

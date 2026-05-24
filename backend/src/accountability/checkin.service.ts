@@ -41,10 +41,18 @@ export class CheckinService {
     // Pass the user's offset so the delay targets THEIR 09:00, not server UTC 09:00.
     // Without this, US-Eastern users were getting check-ins at 04:00–05:00 local.
     const delay = this.computeDelayMs(user.checkin_time, user.utc_offset_minutes ?? 0);
+
+    // Deterministic jobId per user per target minute. Bull rejects duplicate
+    // jobIds, so the function becomes safe to call from multiple paths
+    // (Stripe webhook, bootstrap script, self-reschedule from processor)
+    // without producing N redundant check-ins for the same user.
+    const fireAtMinute = Math.floor((Date.now() + delay) / 60_000);
+    const jobId = `checkin:${user.id}:${fireAtMinute}`;
+
     const job = await this.queue.add(
       'send-checkin',
       { userId: user.id },
-      { delay },
+      { delay, jobId, removeOnComplete: true, removeOnFail: 50 },
     );
 
     structuredLog(this.logger, 'log', {
@@ -52,6 +60,7 @@ export class CheckinService {
       operation: 'checkin_scheduled',
       userId: user.id,
       delayMs: delay,
+      jobId,
     });
 
     return job;
