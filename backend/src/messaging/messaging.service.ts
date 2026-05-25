@@ -95,6 +95,48 @@ export class MessagingService implements OnModuleInit {
     }
   }
 
+  /**
+   * Send an iMessage read receipt back to a user we just received a message from.
+   * Makes KIBA feel present — user sees "Read" within ~1s of texting instead of
+   * messages sitting on "Delivered" until the AI gets a reply queued up.
+   *
+   * iMessage only — Twilio SMS has no read-receipt concept. Pass-through fail
+   * silently if SendBlue isn't configured (dev environments, fallback path).
+   * Errors are logged but never thrown — read receipts are best-effort, missing
+   * one is a tiny UX downgrade, not a correctness bug.
+   *
+   * Designed to be called fire-and-forget from the webhook handler. Don't
+   * await this — the webhook should ack 200 immediately so SendBlue doesn't
+   * retry.
+   */
+  async sendReadReceipt(to: string): Promise<void> {
+    if (!this.sendBlueReady) return;
+    const keyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
+    const secret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
+    if (!keyId || !secret) return;
+
+    try {
+      const response = await axios.post(
+        'https://api.sendblue.co/api/send-read-receipt',
+        { number: to },
+        { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret }, timeout: 5_000 },
+      );
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'send_read_receipt',
+        to,
+        status: response.data?.status ?? 'ok',
+      });
+    } catch (err) {
+      const detail = (err as any)?.response?.data
+        ? JSON.stringify((err as any).response.data)
+        : '';
+      this.logger.warn(
+        `[SendBlue] Read receipt failed for ${to}: ${(err as Error).message} | body: ${detail}`,
+      );
+    }
+  }
+
   async sendViaTwilio(to: string, body: string): Promise<void> {
     const from = this.config.getOrThrow('TWILIO_PHONE_NUMBER');
     this.logger.log(`[Twilio] Sending from ${from} to ${to}`);

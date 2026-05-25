@@ -7,6 +7,7 @@ import { SendBlueWebhookGuard } from './guards/sendblue-webhook.guard';
 import { TwilioWebhookDto } from './dto/twilio-webhook.dto';
 import { SendBlueWebhookDto } from './dto/sendblue-webhook.dto';
 import { MessageDebouncerService } from './message-debouncer.service';
+import { MessagingService } from './messaging.service';
 import { Message } from '../data/entities/message.entity';
 import { ConversationSession } from '../data/entities/conversation-session.entity';
 import { User } from '../data/entities/user.entity';
@@ -22,6 +23,7 @@ export class MessagingController {
     private readonly sessionRepo: Repository<ConversationSession>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly debouncer: MessageDebouncerService,
+    private readonly messagingService: MessagingService,
   ) {}
 
   @Post('sms')
@@ -76,6 +78,17 @@ export class MessagingController {
       this.logger.warn(`[SendBlue] Missing from or content/media — from:${from}`);
       return { received: true };
     }
+
+    // Send a read receipt back so the user sees "Read" in iMessage immediately —
+    // makes KIBA feel present instead of leaving messages stuck on "Delivered"
+    // for however long the AI takes to reply. Fire-and-forget: never block the
+    // webhook ack on this. Internal errors get logged but don't bubble — read
+    // receipts are best-effort UX, not correctness.
+    setImmediate(() => {
+      this.messagingService.sendReadReceipt(from).catch((err) => {
+        this.logger.warn(`[SendBlue] Read receipt error for ${from}: ${(err as Error).message}`);
+      });
+    });
 
     const mediaUrls = mediaUrl ? [mediaUrl] : [];
     const mediaContentTypes = mediaUrl ? [this.guessContentType(mediaUrl)] : [];
