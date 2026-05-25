@@ -102,6 +102,19 @@ export class CoachingProcessor {
     const { from, body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = data;
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
+    // Carrier shortcodes (e.g. +195686 from Citi) get misrouted to our SendBlue
+    // number. They're not humans — silently drop before we create a lead row
+    // and burn an LLM call replying to spam. Real E.164 numbers are ≥ 8 digits
+    // after the `+`; shortcodes are 4–7.
+    const digitsOnly = from.replace(/\D/g, '');
+    if (digitsOnly.length < 8) {
+      structuredLog(this.logger, 'log', {
+        service: 'messaging', operation: 'shortcode_dropped',
+        from, channel, bodyPreview: body.slice(0, 80),
+      });
+      return;
+    }
+
     // Look up user; cold inbound creates a lead in INTAKE stage so the
     // SMS-first onboarding flow can take over.
     let user = await this.userRepo.findOne({ where: { phone_number: from } });

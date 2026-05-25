@@ -42,6 +42,11 @@ async function bootstrap() {
 
   app.setGlobalPrefix('v1');
 
+  // Render and external uptime probes hit `/` — return 200 instead of 404 noise.
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.get('/', (_req: express.Request, res: express.Response) => res.status(200).send('ok'));
+  expressApp.head('/', (_req: express.Request, res: express.Response) => res.status(200).end());
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
