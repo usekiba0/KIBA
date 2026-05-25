@@ -186,6 +186,18 @@ export class StripeWebhookController {
               body: `Your Kiba AI coaching is active! Text me anytime to start. 💪`,
               type: 'subscription_active',
             });
+
+            // Safety net for the web-form path: OnboardingService.submit already
+            // calls scheduleCheckin synchronously, but if that call failed (Redis
+            // blip) we get a second chance here once Stripe confirms the sub.
+            // Idempotent via jobId.
+            try {
+              await this.checkinService.scheduleCheckin(user);
+            } catch (err) {
+              this.logger.error(
+                `[StripeWebhook] scheduleCheckin on subscription.created failed for ${user.id}: ${(err as Error).message}`,
+              );
+            }
           }
         }
         break;

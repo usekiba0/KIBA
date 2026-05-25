@@ -403,7 +403,7 @@ export class CoachingProcessor {
    * Persist a single intake field. Structured fields land on the user row;
    * everything else falls into the intake_data JSONB blob.
    */
-  private async saveIntakeField(liveUser: User, field: string, value: string | number) {
+  private async saveIntakeField(liveUser: User, field: string, value: string | number | boolean) {
     const userColumnFields: Record<string, keyof User> = {
       name: 'name',
       utc_offset_minutes: 'utc_offset_minutes',
@@ -439,6 +439,7 @@ export class CoachingProcessor {
     const allowed = new Set([
       'goal_description', 'goal_timeline', 'current_status', 'fears', 'avoidance_patterns',
       'comparison_figure', 'public_failure_scenario', 'typical_failure_moment', 'pressure_preference',
+      'cussing_ok',
     ]);
     if (!allowed.has(field)) {
       return { ok: false as const, error: `unknown field: ${field}` };
@@ -450,6 +451,11 @@ export class CoachingProcessor {
         return { ok: false as const, error: 'pressure_preference must be "pressure" or "encouragement"' };
       }
       intake.pressure_preference = s;
+    } else if (field === 'cussing_ok') {
+      if (typeof value !== 'boolean') {
+        return { ok: false as const, error: 'cussing_ok must be a boolean' };
+      }
+      intake.cussing_ok = value;
     } else {
       (intake as Record<string, unknown>)[field] = String(value).slice(0, 2000);
     }

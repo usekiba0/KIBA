@@ -30,13 +30,13 @@ export interface CoachingToolHandlers {
   // Lets the coaching AI fill missing psychological-profile fields elicited mid-
   // conversation (e.g. user reveals their mentor in turn 4). Mirrors the value
   // into both intake_data JSONB and the PsychologicalProfile row.
-  saveProfileField: (input: { field: string; value: string }) =>
+  saveProfileField: (input: { field: string; value: string | boolean }) =>
     Promise<{ ok: true; field: string } | { ok: false; error: string }>;
 }
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
 export interface IntakeToolHandlers {
-  saveIntakeField: (input: { field: string; value: string | number }) =>
+  saveIntakeField: (input: { field: string; value: string | number | boolean }) =>
     Promise<{ ok: true; field: string } | { ok: false; error: string }>;
   sendPaymentLink: () =>
     Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
@@ -92,8 +92,10 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
     'Persist a single fact about the user that they just shared. Call this every time the user gives you a new fact, ' +
     'even mid-sentence. Field MUST be one of: name, goal_description, goal_timeline, current_status, fears, ' +
     'avoidance_patterns, comparison_figure, public_failure_scenario, typical_failure_moment, pressure_preference, ' +
-    'utc_offset_minutes, checkin_time. For utc_offset_minutes pass an integer (minutes ahead/behind UTC, e.g. 300 for PKT). ' +
-    'For pressure_preference pass "pressure" or "encouragement". For checkin_time pass HH:MM 24h. Everything else is free text.',
+    'cussing_ok, utc_offset_minutes, checkin_time. For utc_offset_minutes pass an integer (minutes ahead/behind UTC, ' +
+    'e.g. 300 for PKT). For pressure_preference pass "pressure" or "encouragement". For checkin_time pass HH:MM 24h. ' +
+    'For cussing_ok pass a boolean (true if the user explicitly said cussing is fine, false if they said keep it pg). ' +
+    'Everything else is free text.',
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -101,11 +103,11 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
         type: 'string',
         enum: ['name', 'goal_description', 'goal_timeline', 'current_status', 'fears', 'avoidance_patterns',
                'comparison_figure', 'public_failure_scenario', 'typical_failure_moment', 'pressure_preference',
-               'utc_offset_minutes', 'checkin_time'],
+               'cussing_ok', 'utc_offset_minutes', 'checkin_time'],
         description: 'Which structured field to save.',
       },
       value: {
-        description: 'The value. String for text fields, integer for utc_offset_minutes, HH:MM for checkin_time.',
+        description: 'The value. String for text fields, integer for utc_offset_minutes, HH:MM for checkin_time, boolean for cussing_ok.',
       },
     },
     required: ['field', 'value'],
@@ -118,19 +120,20 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
     'Persist a psychological-profile fact the user just revealed mid-coaching. ' +
     'Use whenever the user names a comparison figure / mentor, a fear, an avoidance pattern, ' +
     'a public failure scenario, or a typical failure moment — even casually, even mid-sentence. ' +
+    'Also use when the user explicitly grants or revokes cursing consent ("you can cuss", "keep it clean from now on"). ' +
     'Field MUST be one of: fears, avoidance_patterns, comparison_figure, public_failure_scenario, ' +
-    'typical_failure_moment, pressure_preference. ' +
-    'For pressure_preference pass "pressure" or "encouragement". Everything else is free text — ' +
-    'paraphrase tightly (3–10 words is ideal, the model reads it back later).',
+    'typical_failure_moment, pressure_preference, cussing_ok. ' +
+    'For pressure_preference pass "pressure" or "encouragement". For cussing_ok pass a boolean. ' +
+    'Everything else is free text — paraphrase tightly (3–10 words is ideal, the model reads it back later).',
   input_schema: {
     type: 'object' as const,
     properties: {
       field: {
         type: 'string',
         enum: ['fears', 'avoidance_patterns', 'comparison_figure',
-               'public_failure_scenario', 'typical_failure_moment', 'pressure_preference'],
+               'public_failure_scenario', 'typical_failure_moment', 'pressure_preference', 'cussing_ok'],
       },
-      value: { type: 'string' },
+      value: { description: 'String for free-text fields, boolean for cussing_ok.' },
     },
     required: ['field', 'value'],
   },
@@ -255,6 +258,7 @@ export class CoachingService {
       pressure_preference: intakeData?.pressure_preference === 'encouragement'
         ? PressurePreference.ENCOURAGEMENT
         : PressurePreference.PRESSURE,
+      cussing_ok: intakeData?.cussing_ok === true,
     });
     await this.profileRepo.save(created);
     return created;
@@ -268,12 +272,36 @@ export class CoachingService {
   async saveProfileField(
     userId: string,
     field: string,
-    value: string,
+    value: string | boolean,
   ): Promise<{ ok: true; field: string } | { ok: false; error: string }> {
     const allowed = ['fears', 'avoidance_patterns', 'comparison_figure',
-                     'public_failure_scenario', 'typical_failure_moment', 'pressure_preference'];
+                     'public_failure_scenario', 'typical_failure_moment', 'pressure_preference', 'cussing_ok'];
     if (!allowed.includes(field)) return { ok: false, error: `unknown field: ${field}` };
 
+    // cussing_ok takes a boolean; everything else takes a non-empty string.
+    if (field === 'cussing_ok') {
+      if (typeof value !== 'boolean') {
+        return { ok: false, error: 'cussing_ok must be a boolean' };
+      }
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (!user) return { ok: false, error: 'user not found' };
+
+      const intake: IntakeData = { ...(user.intake_data ?? {}), cussing_ok: value };
+      await this.userRepo.update(userId, { intake_data: intake });
+
+      const profile = await this.ensureProfile(userId, intake);
+      profile.cussing_ok = value;
+      await this.profileRepo.save(profile);
+
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'save_profile_field', userId, field, value,
+      });
+      return { ok: true, field };
+    }
+
+    if (typeof value !== 'string') {
+      return { ok: false, error: `${field} must be a string` };
+    }
     let trimmed = value.trim().slice(0, 2000);
     if (!trimmed) return { ok: false, error: 'value must not be empty' };
 
@@ -573,8 +601,11 @@ export class CoachingService {
     }
     if (block.name === 'save_profile_field') {
       const input = block.input as { field?: unknown; value?: unknown };
-      if (typeof input.field !== 'string' || typeof input.value !== 'string') {
-        return { ok: false, error: 'field and value must both be strings' };
+      if (typeof input.field !== 'string') {
+        return { ok: false, error: 'field must be a string' };
+      }
+      if (typeof input.value !== 'string' && typeof input.value !== 'boolean') {
+        return { ok: false, error: 'value must be a string or boolean' };
       }
       const result = await toolHandlers.saveProfileField({ field: input.field, value: input.value });
       structuredLog(this.logger, 'log', {
@@ -596,8 +627,8 @@ export class CoachingService {
       if (typeof input.field !== 'string') {
         return { ok: false, error: 'field must be a string' };
       }
-      if (typeof input.value !== 'string' && typeof input.value !== 'number') {
-        return { ok: false, error: 'value must be a string or number' };
+      if (typeof input.value !== 'string' && typeof input.value !== 'number' && typeof input.value !== 'boolean') {
+        return { ok: false, error: 'value must be a string, number, or boolean' };
       }
       const result = await toolHandlers.saveIntakeField({ field: input.field, value: input.value });
       structuredLog(this.logger, 'log', {

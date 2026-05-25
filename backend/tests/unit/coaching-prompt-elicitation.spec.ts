@@ -11,6 +11,7 @@ function profile(overrides: Partial<PsychologicalProfile> = {}): PsychologicalPr
     public_failure_scenario: '',
     typical_failure_moment: '',
     pressure_preference: PressurePreference.PRESSURE,
+    cussing_ok: false,
     created_at: new Date(),
     updated_at: new Date(),
     ...overrides,

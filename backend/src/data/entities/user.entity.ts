@@ -35,6 +35,9 @@ export interface IntakeData {
   public_failure_scenario?: string;
   typical_failure_moment?: string;
   pressure_preference?: 'pressure' | 'encouragement';
+  // Whether the user has explicitly opted in to KIBA cursing. False by default
+  // (no cursing without consent). Mirrored to PsychologicalProfile.cussing_ok.
+  cussing_ok?: boolean;
   // Free-form notes the AI captures that don't fit the structured fields
   notes?: string[];
 }

@@ -5,12 +5,15 @@ import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Job, Queue } from 'bull';
 import { User, OnboardingStage, UserStatus } from '../data/entities/user.entity';
-import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
+// DailyTask repo is no longer needed here — task lookup/creation is handled
+// by TaskService.ensureTodayTask, which encapsulates the day-index + cycling
+// logic. Keeps this processor lean.
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { AntiGhostService } from './anti-ghost.service';
 import { ScheduleService } from './schedule.service';
 import { CheckinService } from './checkin.service';
+import { TaskService } from './task.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { structuredLog } from '../common/logger';
 
@@ -22,12 +25,12 @@ export class CheckinProcessor {
 
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectRepository(DailyTask) private readonly taskRepo: Repository<DailyTask>,
     @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
     private readonly messagingService: MessagingService,
     private readonly antiGhostService: AntiGhostService,
     private readonly scheduleService: ScheduleService,
     private readonly checkinService: CheckinService,
+    private readonly taskService: TaskService,
     @InjectQueue('accountability') private readonly queue: Queue,
   ) {}
 
@@ -44,10 +47,12 @@ export class CheckinProcessor {
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) return;
 
     if (!user.crisis_hold) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // ensureTodayTask creates today's DailyTask if one doesn't exist yet
+      // (the schema was always queried but nothing wrote to it before this).
+      // Returns null if no goal / no action_plan / no daily_tasks defined —
+      // in which case we fall through to the "no tasks today" check-in copy.
       const [task, profile] = await Promise.all([
-        this.taskRepo.findOne({ where: { user_id: userId, scheduled_date: today, status: TaskStatus.PENDING } }),
+        this.taskService.ensureTodayTask(userId),
         this.profileRepo.findOne({ where: { user_id: userId } }),
       ]);
 

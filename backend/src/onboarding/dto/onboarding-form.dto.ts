@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsArray,
+  IsBoolean,
   Matches,
   MinLength,
   MaxLength,
@@ -80,6 +81,12 @@ export class OnboardingFormDto {
 
   @IsEnum(PressurePreference)
   pressure_preference: PressurePreference;
+
+  // Cursing consent (optional on web form; defaults to false). Web frontend should
+  // surface this as a clear opt-in checkbox so we never cuss without explicit yes.
+  @IsOptional()
+  @IsBoolean()
+  cussing_ok?: boolean;
 
   // ── Check-in preference ───────────────────────────────────────────────────
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'checkin_time must be HH:MM format e.g. 08:00' })

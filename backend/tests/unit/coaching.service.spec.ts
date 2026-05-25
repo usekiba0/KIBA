@@ -24,6 +24,7 @@ const testProfile: PsychologicalProfile = {
   comparison_figure: 'College roommate', public_failure_scenario: 'Friends find out',
   typical_failure_moment: 'Sunday evenings',
   pressure_preference: PressurePreference.PRESSURE,
+  cussing_ok: false,
   created_at: new Date(), updated_at: new Date(),
 };
 

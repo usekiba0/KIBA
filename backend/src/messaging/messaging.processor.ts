@@ -1,14 +1,14 @@
 import { Process, Processor, OnQueueFailed, OnQueueActive } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { InjectQueue } from '@nestjs/bull';
-import { Job, Queue } from 'bull';
+import { Job } from 'bull';
 import { MessagingService } from './messaging.service';
 import { PlanService } from '../ai/plan.service';
 import { User } from '../data/entities/user.entity';
 import { Goal } from '../data/entities/goal.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
+import { CheckinService } from '../accountability/checkin.service';
 import { structuredLog } from '../common/logger';
 
 @Processor('messaging')
@@ -21,7 +21,7 @@ export class MessagingProcessor {
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Goal) private readonly goalRepo: Repository<Goal>,
     @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
-    @InjectQueue('accountability') private readonly accountabilityQueue: Queue,
+    @Inject(forwardRef(() => CheckinService)) private readonly checkinService: CheckinService,
   ) {}
 
   @OnQueueActive()
@@ -61,6 +61,20 @@ export class MessagingProcessor {
       return;
     }
 
+    // Plan generation calls Anthropic and can fail (timeout, malformed JSON, etc.).
+    // The daily check-in cadence is independent — schedule it OUTSIDE this try
+    // block so an LLM hiccup at signup never silences the user permanently.
+    // Idempotent + timezone-aware via CheckinService.scheduleCheckin.
+    try {
+      await this.checkinService.scheduleCheckin(user);
+    } catch (err) {
+      this.logger.error(
+        `[Plan] scheduleCheckin failed for userId=${userId}: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+      // Non-fatal — boot-time scheduleAllCheckins will re-enqueue next deploy.
+    }
+
     try {
       const plan = await this.planService.generatePlan(
         { description: goal.description, timeline: goal.timeline, current_status: goal.current_status },
@@ -68,19 +82,6 @@ export class MessagingProcessor {
       );
 
       await this.goalRepo.update(goal.id, { action_plan: plan });
-
-      // Schedule first check-in
-      if (user.checkin_time) {
-        const [hours, minutes] = user.checkin_time.split(':').map(Number);
-        const now = new Date();
-        const target = new Date(now);
-        target.setHours(hours, minutes, 0, 0);
-        if (target.getTime() <= now.getTime()) {
-          target.setDate(target.getDate() + 1);
-        }
-        const delay = target.getTime() - now.getTime();
-        await this.accountabilityQueue.add('send-checkin', { userId }, { delay });
-      }
 
       structuredLog(this.logger, 'log', {
         service: 'plan',

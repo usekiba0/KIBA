@@ -1,19 +1,54 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
-import { User, UserStatus } from '../data/entities/user.entity';
+import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
 import { structuredLog } from '../common/logger';
 
 @Injectable()
-export class CheckinService {
+export class CheckinService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CheckinService.name);
 
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectQueue('accountability') private readonly queue: Queue,
   ) {}
+
+  /**
+   * Self-heal after every deploy / Redis restart.
+   *
+   * Bull jobs live in Redis. If Redis flaps (e.g. Upstash quota limit, server
+   * restart, network blip) the queued `send-checkin` jobs can be lost — and
+   * because the processor self-reschedules ONLY after a job runs, the daily
+   * cadence for that user dies permanently with no recovery.
+   *
+   * This hook re-enqueues today's check-in for every COMPLETE user on every
+   * boot. The deterministic jobId in scheduleCheckin makes it safe to call
+   * unconditionally: Bull rejects duplicates for the same user/target-minute,
+   * so already-healthy users are a no-op.
+   *
+   * Fire-and-forget — failures here must not block app startup. Errors are
+   * structured-logged so they surface in Render dashboards.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    setImmediate(() => {
+      this.scheduleAllCheckins()
+        .then(() => {
+          structuredLog(this.logger, 'log', {
+            service: 'accountability',
+            operation: 'bootstrap_complete',
+          });
+        })
+        .catch((err) => {
+          structuredLog(this.logger, 'error', {
+            service: 'accountability',
+            operation: 'bootstrap_failed',
+            error: (err as Error).message,
+          });
+        });
+    });
+  }
 
   computeDelayMs(checkinTime: string, utcOffsetMinutes = 0): number {
     const [hours, minutes] = checkinTime.split(':').map(Number);
@@ -77,15 +112,41 @@ export class CheckinService {
   }
 
   async scheduleAllCheckins(): Promise<void> {
+    // Only users who completed onboarding AND haven't cancelled — mirrors the
+    // skip guards in CheckinProcessor.handleSendCheckin so we don't enqueue
+    // jobs that would immediately no-op. `crisis_hold` users ARE included
+    // (the processor handles suppressing today's send while keeping cadence).
     const users = await this.userRepo.find({
       where: [
-        { status: UserStatus.ACTIVE },
-        { status: UserStatus.TRIAL },
+        { status: UserStatus.ACTIVE, onboarding_stage: OnboardingStage.COMPLETE },
+        { status: UserStatus.TRIAL, onboarding_stage: OnboardingStage.COMPLETE },
+        { status: UserStatus.PAUSED, onboarding_stage: OnboardingStage.COMPLETE },
       ],
     });
 
+    let scheduled = 0;
+    let skipped = 0;
+    let failed = 0;
     for (const user of users) {
-      await this.scheduleCheckin(user);
+      if (!user.checkin_time) { skipped++; continue; }
+      try {
+        await this.scheduleCheckin(user);
+        scheduled++;
+      } catch (err) {
+        failed++;
+        this.logger.error(
+          `scheduleAllCheckins: failed for user ${user.id}: ${(err as Error).message}`,
+        );
+      }
     }
+
+    structuredLog(this.logger, 'log', {
+      service: 'accountability',
+      operation: 'schedule_all_done',
+      total: users.length,
+      scheduled,
+      skipped,
+      failed,
+    });
   }
 }

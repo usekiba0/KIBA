@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
@@ -13,6 +13,7 @@ import {
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { Goal } from '../data/entities/goal.entity';
 import { StripeService } from './stripe.service';
+import { CheckinService } from '../accountability/checkin.service';
 import { OnboardingFormDto } from './dto/onboarding-form.dto';
 import { structuredLog } from '../common/logger';
 
@@ -26,6 +27,7 @@ export class OnboardingService {
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectQueue('messaging') private readonly messagingQueue: Queue,
     private readonly stripeService: StripeService,
+    @Inject(forwardRef(() => CheckinService)) private readonly checkinService: CheckinService,
     private readonly config: ConfigService,
   ) {}
 
@@ -116,6 +118,7 @@ export class OnboardingService {
           public_failure_scenario: dto.public_failure_scenario,
           typical_failure_moment: dto.typical_failure_moment,
           pressure_preference: dto.pressure_preference,
+          cussing_ok: dto.cussing_ok === true,
         });
         await manager.save(PsychologicalProfile, profile);
 
@@ -143,6 +146,19 @@ export class OnboardingService {
       await this.messagingQueue.add('plan-generation', {
         userId: result.savedUser.id,
       });
+
+      // Kick off the daily check-in cadence directly so it doesn't depend on
+      // plan-generation succeeding (LLM timeouts, malformed JSON, etc.). The
+      // jobId guard in scheduleCheckin makes this idempotent with any other
+      // scheduling path (plan-generation handler, Stripe webhook, boot-time
+      // scheduleAllCheckins). Non-fatal if it fails — the boot hook re-tries.
+      try {
+        await this.checkinService.scheduleCheckin(result.savedUser);
+      } catch (err) {
+        this.logger.error(
+          `scheduleCheckin failed for new user ${result.savedUser.id}: ${(err as Error).message}`,
+        );
+      }
 
       structuredLog(this.logger, 'log', {
         service: 'onboarding',
@@ -225,6 +241,17 @@ export class OnboardingService {
       type: 'welcome',
     });
 
+    // Beta path skips plan-generation entirely (no Stripe = no subscription event
+    // to chain off of). Without this call, beta users get a welcome SMS and then
+    // silence — no daily check-in ever fires. Idempotent via jobId.
+    try {
+      await this.checkinService.scheduleCheckin(result.savedUser);
+    } catch (err) {
+      this.logger.error(
+        `scheduleCheckin failed for beta user ${result.savedUser.id}: ${(err as Error).message}`,
+      );
+    }
+
     structuredLog(this.logger, 'log', {
       service: 'onboarding',
       operation: 'user_created_beta',
@@ -241,11 +268,26 @@ export class OnboardingService {
   }
 
   private buildWelcomeMessage(user: User, dto: OnboardingFormDto): string {
-    const goal = dto.goal_description ?? dto.goals ?? 'your goal';
-    const fear = dto.fears;
-    if (fear) {
-      return `Hey ${user.name}! I'm Kiba — your accountability system. You said you want to ${goal}. You also said you fear ${fear}. That fear is exactly why you need a system, not just motivation. Let's build your plan. Reply YES to get started.`;
+    const firstName = (user.name ?? 'friend').split(/\s+/)[0];
+    const goal = dto.goal_description ?? dto.goals ?? null;
+    const avoidance = dto.avoidance_patterns?.trim() || null;
+
+    // KIBA voice: lowercase, short, peer energy, no exclamation points or corporate
+    // openers. Reference the avoidance pattern (what they keep failing to fix) over
+    // the fear — it's the more actionable callback the spec keeps coming back to.
+    const lines: string[] = [`hey ${firstName} — i'm KIBA.`];
+    lines.push(`not another app you forget about. i text you, follow up, remember what you tell me.`);
+
+    if (goal && avoidance) {
+      lines.push(`you said you want to ${goal}, and that ${avoidance} is what keeps tripping you up.`);
+      lines.push(`good. that's exactly what we're fixing.`);
+    } else if (goal) {
+      lines.push(`you said you want to ${goal}. i'm here to make sure you actually do it.`);
+    } else {
+      lines.push(`whatever you said you wanted — i'm here to make sure you actually do it.`);
     }
-    return `Hey ${user.name}! I'm Kiba — your accountability system. Your goal: ${goal}. I'm here to make sure you actually do it. Reply YES to get started.`;
+
+    lines.push(`reply YES when you're ready and we get to work.`);
+    return lines.join(' ');
   }
 }

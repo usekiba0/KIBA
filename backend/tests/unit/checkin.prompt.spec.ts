@@ -11,6 +11,7 @@ const testProfile: PsychologicalProfile = {
   public_failure_scenario: 'having to admit I failed again',
   typical_failure_moment: 'Sunday evenings',
   pressure_preference: PressurePreference.PRESSURE,
+  cussing_ok: false,
   created_at: new Date(),
   updated_at: new Date(),
 };

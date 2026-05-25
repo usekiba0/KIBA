@@ -19,6 +19,7 @@ import { CheckinProcessor } from './checkin.processor';
 import { MessageRouterService } from './message-router.service';
 import { ProofService } from './proof.service';
 import { PlanAdjustmentService } from './plan-adjustment.service';
+import { TaskService } from './task.service';
 import { MessagingModule } from '../messaging/messaging.module';
 
 @Module({
@@ -27,7 +28,7 @@ import { MessagingModule } from '../messaging/messaging.module';
     BullModule.registerQueue({ name: 'accountability' }),
     forwardRef(() => MessagingModule),
   ],
-  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService],
-  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService],
+  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService],
+  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService],
 })
 export class AccountabilityModule {}
