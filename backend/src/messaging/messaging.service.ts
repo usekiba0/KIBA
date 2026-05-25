@@ -100,10 +100,18 @@ export class MessagingService implements OnModuleInit {
    * Makes KIBA feel present — user sees "Read" within ~1s of texting instead of
    * messages sitting on "Delivered" until the AI gets a reply queued up.
    *
+   * Endpoint per SendBlue docs (v2): POST /api/mark-read with both `number`
+   * (the user) and `from_number` (our SendBlue line). Both are required.
+   *
+   * IMPORTANT: read receipts must be manually enabled by SendBlue support on
+   * your account before the API actually marks anything as read. The endpoint
+   * returns 200 either way — silent no-op until activation. Email
+   * support@sendblue.com to request activation.
+   *
    * iMessage only — Twilio SMS has no read-receipt concept. Pass-through fail
-   * silently if SendBlue isn't configured (dev environments, fallback path).
-   * Errors are logged but never thrown — read receipts are best-effort, missing
-   * one is a tiny UX downgrade, not a correctness bug.
+   * silently if SendBlue isn't configured. Errors are logged but never thrown
+   * — read receipts are best-effort, missing one is a UX downgrade not a
+   * correctness bug.
    *
    * Designed to be called fire-and-forget from the webhook handler. Don't
    * await this — the webhook should ack 200 immediately so SendBlue doesn't
@@ -113,26 +121,40 @@ export class MessagingService implements OnModuleInit {
     if (!this.sendBlueReady) return;
     const keyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const secret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
+    const fromNumber = this.config.get<string>('SENDBLUE_FROM_NUMBER');
     if (!keyId || !secret) return;
+    if (!fromNumber) {
+      this.logger.warn('[SendBlue] SENDBLUE_FROM_NUMBER missing — skipping read receipt');
+      return;
+    }
 
     try {
       const response = await axios.post(
-        'https://api.sendblue.co/api/send-read-receipt',
-        { number: to },
-        { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret }, timeout: 5_000 },
+        'https://api.sendblue.co/api/mark-read',
+        { number: to, from_number: fromNumber },
+        {
+          headers: {
+            'sb-api-key-id': keyId,
+            'sb-api-secret-key': secret,
+            'Content-Type': 'application/json',
+          },
+          timeout: 5_000,
+        },
       );
       structuredLog(this.logger, 'log', {
         service: 'messaging',
         operation: 'send_read_receipt',
         to,
         status: response.data?.status ?? 'ok',
+        raw: response.data,
       });
     } catch (err) {
       const detail = (err as any)?.response?.data
         ? JSON.stringify((err as any).response.data)
         : '';
+      const status = (err as any)?.response?.status;
       this.logger.warn(
-        `[SendBlue] Read receipt failed for ${to}: ${(err as Error).message} | body: ${detail}`,
+        `[SendBlue] Read receipt failed for ${to}: http=${status} ${(err as Error).message} | body: ${detail}`,
       );
     }
   }
