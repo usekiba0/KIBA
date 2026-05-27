@@ -11,6 +11,7 @@ import { ProcessedStripeEvent } from './entities/processed-stripe-event.entity';
 import { PsychologicalProfile } from './entities/psychological-profile.entity';
 import { Goal } from './entities/goal.entity';
 import { DailyTask } from './entities/daily-task.entity';
+import { DailyTodo } from './entities/daily-todo.entity';
 import { Proof } from './entities/proof.entity';
 import { Strike } from './entities/strike.entity';
 import { ExecutionScore } from './entities/execution-score.entity';
@@ -30,7 +31,7 @@ export const AppDataSource = new DataSource({
   entities: [
     User, Subscription, ConversationSession, Message,
     NutritionalAnalysis, CrisisAlert, SessionSummary, ProcessedStripeEvent,
-    PsychologicalProfile, Goal, DailyTask, Proof, Strike, ExecutionScore, AntiGhostState,
+    PsychologicalProfile, Goal, DailyTask, DailyTodo, Proof, Strike, ExecutionScore, AntiGhostState,
     Correction, CoachingKnowledge, ScheduledReminder,
   ],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],

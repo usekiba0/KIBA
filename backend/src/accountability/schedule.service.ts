@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
-import { ScheduledReminder, ScheduledReminderStatus } from '../data/entities/scheduled-reminder.entity';
+import { ScheduledReminder, ScheduledReminderStatus, ReminderRecurrence } from '../data/entities/scheduled-reminder.entity';
 import { User } from '../data/entities/user.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { structuredLog } from '../common/logger';
@@ -21,6 +21,53 @@ export interface EnqueueArgs {
   createdByMessageId?: string | null;
   fireAt: Date;
   message: string;
+  recurrence?: DailyRecurrence | null;
+}
+
+export interface DailyRecurrence {
+  rule: ReminderRecurrence.DAILY;
+  /** Local clock the user wants the reminder at, "HH:MM" 24h. */
+  localTime: string;
+  /** Snapshot of user.utc_offset_minutes at creation time. */
+  offsetMinutes: number;
+  /**
+   * Set internally when the worker re-enqueues a recurring occurrence so every
+   * row in the chain shares the same parent_id. Tool callers leave this unset
+   * for the first occurrence — the service stamps the new row's own id.
+   */
+  parentId?: string;
+}
+
+/**
+ * For a "daily at HH:MM in offset O" recurrence, compute the next UTC fire
+ * time strictly AFTER `now`. Caller passes the user's offset at creation time
+ * so DST shifts don't quietly drift the reminder off the user's clock.
+ *
+ * Pure function, exported for tests.
+ */
+export function nextDailyFireAt(now: Date, localHHmm: string, offsetMinutes: number): Date {
+  const m = localHHmm.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!m) throw new Error(`invalid HH:MM: ${localHHmm}`);
+  const targetHour = parseInt(m[1], 10);
+  const targetMin = parseInt(m[2], 10);
+
+  // Work in "local minutes since epoch" by shifting UTC by the offset.
+  const localNowMs = now.getTime() + offsetMinutes * 60_000;
+  const localNow = new Date(localNowMs);
+
+  // Build today's HH:MM as if `localNow` were the UTC frame (we'll convert back at the end).
+  let candidateLocal = Date.UTC(
+    localNow.getUTCFullYear(),
+    localNow.getUTCMonth(),
+    localNow.getUTCDate(),
+    targetHour,
+    targetMin,
+    0, 0,
+  );
+  if (candidateLocal <= localNowMs) {
+    candidateLocal += 24 * 60 * 60_000;
+  }
+  return new Date(candidateLocal - offsetMinutes * 60_000);
 }
 
 export interface EnqueueResult {
@@ -66,6 +113,7 @@ export class ScheduleService {
       return { ok: false, reason: 'message is required' };
     }
 
+    const rec = args.recurrence ?? null;
     const saved = await this.reminderRepo.save({
       user_id: args.userId,
       session_id: args.sessionId ?? null,
@@ -73,7 +121,16 @@ export class ScheduleService {
       fire_at: args.fireAt,
       message: args.message.trim(),
       status: ScheduledReminderStatus.PENDING,
+      recurrence_rule: rec?.rule ?? null,
+      recurrence_local_time: rec?.localTime ?? null,
+      recurrence_offset_minutes: rec?.offsetMinutes ?? null,
+      recurrence_parent_id: rec?.parentId ?? null,
     });
+
+    // First-of-chain: stamp parent_id to its own id so the whole chain shares one.
+    if (rec && !rec.parentId) {
+      await this.reminderRepo.update(saved.id, { recurrence_parent_id: saved.id });
+    }
 
     const job = await this.queue.add(
       'send-scheduled-reminder',
@@ -90,6 +147,7 @@ export class ScheduleService {
       reminderId: saved.id,
       fireAtIso: args.fireAt.toISOString(),
       delayMs,
+      recurrence: rec?.rule ?? null,
     });
 
     return { ok: true, reminderId: saved.id, fireAtIso: args.fireAt.toISOString() };
@@ -138,6 +196,40 @@ export class ScheduleService {
         userId: user.id,
         reminderId,
       });
+
+      // Recurring: enqueue the next occurrence. Errors here must not roll back
+      // the FIRED status (the send succeeded) — we log and move on; the user
+      // can re-ask if a daily chain breaks.
+      if (
+        reminder.recurrence_rule === ReminderRecurrence.DAILY &&
+        reminder.recurrence_local_time &&
+        reminder.recurrence_offset_minutes !== null
+      ) {
+        try {
+          const nextFire = nextDailyFireAt(
+            new Date(),
+            reminder.recurrence_local_time,
+            reminder.recurrence_offset_minutes,
+          );
+          await this.enqueue({
+            userId: reminder.user_id,
+            sessionId: reminder.session_id,
+            createdByMessageId: reminder.created_by_message_id,
+            fireAt: nextFire,
+            message: reminder.message,
+            recurrence: {
+              rule: ReminderRecurrence.DAILY,
+              localTime: reminder.recurrence_local_time,
+              offsetMinutes: reminder.recurrence_offset_minutes,
+              parentId: reminder.recurrence_parent_id ?? reminderId,
+            },
+          });
+        } catch (recErr) {
+          this.logger.error(
+            `recurrence re-enqueue failed for ${reminderId}: ${(recErr as Error).message}`,
+          );
+        }
+      }
     } catch (err) {
       await this.reminderRepo.update(reminderId, {
         status: ScheduledReminderStatus.FAILED,
@@ -146,6 +238,10 @@ export class ScheduleService {
       this.logger.error(`fire failed for ${reminderId}: ${(err as Error).message}`);
       throw err;
     }
+  }
+
+  async findById(reminderId: string): Promise<ScheduledReminder | null> {
+    return this.reminderRepo.findOne({ where: { id: reminderId } });
   }
 
   async listForUser(userId: string, limit = 50): Promise<ScheduledReminder[]> {
@@ -171,6 +267,26 @@ export class ScheduleService {
       order: { fire_at: 'ASC' },
       take: 200,
     });
+  }
+
+  /**
+   * Stop a recurring series — cancels the currently-pending occurrence and any
+   * other pending rows sharing the same parent_id. Returns the count of rows
+   * cancelled (0 if nothing pending was found).
+   */
+  async cancelSeries(parentId: string): Promise<number> {
+    const pending = await this.reminderRepo.find({
+      where: {
+        recurrence_parent_id: parentId,
+        status: ScheduledReminderStatus.PENDING,
+      },
+    });
+    let count = 0;
+    for (const row of pending) {
+      const result = await this.cancel(row.id);
+      if (result?.status === ScheduledReminderStatus.CANCELLED) count++;
+    }
+    return count;
   }
 
   async cancel(reminderId: string): Promise<ScheduledReminder | null> {

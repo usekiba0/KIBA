@@ -22,6 +22,9 @@ import { AntiGhostService } from '../accountability/anti-ghost.service';
 import { ProofService } from '../accountability/proof.service';
 import { ScoreIntentService } from '../accountability/score-intent.service';
 import { ScheduleService } from '../accountability/schedule.service';
+import { ReminderRecurrence } from '../data/entities/scheduled-reminder.entity';
+import { TodoService } from '../accountability/todo.service';
+import { DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
 import { parseTimezoneOffset } from './reminder-parser';
@@ -73,6 +76,8 @@ export class CoachingProcessor {
     private readonly scoreIntentService: ScoreIntentService,
     @Inject(forwardRef(() => ScheduleService))
     private readonly scheduleService: ScheduleService,
+    @Inject(forwardRef(() => TodoService))
+    private readonly todoService: TodoService,
     private readonly correctionService: CorrectionService,
     private readonly stripeService: StripeService,
     @InjectQueue('accountability') private readonly accountabilityQueue: Queue,
@@ -310,6 +315,29 @@ export class CoachingProcessor {
     // Image = proof submission — look up today's pending task
     if (numMedia > 0) {
       const mediaUrl = mediaUrls[0] ?? null;
+      const mediaCt = (mediaContentTypes[0] ?? '').toLowerCase();
+      const isImage = mediaCt.startsWith('image/');
+      const isAudio = mediaCt.startsWith('audio/');
+      const isVideo = mediaCt.startsWith('video/');
+
+      // Non-image media: voice notes / video / unknown blobs route here. We
+      // can't run vision on audio bytes (that's how the "couldn't read that
+      // photo" loop happened — SendBlue forwarded a .caf labeled image/jpeg).
+      // Reply useful instead of feeding garbage to Claude.
+      if (!isImage) {
+        const reply = isAudio
+          ? "i can't play voice notes yet — type it out and i got you."
+          : isVideo
+            ? "videos don't come through here — send a screenshot from it instead."
+            : "that file type doesn't come through — try a screenshot or jpeg.";
+        structuredLog(this.logger, 'log', {
+          service: 'messaging', operation: 'unsupported_media_dropped',
+          userId: user.id, contentType: mediaCt, channel,
+        });
+        await this.saveAndSend(user, boundary.sessionId, reply);
+        return;
+      }
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const task = await this.dailyTaskRepo.findOne({
@@ -330,15 +358,25 @@ export class CoachingProcessor {
         );
       } else {
         // No pending task today — route to coaching AI with vision
+        const visionTodos = await this.todoService.ensureSeededForToday(user.id).catch(() => []);
         const { reply, tokenCount } = await this.coachingService.generateReply(
           user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaContentTypes[0],
           this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
+          visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
         );
         await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
         await this.saveAndSend(user, boundary.sessionId, reply);
       }
       return;
     }
+
+    // Seed today's todos from the user's plan once per day, then pass the
+    // current list into the coaching reply so the AI stops asking
+    // "what's the workout?" when the answer's already in the action plan.
+    const todos = await this.todoService.ensureSeededForToday(user.id).catch((err) => {
+      this.logger.warn(`todo seed failed for ${user.id}: ${(err as Error).message}`);
+      return [];
+    });
 
     // Phase 2: coaching reply (DB context already fetched in Phase 1)
     const { reply, tokenCount } = await this.coachingService.generateReply(
@@ -349,6 +387,7 @@ export class CoachingProcessor {
       undefined,
       undefined,
       this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
+      todos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
     );
     await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
     await this.saveAndSend(user, boundary.sessionId, reply);
@@ -563,20 +602,51 @@ export class CoachingProcessor {
    */
   private buildToolHandlers(user: User, sessionId: string, userMessageId: string) {
     const userId = user.id;
+    const userOffsetMinutes = user.utc_offset_minutes;
     return {
-      scheduleReminder: async (input: { fire_at_iso: string; message: string }) => {
+      scheduleReminder: async (input: {
+        fire_at_iso: string;
+        message: string;
+        recurrence?: { rule: 'daily'; local_time: string } | null;
+      }) => {
         const fireAt = new Date(input.fire_at_iso);
+        // Recurrence needs the user's TZ snapshotted at create time. If we
+        // don't know it, refuse rather than silently dropping recurrence —
+        // the AI should ask for the timezone first.
+        if (input.recurrence && (userOffsetMinutes === null || userOffsetMinutes === undefined)) {
+          return { ok: false as const, error: 'cannot schedule a daily reminder without the user\'s timezone — ask them first' };
+        }
         const result = await this.scheduleService.enqueue({
           userId,
           sessionId,
           createdByMessageId: userMessageId,
           fireAt,
           message: input.message,
+          recurrence: input.recurrence
+            ? {
+                rule: ReminderRecurrence.DAILY,
+                localTime: input.recurrence.local_time,
+                offsetMinutes: userOffsetMinutes as number,
+              }
+            : null,
         });
         if (result.ok) {
           return { ok: true as const, reminder_id: result.reminderId, fire_at_iso: result.fireAtIso };
         }
         return { ok: false as const, error: result.reason };
+      },
+      cancelReminder: async (input: { reminder_id: string }) => {
+        const reminder = await this.scheduleService.findById(input.reminder_id);
+        if (!reminder || reminder.user_id !== userId) {
+          return { ok: false as const, error: 'reminder not found' };
+        }
+        // Recurring series: cancel the whole chain by parent_id.
+        if (reminder.recurrence_parent_id) {
+          const count = await this.scheduleService.cancelSeries(reminder.recurrence_parent_id);
+          return { ok: true as const, cancelled: count };
+        }
+        const cancelled = await this.scheduleService.cancel(input.reminder_id);
+        return { ok: true as const, cancelled: cancelled ? 1 : 0 };
       },
       listMyReminders: async () => {
         const reminders = await this.scheduleService.listPendingForUser(userId);
@@ -586,8 +656,36 @@ export class CoachingProcessor {
             reminder_id: r.id,
             fire_at_iso: r.fire_at.toISOString(),
             message: r.message,
+            recurrence: r.recurrence_rule,
           })),
         };
+      },
+      addTodo: async (input: { content: string }) => {
+        const trimmed = (input.content ?? '').trim();
+        if (!trimmed) return { ok: false as const, error: 'content must not be empty' };
+        const todo = await this.todoService.add({
+          userId,
+          content: trimmed,
+          source: DailyTodoSource.AI,
+        });
+        return { ok: true as const, todo_id: todo.id, content: todo.content };
+      },
+      listTodayTodos: async () => {
+        const todos = await this.todoService.listToday(userId);
+        return {
+          ok: true as const,
+          todos: todos.map((t) => ({ todo_id: t.id, content: t.content, status: t.status })),
+        };
+      },
+      markTodoDone: async (input: { todo_id: string }) => {
+        const updated = await this.todoService.markDone(userId, input.todo_id);
+        if (!updated) return { ok: false as const, error: 'todo not found' };
+        return { ok: true as const, todo_id: updated.id, status: updated.status };
+      },
+      removeTodo: async (input: { todo_id: string }) => {
+        const removed = await this.todoService.remove(userId, input.todo_id);
+        if (!removed) return { ok: false as const, error: 'todo not found' };
+        return { ok: true as const, removed: true as const };
       },
       sendPaymentLink: async () => {
         // Refuse when the user already has an active/trialing subscription —

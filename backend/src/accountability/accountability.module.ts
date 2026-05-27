@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bull';
 import { DailyTask } from '../data/entities/daily-task.entity';
+import { DailyTodo } from '../data/entities/daily-todo.entity';
 import { Proof } from '../data/entities/proof.entity';
 import { Strike } from '../data/entities/strike.entity';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
@@ -20,15 +21,16 @@ import { MessageRouterService } from './message-router.service';
 import { ProofService } from './proof.service';
 import { PlanAdjustmentService } from './plan-adjustment.service';
 import { TaskService } from './task.service';
+import { TodoService } from './todo.service';
 import { MessagingModule } from '../messaging/messaging.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DailyTask, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User, PsychologicalProfile, ScheduledReminder]),
+    TypeOrmModule.forFeature([DailyTask, DailyTodo, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User, PsychologicalProfile, ScheduledReminder]),
     BullModule.registerQueue({ name: 'accountability' }),
     forwardRef(() => MessagingModule),
   ],
-  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService],
-  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService],
+  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService],
+  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService],
 })
 export class AccountabilityModule {}

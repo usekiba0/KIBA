@@ -118,11 +118,29 @@ export class MessagingController {
   }
 
   private guessContentType(url: string): string {
+    // SendBlue forwards iMessage attachments through a generic CDN URL with the
+    // original filename preserved. Voice notes land as `.caf` (iOS Core Audio),
+    // video as `.mov`, etc. We MUST detect by extension — defaulting unknowns to
+    // image/jpeg routed an audio file into vision and produced the
+    // "couldn't read that photo" loop Karibi hit on 5/26.
     const lower = url.toLowerCase().split('?')[0];
+    // Image
     if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
     if (lower.endsWith('.png')) return 'image/png';
     if (lower.endsWith('.gif')) return 'image/gif';
     if (lower.endsWith('.webp')) return 'image/webp';
-    return 'image/jpeg';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    // Audio (iMessage voice notes most commonly arrive as .caf or .m4a)
+    if (lower.endsWith('.caf')) return 'audio/x-caf';
+    if (lower.endsWith('.m4a')) return 'audio/mp4';
+    if (lower.endsWith('.mp3')) return 'audio/mpeg';
+    if (lower.endsWith('.amr')) return 'audio/amr';
+    if (lower.endsWith('.aac')) return 'audio/aac';
+    if (lower.endsWith('.wav')) return 'audio/wav';
+    // Video
+    if (lower.endsWith('.mov')) return 'video/quicktime';
+    if (lower.endsWith('.mp4')) return 'video/mp4';
+    // Unknown — let downstream decide rather than assuming image
+    return 'application/octet-stream';
   }
 }

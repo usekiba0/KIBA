@@ -14,6 +14,7 @@ import { ProcessedStripeEvent } from './entities/processed-stripe-event.entity';
 import { PsychologicalProfile } from './entities/psychological-profile.entity';
 import { Goal } from './entities/goal.entity';
 import { DailyTask } from './entities/daily-task.entity';
+import { DailyTodo } from './entities/daily-todo.entity';
 import { Proof } from './entities/proof.entity';
 import { Strike } from './entities/strike.entity';
 import { ExecutionScore } from './entities/execution-score.entity';
@@ -42,6 +43,7 @@ const ENTITIES = [
   PsychologicalProfile,
   Goal,
   DailyTask,
+  DailyTodo,
   Proof,
   Strike,
   ExecutionScore,

@@ -9,6 +9,10 @@ export enum ScheduledReminderStatus {
   FAILED = 'failed',
 }
 
+export enum ReminderRecurrence {
+  DAILY = 'daily',
+}
+
 @Entity('scheduled_reminders')
 export class ScheduledReminder {
   @PrimaryGeneratedColumn('uuid')
@@ -43,6 +47,26 @@ export class ScheduledReminder {
 
   @Column({ type: 'text', nullable: true })
   failure_reason: string | null;
+
+  // null = one-off. 'daily' = re-enqueue 24h after each fire using
+  // recurrence_local_time + recurrence_offset_minutes. Snapshotted at creation
+  // so the reminder stays at the local clock-time the user asked for, even if
+  // their user.utc_offset_minutes changes later.
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  recurrence_rule: ReminderRecurrence | null;
+
+  @Column({ type: 'varchar', length: 5, nullable: true })
+  recurrence_local_time: string | null;
+
+  @Column({ type: 'integer', nullable: true })
+  recurrence_offset_minutes: number | null;
+
+  // First row in a recurring chain points to itself (set after insert). Each
+  // re-enqueued occurrence carries the same parent_id so `cancel(parent_id)`
+  // can stop a whole series in one call.
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  recurrence_parent_id: string | null;
 
   @CreateDateColumn()
   created_at: Date;

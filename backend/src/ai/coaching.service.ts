@@ -18,10 +18,25 @@ import { structuredLog, warnTokenBudget } from '../common/logger';
 
 /** Coaching-mode tools (post-payment). */
 export interface CoachingToolHandlers {
-  scheduleReminder: (input: { fire_at_iso: string; message: string }) =>
+  scheduleReminder: (input: {
+    fire_at_iso: string;
+    message: string;
+    /** Optional "daily at HH:MM" recurrence. Local time + offset snapshotted at create time. */
+    recurrence?: { rule: 'daily'; local_time: string } | null;
+  }) =>
     Promise<{ ok: true; reminder_id: string; fire_at_iso: string } | { ok: false; error: string }>;
+  cancelReminder: (input: { reminder_id: string }) =>
+    Promise<{ ok: true; cancelled: number } | { ok: false; error: string }>;
   listMyReminders: () =>
-    Promise<{ ok: true; reminders: Array<{ reminder_id: string; fire_at_iso: string; message: string }> }>;
+    Promise<{ ok: true; reminders: Array<{ reminder_id: string; fire_at_iso: string; message: string; recurrence: string | null }> }>;
+  addTodo: (input: { content: string }) =>
+    Promise<{ ok: true; todo_id: string; content: string } | { ok: false; error: string }>;
+  listTodayTodos: () =>
+    Promise<{ ok: true; todos: Array<{ todo_id: string; content: string; status: string }> }>;
+  markTodoDone: (input: { todo_id: string }) =>
+    Promise<{ ok: true; todo_id: string; status: string } | { ok: false; error: string }>;
+  removeTodo: (input: { todo_id: string }) =>
+    Promise<{ ok: true; removed: true } | { ok: false; error: string }>;
   // Re-subscribe / late-signup link send. Coaching exposes this so a user whose
   // subscription lapsed (or who was backfilled to 'complete' without ever paying)
   // can get a fresh Stripe checkout URL by just asking in chat.
@@ -54,17 +69,31 @@ const SCHEDULE_REMINDER_TOOL: Tool = {
     'MINIMUM DELAY: 2 minutes from now. If the user asks for sooner (e.g. "in 30 seconds", "in 1 min"), ' +
     'DO NOT call the tool — instead reply that the minimum is 2 minutes and ask them to pick a longer delay. ' +
     'If the user\'s timezone is unknown, ask before calling this tool — never guess. ' +
+    'RECURRENCE: if the user asks for a DAILY repeating reminder ("every day at 8am", "every morning", ' +
+    '"each day at X", "daily wake-up", "remind me every day to ..."), pass the optional `recurrence` object ' +
+    'with rule="daily" and local_time="HH:MM" 24h in the user\'s local clock. The system will fire at ' +
+    'fire_at_iso first and then re-enqueue every 24h at the same local clock automatically — DO NOT schedule ' +
+    'multiple one-off reminders for "every day". For one-off requests, omit `recurrence`. ' +
     'After a successful call, write ONE short confirmation line.',
   input_schema: {
     type: 'object' as const,
     properties: {
       fire_at_iso: {
         type: 'string',
-        description: 'Absolute UTC time in ISO 8601 format with the Z suffix (e.g. "2026-05-19T14:30:00Z"). Must be at least 2 minutes in the future.',
+        description: 'Absolute UTC time in ISO 8601 format with the Z suffix (e.g. "2026-05-19T14:30:00Z"). Must be at least 2 minutes in the future. For daily recurring reminders this is the FIRST fire — usually tomorrow at the requested local time (or today if it hasn\'t passed yet).',
       },
       message: {
         type: 'string',
         description: 'The exact text to send when the reminder fires. Speak directly to the user.',
+      },
+      recurrence: {
+        type: 'object',
+        description: 'Optional. Set ONLY when the user explicitly asks for a daily-repeating reminder. Leave unset for one-off reminders.',
+        properties: {
+          rule: { type: 'string', enum: ['daily'], description: 'Currently only "daily" is supported.' },
+          local_time: { type: 'string', description: 'The user\'s local clock time the reminder should fire at every day, "HH:MM" 24h (e.g. "08:00", "22:30"). Must match the local time of fire_at_iso.' },
+        },
+        required: ['rule', 'local_time'],
       },
     },
     required: ['fire_at_iso', 'message'],
@@ -74,15 +103,92 @@ const SCHEDULE_REMINDER_TOOL: Tool = {
 const LIST_MY_REMINDERS_TOOL: Tool = {
   name: 'list_my_reminders',
   description:
-    'Return the user\'s currently-pending scheduled reminders (id, fire_at_iso UTC, message). ' +
+    'Return the user\'s currently-pending scheduled reminders (id, fire_at_iso UTC, message, recurrence). ' +
     'Call this whenever the user asks about a reminder you already set — "how long until that", ' +
-    '"what reminders do i have", "did you set the reminder", "what time was it for". ' +
+    '"what reminders do i have", "did you set the reminder", "what time was it for", "what daily reminders ' +
+    'do i have", "stop the morning reminder". ' +
     'NEVER answer those from memory or guess time deltas — always call this first, then translate ' +
-    'fire_at_iso into the user\'s local clock before replying.',
+    'fire_at_iso into the user\'s local clock before replying. The `recurrence` field is "daily" for ' +
+    'repeating reminders or null for one-off.',
   input_schema: {
     type: 'object' as const,
     properties: {},
     required: [],
+  },
+};
+
+const ADD_TODO_TOOL: Tool = {
+  name: 'add_todo',
+  description:
+    'Add an item to the user\'s to-do list for TODAY. Use whenever the user names something they want to ' +
+    'get done today ("add gym to my list", "remind me to email steve", "throw clean my room on there"), ' +
+    'OR when YOU recommend a concrete task they agree to ("aight do the leg workout" → add it). ' +
+    'Don\'t use for one-off coaching observations or motivation. The list is already in the system prompt — ' +
+    'don\'t add a duplicate of something already there.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      content: {
+        type: 'string',
+        description: 'Short imperative description of the task (e.g. "leg workout — 15 min squats/lunges/calves", "4 hours focused business work"). Keep under 200 chars.',
+      },
+    },
+    required: ['content'],
+  },
+};
+
+const LIST_TODAY_TODOS_TOOL: Tool = {
+  name: 'list_today_todos',
+  description:
+    'Return today\'s to-do list (id, content, status). The list is also embedded in the system prompt at ' +
+    'turn start — only call this if the user just added something via add_todo / marked something done and ' +
+    'you need the fresh ids, or if the user asks "what\'s left" / "what\'s on my list".',
+  input_schema: { type: 'object' as const, properties: {}, required: [] },
+};
+
+const MARK_TODO_DONE_TOOL: Tool = {
+  name: 'mark_todo_done',
+  description:
+    'Mark a todo item complete. Use when the user reports finishing something on the list ("done with the ' +
+    'workout", "knocked out the business work", "✓"). Pair with the strike/score system as usual — this just ' +
+    'closes the line item. Get todo_id from the system-prompt list or list_today_todos.',
+  input_schema: {
+    type: 'object' as const,
+    properties: { todo_id: { type: 'string', description: 'The todo id from the list.' } },
+    required: ['todo_id'],
+  },
+};
+
+const REMOVE_TODO_TOOL: Tool = {
+  name: 'remove_todo',
+  description:
+    'Delete a todo item the user wants off the list ("take swimming off", "i\'m not doing the email today, ' +
+    'remove it"). Different from mark_todo_done — removed items aren\'t counted as completed. Get todo_id ' +
+    'from the system-prompt list.',
+  input_schema: {
+    type: 'object' as const,
+    properties: { todo_id: { type: 'string', description: 'The todo id to delete.' } },
+    required: ['todo_id'],
+  },
+};
+
+const CANCEL_REMINDER_TOOL: Tool = {
+  name: 'cancel_reminder',
+  description:
+    'Cancel a pending reminder by id. Use when the user asks to stop, cancel, remove, kill, or turn off a ' +
+    'reminder ("stop the daily morning text", "cancel that 8am thing", "turn off the workout reminder"). ' +
+    'For a DAILY recurring reminder, cancelling cancels the whole series (every future occurrence in the chain). ' +
+    'Always call list_my_reminders FIRST to get the id — never guess. ' +
+    'After a successful call, confirm in one short line.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      reminder_id: {
+        type: 'string',
+        description: 'The reminder id from list_my_reminders. For a recurring series this can be any occurrence id — the whole chain cancels together.',
+      },
+    },
+    required: ['reminder_id'],
   },
 };
 
@@ -348,6 +454,7 @@ export class CoachingService {
     imageUrl?: string,
     imageContentType?: string,
     toolHandlers?: CoachingToolHandlers,
+    todos?: Array<{ id: string; content: string; status: string }>,
   ): Promise<{ reply: string; tokenCount: number }> {
     const [profile, latestScore, strikeCount, knowledge] = await Promise.all([
       // SMS-first onboarding never created a profile row — lazy-create from
@@ -381,10 +488,15 @@ export class CoachingService {
       sessionSummary,
       knowledgeTexts,
       timeContext,
+      todos,
     );
 
     const tools = toolHandlers
-      ? [SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL]
+      ? [
+          SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, CANCEL_REMINDER_TOOL,
+          ADD_TODO_TOOL, LIST_TODAY_TODOS_TOOL, MARK_TODO_DONE_TOOL, REMOVE_TODO_TOOL,
+          SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL,
+        ]
       : undefined;
     const dispatch = toolHandlers
       ? (block: Anthropic.Messages.ToolUseBlock) => this.dispatchCoachingTool(block, toolHandlers, user.id)
@@ -569,17 +681,29 @@ export class CoachingService {
     userId: string,
   ): Promise<unknown> {
     if (block.name === 'schedule_reminder') {
-      const input = block.input as { fire_at_iso?: unknown; message?: unknown };
+      const input = block.input as { fire_at_iso?: unknown; message?: unknown; recurrence?: unknown };
       if (typeof input.fire_at_iso !== 'string' || typeof input.message !== 'string') {
         return { ok: false, error: 'fire_at_iso and message must both be strings' };
+      }
+      let recurrence: { rule: 'daily'; local_time: string } | null = null;
+      if (input.recurrence != null) {
+        const r = input.recurrence as { rule?: unknown; local_time?: unknown };
+        if (r.rule !== 'daily') {
+          return { ok: false, error: 'recurrence.rule must be "daily" (only daily is supported)' };
+        }
+        if (typeof r.local_time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(r.local_time)) {
+          return { ok: false, error: 'recurrence.local_time must be HH:MM 24h' };
+        }
+        recurrence = { rule: 'daily', local_time: r.local_time };
       }
       const result = await toolHandlers.scheduleReminder({
         fire_at_iso: input.fire_at_iso,
         message: input.message,
+        recurrence,
       });
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_schedule_reminder',
-        userId, ok: result.ok, fireAtIso: input.fire_at_iso,
+        userId, ok: result.ok, fireAtIso: input.fire_at_iso, recurrence: recurrence?.rule ?? null,
       });
       return result;
     }
@@ -588,6 +712,59 @@ export class CoachingService {
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_list_my_reminders',
         userId, count: result.ok ? result.reminders.length : 0,
+      });
+      return result;
+    }
+    if (block.name === 'cancel_reminder') {
+      const input = block.input as { reminder_id?: unknown };
+      if (typeof input.reminder_id !== 'string') {
+        return { ok: false, error: 'reminder_id must be a string' };
+      }
+      const result = await toolHandlers.cancelReminder({ reminder_id: input.reminder_id });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_cancel_reminder',
+        userId, ok: result.ok, reminderId: input.reminder_id,
+      });
+      return result;
+    }
+    if (block.name === 'add_todo') {
+      const input = block.input as { content?: unknown };
+      if (typeof input.content !== 'string') {
+        return { ok: false, error: 'content must be a string' };
+      }
+      const result = await toolHandlers.addTodo({ content: input.content });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_add_todo', userId, ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'list_today_todos') {
+      const result = await toolHandlers.listTodayTodos();
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_list_today_todos',
+        userId, count: result.ok ? result.todos.length : 0,
+      });
+      return result;
+    }
+    if (block.name === 'mark_todo_done') {
+      const input = block.input as { todo_id?: unknown };
+      if (typeof input.todo_id !== 'string') {
+        return { ok: false, error: 'todo_id must be a string' };
+      }
+      const result = await toolHandlers.markTodoDone({ todo_id: input.todo_id });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_mark_todo_done', userId, ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'remove_todo') {
+      const input = block.input as { todo_id?: unknown };
+      if (typeof input.todo_id !== 'string') {
+        return { ok: false, error: 'todo_id must be a string' };
+      }
+      const result = await toolHandlers.removeTodo({ todo_id: input.todo_id });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_remove_todo', userId, ok: result.ok,
       });
       return result;
     }
