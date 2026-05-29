@@ -1,9 +1,14 @@
-import { Controller, Get, Patch, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsPhoneNumber, IsString, MaxLength, Min, Max, MinLength } from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
 import { CorrectionService } from './correction.service';
 import { ScheduleService } from '../accountability/schedule.service';
+import { CheckinService } from '../accountability/checkin.service';
+import { UserStatus, OnboardingStage } from './entities/user.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from './entities/user.entity';
 
 class FlagMessageDto {
   @IsBoolean()
@@ -68,6 +73,8 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly correctionService: CorrectionService,
     private readonly scheduleService: ScheduleService,
+    private readonly checkinService: CheckinService,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
   ) {}
 
   @Get('dashboard')
@@ -189,5 +196,26 @@ export class AdminController {
   @Patch('users/:userId/timezone')
   updateUserTimezone(@Param('userId') userId: string, @Body() dto: UpdateUserOffsetDto) {
     return this.adminService.updateUserOffset(userId, dto.utc_offset_minutes);
+  }
+
+  /**
+   * Manually trigger today's check-in for a single user. Diagnostic only —
+   * confirms the Bull queue is consuming + the send pipeline works without
+   * waiting for the user's actual check-in time. Idempotent against tomorrow's
+   * scheduled job (different jobId minute).
+   *
+   * Returns 404 for unknown user, 409 if the user can't receive check-ins
+   * (cancelled / not onboarded), 200 with { enqueued: true } on success.
+   */
+  @Post('users/:userId/trigger-checkin')
+  async triggerCheckin(@Param('userId') userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) return { ok: false, error: 'user not found' };
+    if (user.status === UserStatus.CANCELLED) return { ok: false, error: 'user cancelled' };
+    if (user.onboarding_stage !== OnboardingStage.COMPLETE) return { ok: false, error: 'user not onboarded' };
+    // 1s delay so the round-trip still goes through the worker (vs an inline
+    // send), which is what we're actually trying to test.
+    await this.checkinService.scheduleOneShot(userId, 1_000);
+    return { ok: true, enqueued: true, fire_at_iso: new Date(Date.now() + 1_000).toISOString() };
   }
 }

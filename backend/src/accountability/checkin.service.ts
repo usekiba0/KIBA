@@ -47,6 +47,44 @@ export class CheckinService implements OnApplicationBootstrap {
             error: (err as Error).message,
           });
         });
+
+      // Install the hourly safety re-arm. Boot bootstrap above is one-shot; this
+      // is the recurring sibling that protects cadence between deploys.
+      this.installSafetyRescheduleCron().catch((err) => {
+        structuredLog(this.logger, 'error', {
+          service: 'accountability',
+          operation: 'safety_cron_install_failed',
+          error: (err as Error).message,
+        });
+      });
+    });
+  }
+
+  /**
+   * Add a repeatable Bull job that runs scheduleAllCheckins every hour. Using
+   * Bull's repeat option (not @nestjs/schedule) so we don't introduce a new
+   * dependency for one cron — `accountability` is already wired everywhere.
+   *
+   * Bull `repeat` jobs are idempotent across deploys: the repeat key is derived
+   * from the cron/every value, so re-installing the same schedule on every boot
+   * is a no-op. removeOnComplete prevents the completed-jobs list from growing
+   * unbounded.
+   */
+  private async installSafetyRescheduleCron(): Promise<void> {
+    await this.queue.add(
+      'safety-reschedule-checkins',
+      {},
+      {
+        repeat: { every: 60 * 60 * 1000 },
+        jobId: 'safety-reschedule-checkins',
+        removeOnComplete: true,
+        removeOnFail: 5,
+      },
+    );
+    structuredLog(this.logger, 'log', {
+      service: 'accountability',
+      operation: 'safety_cron_installed',
+      intervalMs: 60 * 60 * 1000,
     });
   }
 

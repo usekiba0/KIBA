@@ -9,7 +9,9 @@ import { User, OnboardingStage, UserStatus } from '../data/entities/user.entity'
 // by TaskService.ensureTodayTask, which encapsulates the day-index + cycling
 // logic. Keeps this processor lean.
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
+import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { MessagingService } from '../messaging/messaging.service';
+import { SessionBoundaryService } from '../data/session-boundary.service';
 import { AntiGhostService } from './anti-ghost.service';
 import { ScheduleService } from './schedule.service';
 import { CheckinService } from './checkin.service';
@@ -26,7 +28,9 @@ export class CheckinProcessor {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
+    @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
     private readonly messagingService: MessagingService,
+    private readonly sessionBoundary: SessionBoundaryService,
     private readonly antiGhostService: AntiGhostService,
     private readonly scheduleService: ScheduleService,
     private readonly checkinService: CheckinService,
@@ -61,9 +65,47 @@ export class CheckinProcessor {
         ? buildCheckinMessage(safeName, profile, task.task_description)
         : buildCheckinMessage(safeName, profile, null);
 
-      await this.messagingService.send(user.phone_number, message);
+      // CRITICAL: wrap send so a Twilio/SendBlue throw can't kill the
+      // re-enqueue chain below. We lost cadence for every prod user this way —
+      // the daily-checkin job ran once, send failed (or was silently dropped),
+      // the exception bubbled, BullMQ marked the job failed, and re-enqueue
+      // never happened. From that point forward the user got nothing forever.
+      // After this fix: send failures are logged but the daily chain survives.
+      let sendOk = false;
+      try {
+        await this.messagingService.send(user.phone_number, message);
+        sendOk = true;
+      } catch (err) {
+        structuredLog(this.logger, 'error', {
+          service: 'accountability',
+          operation: 'checkin_send_failed',
+          userId,
+          error: (err as Error).message,
+        });
+      }
 
-      if (task) {
+      // Persist the check-in as a Message row so it shows up in the admin API
+      // (filterable via is_checkin_prompt) and in the next coaching turn's
+      // recent-message context. Without this, check-ins were invisible —
+      // there's no way to confirm from the DB whether they ever fired, which
+      // is what masked the prod outage we're fixing here.
+      try {
+        const boundary = await this.sessionBoundary.checkAndHandle(userId);
+        await this.messageRepo.save({
+          user_id: userId,
+          session_id: boundary.sessionId,
+          role: MessageRole.AI,
+          message_type: MessageType.TEXT,
+          content: message,
+          is_checkin_prompt: true,
+        });
+        await this.sessionBoundary.recordMessage(boundary.sessionId);
+      } catch (err) {
+        // Visibility is a nice-to-have, not a correctness blocker. Log + move on.
+        this.logger.warn(`checkin Message row failed for ${userId}: ${(err as Error).message}`);
+      }
+
+      if (task && sendOk) {
         await this.queue.add(
           'checkin-missed',
           { userId, taskId: task.id },
@@ -76,6 +118,7 @@ export class CheckinProcessor {
         operation: 'checkin_sent',
         userId,
         taskId: task?.id ?? null,
+        sendOk,
       });
     }
 
@@ -84,7 +127,32 @@ export class CheckinProcessor {
     // silence forever. Delegating to checkinService.scheduleCheckin keeps
     // jobId-based idempotency in one place so a Stripe webhook + bootstrap
     // script + this self-reschedule can't all double-enqueue.
-    await this.checkinService.scheduleCheckin(user);
+    // Wrapped in try/catch for the same reason as the send above — a single
+    // user's broken state must not stop the chain for everyone else.
+    try {
+      await this.checkinService.scheduleCheckin(user);
+    } catch (err) {
+      structuredLog(this.logger, 'error', {
+        service: 'accountability',
+        operation: 'reenqueue_failed',
+        userId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  /**
+   * Safety net: hourly re-run of scheduleAllCheckins. Boot-time bootstrap
+   * already exists, but Render only deploys on push — if Redis flaps mid-week
+   * and a deploy doesn't follow, cadence stays broken for every user until the
+   * next push. The hourly cron closes that window.
+   *
+   * Idempotent via the deterministic jobId in scheduleCheckin — same minute =
+   * same jobId = Bull rejects the duplicate, so already-healthy users are a no-op.
+   */
+  @Process('safety-reschedule-checkins')
+  async handleSafetyReschedule(): Promise<void> {
+    await this.checkinService.scheduleAllCheckins();
   }
 
   @Process('send-scheduled-reminder')
