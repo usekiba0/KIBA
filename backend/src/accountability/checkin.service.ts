@@ -57,6 +57,45 @@ export class CheckinService implements OnApplicationBootstrap {
           error: (err as Error).message,
         });
       });
+
+      // Install the weekly surprise planner. Fires Sunday 20:00 UTC; the
+      // handler picks 1-2 random user-local slots in the upcoming Mon-Sat
+      // per eligible user and enqueues delayed send-surprise jobs.
+      this.installSurprisePlannerCron().catch((err) => {
+        structuredLog(this.logger, 'error', {
+          service: 'accountability',
+          operation: 'surprise_cron_install_failed',
+          error: (err as Error).message,
+        });
+      });
+    });
+  }
+
+  /**
+   * Sunday 20:00 UTC weekly cron. Bull cron syntax: "minute hour dom month dow"
+   * — `0 20 * * 0` = every Sunday at 20:00. Idempotent across deploys via the
+   * deterministic jobId; re-installs are a no-op.
+   *
+   * Sunday evening is the V5 PART 17 spec slot for weekly planning. We pick
+   * 20:00 UTC (= 3pm CDT, 8pm UTC, midnight in PKT) to land in a quiet window
+   * for most users — the actual surprises fire later in the week at user-local
+   * times computed inside SurpriseService.
+   */
+  private async installSurprisePlannerCron(): Promise<void> {
+    await this.queue.add(
+      'plan-week-surprises',
+      {},
+      {
+        repeat: { cron: '0 20 * * 0' },
+        jobId: 'plan-week-surprises',
+        removeOnComplete: true,
+        removeOnFail: 5,
+      },
+    );
+    structuredLog(this.logger, 'log', {
+      service: 'accountability',
+      operation: 'surprise_cron_installed',
+      cron: '0 20 * * 0',
     });
   }
 

@@ -16,6 +16,7 @@ import { AntiGhostService } from './anti-ghost.service';
 import { ScheduleService } from './schedule.service';
 import { CheckinService } from './checkin.service';
 import { TaskService } from './task.service';
+import { SurpriseService } from './surprise.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { structuredLog } from '../common/logger';
 
@@ -35,6 +36,7 @@ export class CheckinProcessor {
     private readonly scheduleService: ScheduleService,
     private readonly checkinService: CheckinService,
     private readonly taskService: TaskService,
+    private readonly surpriseService: SurpriseService,
     @InjectQueue('accountability') private readonly queue: Queue,
   ) {}
 
@@ -228,5 +230,26 @@ export class CheckinProcessor {
   async handleGhostEscalate(job: Job<{ userId: string; taskId: string; level: 2 | 3 | 4 | 5 | 6 }>): Promise<void> {
     const { userId, taskId, level } = job.data;
     await this.antiGhostService.onEscalate(userId, taskId, level);
+  }
+
+  /**
+   * Sunday-evening planner. Picks 1-2 random user-local time slots in the
+   * upcoming Mon-Sat per eligible user and enqueues delayed send-surprise
+   * jobs. Idempotent — re-runs that hit different slots can co-exist; same
+   * slot is rejected by Bull jobId dedup.
+   */
+  @Process('plan-week-surprises')
+  async handlePlanWeekSurprises(): Promise<void> {
+    await this.surpriseService.scheduleWeek();
+  }
+
+  /**
+   * Worker for a single surprise message. Re-checks eligibility at fire time
+   * (user might have cancelled / hit crisis hold / just texted between when
+   * we planned this and when it fires).
+   */
+  @Process('send-surprise')
+  async handleSendSurprise(job: Job<{ userId: string }>): Promise<void> {
+    await this.surpriseService.fire(job.data.userId);
   }
 }
