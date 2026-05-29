@@ -41,6 +41,31 @@ interface CoachingJob {
 
 const RESET_INTENTS = ['reset my coaching', 'start fresh', 'clear my history', 'reset context'];
 
+/**
+ * Pull the derived pattern signals off the user row into the shape the coaching
+ * prompt builder expects. Compact: just reads existing columns, no queries.
+ * The "weakest day" gate (>= 2 misses) lives here so the prompt only sees a
+ * signal once it's statistically meaningful.
+ */
+function derivePatternSignals(user: User) {
+  const counts = user.miss_counts_by_dow ?? [0, 0, 0, 0, 0, 0, 0];
+  let weakestDow: number | null = null;
+  let weakestDowMisses = 0;
+  for (let d = 0; d < 7; d++) {
+    if ((counts[d] ?? 0) > weakestDowMisses) {
+      weakestDow = d;
+      weakestDowMisses = counts[d];
+    }
+  }
+  return {
+    weakestDow: weakestDowMisses >= 2 ? weakestDow : null,
+    weakestDowMisses,
+    recurringExcuse: (user.same_excuse_count ?? 0) >= 2 ? user.last_excuse_phrase : null,
+    recurringExcuseCount: user.same_excuse_count ?? 0,
+    lastMilestoneHit: user.last_milestone_hit ?? 0,
+  };
+}
+
 // Hard guard for billing-intent messages from COMPLETE users without an active
 // subscription. Catches the case where migration 1779300000000 backfilled
 // pre-existing users to 'complete' even though they never actually paid — the
@@ -359,10 +384,12 @@ export class CoachingProcessor {
       } else {
         // No pending task today — route to coaching AI with vision
         const visionTodos = await this.todoService.ensureSeededForToday(user.id).catch(() => []);
+        const visionPatterns = derivePatternSignals(user);
         const { reply, tokenCount } = await this.coachingService.generateReply(
           user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaContentTypes[0],
           this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
           visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
+          visionPatterns,
         );
         await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
         await this.saveAndSend(user, boundary.sessionId, reply);
@@ -378,6 +405,8 @@ export class CoachingProcessor {
       return [];
     });
 
+    const patterns = derivePatternSignals(user);
+
     // Phase 2: coaching reply (DB context already fetched in Phase 1)
     const { reply, tokenCount } = await this.coachingService.generateReply(
       user,
@@ -388,6 +417,7 @@ export class CoachingProcessor {
       undefined,
       this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
       todos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
+      patterns,
     );
     await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
     await this.saveAndSend(user, boundary.sessionId, reply);

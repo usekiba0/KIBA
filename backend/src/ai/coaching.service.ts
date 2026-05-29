@@ -455,6 +455,13 @@ export class CoachingService {
     imageContentType?: string,
     toolHandlers?: CoachingToolHandlers,
     todos?: Array<{ id: string; content: string; status: string }>,
+    patterns?: {
+      weakestDow: number | null;
+      weakestDowMisses: number;
+      recurringExcuse: string | null;
+      recurringExcuseCount: number;
+      lastMilestoneHit: number;
+    },
   ): Promise<{ reply: string; tokenCount: number }> {
     const [profile, latestScore, strikeCount, knowledge] = await Promise.all([
       // SMS-first onboarding never created a profile row — lazy-create from
@@ -489,6 +496,7 @@ export class CoachingService {
       knowledgeTexts,
       timeContext,
       todos,
+      patterns,
     );
 
     const tools = toolHandlers

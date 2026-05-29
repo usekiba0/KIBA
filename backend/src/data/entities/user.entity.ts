@@ -119,4 +119,29 @@ export class User {
   @Index()
   @Column({ type: 'timestamptz', nullable: true })
   last_active_at: Date | null;
+
+  // ── Tier 1 derived signals (added 2026-05-29) ──────────────────────────────
+  // Per-DOW miss counter (Sun=0..Sat=6) in the user's LOCAL clock. Incremented
+  // by StrikeService when a task is marked missed. Drives V5 predictive warnings
+  // — coaching prompt reads this and the AI can call out a weakest day naturally
+  // without us scheduling a separate Thursday-night cron.
+  @Column({ type: 'integer', array: true, default: () => "'{0,0,0,0,0,0,0}'" })
+  miss_counts_by_dow: number[];
+
+  // Largest streak we've already celebrated (3/7/14/30 milestone). Used to
+  // dedupe the auto-fire celebration so a user doesn't get the "7 days" message
+  // twice. ProofService updates this after firing the milestone.
+  @Column({ type: 'integer', default: 0 })
+  last_milestone_hit: number;
+
+  // Last weak-excuse phrase the user offered (trimmed). Lets the coaching prompt
+  // call back on "second time you said 'too tired'" without an LLM extractor.
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  last_excuse_phrase: string | null;
+
+  // Consecutive count of the same excuse phrase. Resets when user breaks the
+  // pattern (different excuse OR succeeds). Used by the prompt to escalate
+  // call-outs at 2nd/3rd repeat per V5 PART 7.
+  @Column({ type: 'integer', default: 0 })
+  same_excuse_count: number;
 }

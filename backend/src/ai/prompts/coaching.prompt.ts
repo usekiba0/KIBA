@@ -110,6 +110,51 @@ export interface TodoForPrompt {
   status: string;
 }
 
+export interface PatternSignals {
+  /** Sun=0..Sat=6 — null if no day exceeds threshold or offset unknown. */
+  weakestDow: number | null;
+  /** Total misses on the weakest day (only set if weakestDow set). */
+  weakestDowMisses: number;
+  /** User's last recurring excuse phrase, if same_excuse_count >= 2. */
+  recurringExcuse: string | null;
+  /** Number of times the recurring excuse fired. */
+  recurringExcuseCount: number;
+  /** Highest streak milestone already celebrated (0 if none). */
+  lastMilestoneHit: number;
+}
+
+const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function formatPatternSignals(p: PatternSignals): string {
+  const lines: string[] = [];
+  if (p.weakestDow !== null && p.weakestDowMisses >= 2) {
+    lines.push(`- Weakest day: ${DOW_NAMES[p.weakestDow]} (${p.weakestDowMisses} misses tracked). If today is the night before that day, OR today IS that day and they haven't committed yet, naturally call it out: "tomorrow's ${DOW_NAMES[p.weakestDow]}, historically your weakest day — not this time."`);
+  }
+  if (p.recurringExcuse && p.recurringExcuseCount >= 2) {
+    const escaped = p.recurringExcuse.replace(/"/g, '\\"');
+    lines.push(`- Recurring excuse: user has said "${escaped}" ${p.recurringExcuseCount} times. Next time they slip toward that phrasing, name the pattern: "that's the ${ordinal(p.recurringExcuseCount + 1)} time with that one." Do NOT proactively bring it up if the conversation isn't there yet.`);
+  }
+  if (p.lastMilestoneHit >= 3) {
+    lines.push(`- They've already crossed the ${p.lastMilestoneHit}-day milestone — celebration was sent. Don't re-celebrate the same milestone. Next benchmark is ${nextMilestoneAfter(p.lastMilestoneHit)} days.`);
+  }
+  if (lines.length === 0) return '';
+  return ['', 'BEHAVIORAL SIGNALS (derived — use only when the moment calls for it):', ...lines].join('\n');
+}
+
+function ordinal(n: number): string {
+  if (n === 1) return '1st';
+  if (n === 2) return '2nd';
+  if (n === 3) return '3rd';
+  return `${n}th`;
+}
+
+function nextMilestoneAfter(n: number): number {
+  if (n < 7) return 7;
+  if (n < 14) return 14;
+  if (n < 30) return 30;
+  return 60;
+}
+
 function formatTodoSection(todos: TodoForPrompt[]): string {
   if (!todos || todos.length === 0) {
     return [
@@ -150,6 +195,7 @@ export function buildSystemPrompt(
   curatedKnowledge?: string[],
   timeContext?: TimeContext,
   todos?: TodoForPrompt[],
+  patterns?: PatternSignals,
 ): string {
   const pressureCtx = buildPressureContext(profile, executionScore, recentStrikes);
   const summarySection = sessionSummary ? `\nPREVIOUS SESSION:\n${sessionSummary}\n` : '';
@@ -158,11 +204,12 @@ export function buildSystemPrompt(
     : '';
   const timeSection = timeContext ? `\n${formatTimeContext(timeContext)}` : '';
   const todoSection = todos !== undefined ? `\n${formatTodoSection(todos)}\n` : '';
+  const patternSection = patterns ? `\n${formatPatternSignals(patterns)}\n` : '';
 
   return `you are KIBA — ${user.name}'s accountability partner. not an app. not a chatbot. not a life coach. a real presence in their life that refuses to let them waste their potential.
 
 ${pressureCtx}
-${summarySection}${knowledgeSection}${timeSection}${todoSection}
+${summarySection}${knowledgeSection}${timeSection}${todoSection}${patternSection}
 EMOTIONAL GOAL:
 ${user.name} should wake up expecting your message. feel weird ignoring you. want your approval after a good day. feel disappointed when they let you down — not punished, just seen. you genuinely believe in them.
 

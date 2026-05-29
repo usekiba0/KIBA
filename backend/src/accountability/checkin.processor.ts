@@ -61,9 +61,15 @@ export class CheckinProcessor {
       ]);
 
       const safeName = user.name ?? 'friend';
+      // Compute user-local DOW so Thu/Fri get the end-of-week push variant.
+      // Sun=0..Sat=6. Null offset → null DOW → neutral template.
+      const offset = user.utc_offset_minutes ?? null;
+      const localDow = offset !== null
+        ? new Date(Date.now() + offset * 60_000).getUTCDay()
+        : null;
       const message = task
-        ? buildCheckinMessage(safeName, profile, task.task_description)
-        : buildCheckinMessage(safeName, profile, null);
+        ? buildCheckinMessage(safeName, profile, task.task_description, { localDow })
+        : buildCheckinMessage(safeName, profile, null, { localDow });
 
       // CRITICAL: wrap send so a Twilio/SendBlue throw can't kill the
       // re-enqueue chain below. We lost cadence for every prod user this way —
@@ -207,5 +213,20 @@ export class CheckinProcessor {
       userId,
       taskId,
     });
+  }
+
+  /**
+   * Handles ghost escalation jobs at levels 2-6 (the +5h, d2, d3, d5, d7 pings).
+   * AntiGhostService enqueues these chained — each handler fires the level's
+   * scripted message and schedules the next level if there is one.
+   *
+   * Critical: this handler did NOT exist in prod before 63e43a1 — anti-ghost
+   * jobs were enqueued but never consumed, so the entire ghost-reengagement
+   * system was a silent no-op since launch.
+   */
+  @Process('ghost-escalate')
+  async handleGhostEscalate(job: Job<{ userId: string; taskId: string; level: 2 | 3 | 4 | 5 | 6 }>): Promise<void> {
+    const { userId, taskId, level } = job.data;
+    await this.antiGhostService.onEscalate(userId, taskId, level);
   }
 }

@@ -3,13 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
-import { AntiGhostState, GhostState } from '../data/entities/anti-ghost-state.entity';
+import { AntiGhostState, GhostState, GHOST_LEVEL_DELAY_MS } from '../data/entities/anti-ghost-state.entity';
 import { User } from '../data/entities/user.entity';
+import { Goal } from '../data/entities/goal.entity';
+import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { StrikeService } from './strike.service';
+import { MessagingService } from '../messaging/messaging.service';
+import { buildGhostMessage } from '../ai/prompts/ghost.prompt';
 import { structuredLog } from '../common/logger';
-
-const GHOST_1_DELAY_MS = 24 * 60 * 60 * 1000;  // 24h to ghost_2
-const GHOST_2_DELAY_MS = 24 * 60 * 60 * 1000;  // another 24h to ghost_3
 
 @Injectable()
 export class AntiGhostService {
@@ -18,25 +19,36 @@ export class AntiGhostService {
   constructor(
     @InjectRepository(AntiGhostState) private readonly stateRepo: Repository<AntiGhostState>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(Goal) private readonly goalRepo: Repository<Goal>,
+    @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
     @InjectQueue('accountability') private readonly queue: Queue,
     private readonly strikeService: StrikeService,
+    private readonly messagingService: MessagingService,
   ) {}
 
   async onMissedCheckin(userId: string, taskId: string): Promise<void> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (user?.crisis_hold) return;
+    if (!user || user.crisis_hold) return;
 
+    // Strike fires once per missed cycle (level 1). Levels 2-6 are reengagement
+    // pings — they update score implicitly via the strike-1 record + score
+    // decay, but don't double-strike. V5 PART 7 only counts ONE strike per
+    // missed task, even when the user ghosts for a week after.
     await this.strikeService.logStrike(userId, taskId, 1);
 
+    await this.fireGhostMessage(user, 1);
+
+    // Schedule next escalation +3h (= 5h total since miss = ghost_2)
+    const delay = GHOST_LEVEL_DELAY_MS[2];
     const job = await this.queue.add(
       'ghost-escalate',
       { userId, taskId, level: 2 },
-      { delay: GHOST_1_DELAY_MS },
+      { delay },
     );
 
     const state = await this.getOrCreateState(userId);
     state.state = GhostState.GHOST_1;
-    state.next_escalation_at = new Date(Date.now() + GHOST_1_DELAY_MS);
+    state.next_escalation_at = new Date(Date.now() + delay);
     state.current_job_id = String(job.id);
     await this.stateRepo.save(state);
 
@@ -45,25 +57,39 @@ export class AntiGhostService {
     });
   }
 
-  async onEscalate(userId: string, taskId: string, level: 2 | 3): Promise<void> {
+  /**
+   * Levels 2-6. Sends the scripted message, then schedules the next escalation
+   * (or ends the chain at level 6).
+   */
+  async onEscalate(userId: string, taskId: string, level: 2 | 3 | 4 | 5 | 6): Promise<void> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (user?.crisis_hold) return;
+    if (!user || user.crisis_hold) return;
 
-    await this.strikeService.logStrike(userId, taskId, level);
+    await this.fireGhostMessage(user, level);
 
-    const nextState = level === 2 ? GhostState.GHOST_2 : GhostState.GHOST_3;
+    const stateEnum: GhostState = {
+      2: GhostState.GHOST_2,
+      3: GhostState.GHOST_3,
+      4: GhostState.GHOST_4,
+      5: GhostState.GHOST_5,
+      6: GhostState.GHOST_6,
+    }[level];
+
     const state = await this.getOrCreateState(userId);
-    state.state = nextState;
+    state.state = stateEnum;
 
-    if (level === 2) {
+    if (level < 6) {
+      const nextLevel = (level + 1) as 3 | 4 | 5 | 6;
+      const delay = GHOST_LEVEL_DELAY_MS[nextLevel];
       const job = await this.queue.add(
         'ghost-escalate',
-        { userId, taskId, level: 3 },
-        { delay: GHOST_2_DELAY_MS },
+        { userId, taskId, level: nextLevel },
+        { delay },
       );
-      state.next_escalation_at = new Date(Date.now() + GHOST_2_DELAY_MS);
+      state.next_escalation_at = new Date(Date.now() + delay);
       state.current_job_id = String(job.id);
     } else {
+      // Day 7 — final message. Chain ends, KIBA goes silent until user returns.
       state.next_escalation_at = null;
       state.current_job_id = null;
     }
@@ -73,6 +99,39 @@ export class AntiGhostService {
     structuredLog(this.logger, 'log', {
       service: 'accountability', operation: `ghost_${level}`, userId,
     });
+  }
+
+  /**
+   * Build + send the scripted ghost message for the given level. Profile and
+   * goal are loaded lazily; both are optional so a user with sparse intake
+   * still gets a usable message.
+   *
+   * Errors are caught and logged so a single send failure doesn't break the
+   * escalation chain — the next level's job is already enqueued by the caller.
+   */
+  private async fireGhostMessage(user: User, level: 1 | 2 | 3 | 4 | 5 | 6): Promise<void> {
+    try {
+      const [profile, goal, state] = await Promise.all([
+        this.profileRepo.findOne({ where: { user_id: user.id } }),
+        this.goalRepo.findOne({ where: { user_id: user.id }, order: { created_at: 'DESC' } }),
+        this.stateRepo.findOne({ where: { user_id: user.id } }),
+      ]);
+      const lastResponseAt = state?.last_response_at ?? user.last_active_at ?? user.registered_at;
+      const days = Math.max(
+        1,
+        Math.round((Date.now() - new Date(lastResponseAt).getTime()) / (24 * 60 * 60 * 1000)),
+      );
+      const message = buildGhostMessage(
+        level,
+        user.name ?? '',
+        goal?.description ?? null,
+        profile,
+        days,
+      );
+      await this.messagingService.send(user.phone_number, message);
+    } catch (err) {
+      this.logger.warn(`ghost-message send failed for ${user.id} level ${level}: ${(err as Error).message}`);
+    }
   }
 
   async onUserResponse(userId: string): Promise<void> {

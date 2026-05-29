@@ -1,25 +1,52 @@
 import { PsychologicalProfile } from '../../data/entities/psychological-profile.entity';
 
+export interface CheckinContext {
+  /** User's local day-of-week (Sun=0..Sat=6). Drives Thu/Fri end-of-week push. */
+  localDow?: number | null;
+}
+
 /**
  * Morning check-in message. Default tone is neutral-KIBA: lowercase, short, peer
  * energy, no corporate filler. We rotate across a small variant pool so the same
  * user doesn't hear identical wording day after day (the V2 training doc calls
  * out predictability as the thing that kills emotional attachment).
  *
- * Full state-aware variants (LOCKED IN / SLIPPING / GHOSTING / STRUGGLING) need
- * score + streak + recent-message context the caller doesn't pass today —
- * that's queued for the broader Phase 2 work. For now this is neutral-with-task
- * vs. neutral-no-task, voiced like KIBA.
+ * Thu/Fri get an "end of week push" variant per V5 PART 5 — different urgency,
+ * frames the remaining days. Saturday/Sunday stay neutral so KIBA doesn't yell
+ * about the week on a weekend.
  */
 export function buildCheckinMessage(
   userName: string,
   profile: PsychologicalProfile | null,
   taskDescription: string | null,
+  ctx: CheckinContext = {},
 ): string {
+  const isThuFri = ctx.localDow === 4 || ctx.localDow === 5;
   if (taskDescription) {
+    if (isThuFri) return pickEndOfWeekTaskVariant(userName, taskDescription, ctx.localDow as 4 | 5);
     return pickTaskVariant(userName, taskDescription, profile);
   }
+  if (isThuFri) return pickEndOfWeekNoTaskVariant(userName, ctx.localDow as 4 | 5);
   return pickNoTaskVariant(userName);
+}
+
+function pickEndOfWeekTaskVariant(userName: string, task: string, dow: 4 | 5): string {
+  const daysLeft = dow === 4 ? 'two days' : 'last day';
+  const variants = [
+    `${daysLeft} left in the week.\n"${task}" — what time today?`,
+    `${daysLeft} ${userName}.\n${task} today. let's not coast into the weekend.`,
+    `${task} today.\n${daysLeft} left to make this a real week.`,
+  ];
+  return variants[Math.floor(Math.random() * variants.length)];
+}
+
+function pickEndOfWeekNoTaskVariant(userName: string, dow: 4 | 5): string {
+  const daysLeft = dow === 4 ? 'two days' : 'last day';
+  const variants = [
+    `${daysLeft} left in the week.\nwhere are you actually at vs where you said you'd be?`,
+    `morning ${userName}. ${daysLeft} left.\nwhat are you doing with today?`,
+  ];
+  return variants[Math.floor(Math.random() * variants.length)];
 }
 
 function pickTaskVariant(
