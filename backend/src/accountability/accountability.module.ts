@@ -11,6 +11,12 @@ import { Goal } from '../data/entities/goal.entity';
 import { User } from '../data/entities/user.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { ScheduledReminder } from '../data/entities/scheduled-reminder.entity';
+// Message + ConversationSession are owned by DataModule, but CheckinProcessor
+// needs MessageRepository (to write is_checkin_prompt rows) and DataModule
+// provides SessionBoundaryService. We import DataModule via forwardRef to break
+// the cycle (DataModule already forwardRef-imports AccountabilityModule).
+import { Message } from '../data/entities/message.entity';
+import { ConversationSession } from '../data/entities/conversation-session.entity';
 import { ScoreService } from './score.service';
 import { ScheduleService } from './schedule.service';
 import { StrikeService } from './strike.service';
@@ -23,12 +29,18 @@ import { PlanAdjustmentService } from './plan-adjustment.service';
 import { TaskService } from './task.service';
 import { TodoService } from './todo.service';
 import { MessagingModule } from '../messaging/messaging.module';
+import { DataModule } from '../data/data.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DailyTask, DailyTodo, Proof, Strike, ExecutionScore, AntiGhostState, Goal, User, PsychologicalProfile, ScheduledReminder]),
+    TypeOrmModule.forFeature([
+      DailyTask, DailyTodo, Proof, Strike, ExecutionScore, AntiGhostState,
+      Goal, User, PsychologicalProfile, ScheduledReminder,
+      Message, ConversationSession,
+    ]),
     BullModule.registerQueue({ name: 'accountability' }),
     forwardRef(() => MessagingModule),
+    forwardRef(() => DataModule),
   ],
   providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService],
   exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService],
