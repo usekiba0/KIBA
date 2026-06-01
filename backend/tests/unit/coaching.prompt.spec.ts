@@ -137,6 +137,12 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
       expect(prompt).not.toContain('every message should communicate three things');
     });
+
+    it('treats "pick one thing" as a last resort, not the universal answer', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      expect(prompt.toLowerCase()).toContain('last resort');
+      expect(prompt.toLowerCase()).toMatch(/actually understand|real opinionated|real problem/);
+    });
   });
 
   describe('curated knowledge injection', () => {
