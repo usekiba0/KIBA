@@ -47,6 +47,13 @@ async function bootstrap() {
   expressApp.get('/', (_req: express.Request, res: express.Response) => res.status(200).send('ok'));
   expressApp.head('/', (_req: express.Request, res: express.Response) => res.status(200).end());
 
+  // `/health` probe (Render health check + the `health:check` npm script, which
+  // parses JSON and asserts status==='ok'). Lives on the raw express instance so
+  // it sits OUTSIDE the v1 global prefix. Without this, the probe 404s every
+  // minute and spams ExceptionFilter logs.
+  expressApp.get('/health', (_req: express.Request, res: express.Response) => res.status(200).json({ status: 'ok' }));
+  expressApp.head('/health', (_req: express.Request, res: express.Response) => res.status(200).end());
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
