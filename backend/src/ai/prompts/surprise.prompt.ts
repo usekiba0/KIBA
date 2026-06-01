@@ -14,7 +14,9 @@ export type SurpriseFlavor =
   | 'pattern_interrupt'
   | 'identity'
   | 'quiet_checkin'
-  | 'playful';
+  | 'playful'
+  | 'curiosity'
+  | 'vulnerability';
 
 export interface SurpriseInput {
   flavor: SurpriseFlavor;
@@ -48,6 +50,27 @@ export function buildSurpriseMessage(input: SurpriseInput): string {
 
     case 'playful':
       return `scale of 1-10 how locked in are you feeling rn.\nbe honest 😂`;
+
+    case 'curiosity': {
+      // Karibi "Curiosity Engine" — interest with no goal attached. Humans get
+      // attached to people who are genuinely curious about them. Rotate the
+      // question deterministically off compact row signals so it varies week to
+      // week without storing anything.
+      const questions = [
+        `random question.\nwhat's something you've been avoiding lately?`,
+        `okay wait — what's been taking up most of your brain this week?`,
+        `no agenda today. what's the thing you keep meaning to deal with but haven't?`,
+      ];
+      return questions[(daysIn + showedUpCount) % questions.length];
+    }
+
+    case 'vulnerability': {
+      // Karibi "Vulnerability Simulation" — bond through noticing, not coaching.
+      const hook = avoidance
+        ? `ngl i feel like you've been carrying something lately.`
+        : `ngl you've felt a little quiet in a different way lately.`;
+      return `${hook}\nyou don't have to get into it. but i'm here if you do.`;
+    }
   }
 }
 
@@ -68,6 +91,8 @@ export function pickSurpriseFlavor(seed: number): SurpriseFlavor {
     'identity',
     'quiet_checkin',
     'playful',
+    'curiosity',
+    'vulnerability',
   ];
   return flavors[Math.abs(seed) % flavors.length];
 }

@@ -4,6 +4,7 @@ describe('pickSurpriseFlavor', () => {
   it('returns a valid flavor for any seed', () => {
     const flavors = new Set([
       'progress_reflection', 'pattern_interrupt', 'identity', 'quiet_checkin', 'playful',
+      'curiosity', 'vulnerability',
     ]);
     for (let i = 0; i < 50; i++) {
       const flavor = pickSurpriseFlavor(Math.floor(Math.random() * 1e9));
@@ -99,9 +100,37 @@ describe('buildSurpriseMessage', () => {
     expect(msg.length).toBeLessThan(100);
   });
 
+  it('curiosity asks an open question with no accountability', () => {
+    const msg = buildSurpriseMessage({
+      flavor: 'curiosity', userName: 'Alex', daysIn: 9, showedUpCount: 4, profile: null,
+    });
+    expect(msg).toContain('?');
+    expect(msg.toLowerCase()).not.toMatch(/proof|strike|did it happen|task/);
+  });
+
+  it('curiosity rotates its question by row signals', () => {
+    const a = buildSurpriseMessage({ flavor: 'curiosity', userName: 'Alex', daysIn: 0, showedUpCount: 0, profile: null });
+    const b = buildSurpriseMessage({ flavor: 'curiosity', userName: 'Alex', daysIn: 1, showedUpCount: 0, profile: null });
+    expect(a).not.toBe(b);
+  });
+
+  it('vulnerability notices something without coaching', () => {
+    const withAvoidance = buildSurpriseMessage({
+      flavor: 'vulnerability', userName: 'Alex', daysIn: 12, showedUpCount: 6,
+      profile: { avoidance_patterns: 'scrolling' } as any,
+    });
+    expect(withAvoidance.toLowerCase()).toContain('carrying something');
+    expect(withAvoidance.toLowerCase()).toContain('here if you');
+
+    const noProfile = buildSurpriseMessage({
+      flavor: 'vulnerability', userName: 'Alex', daysIn: 12, showedUpCount: 6, profile: null,
+    });
+    expect(noProfile.toLowerCase()).toContain('here if you');
+  });
+
   it('falls back to "bro" when userName is empty', () => {
     // We don't always inject name in every flavor — just confirm no crash on empty
-    for (const flavor of ['progress_reflection', 'pattern_interrupt', 'identity', 'quiet_checkin', 'playful'] as const) {
+    for (const flavor of ['progress_reflection', 'pattern_interrupt', 'identity', 'quiet_checkin', 'playful', 'curiosity', 'vulnerability'] as const) {
       const msg = buildSurpriseMessage({
         flavor, userName: '', daysIn: 1, showedUpCount: 0, profile: null,
       });
