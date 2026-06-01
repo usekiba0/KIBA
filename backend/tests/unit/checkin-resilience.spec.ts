@@ -11,7 +11,18 @@ import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
 import { ScheduleService } from '../../src/accountability/schedule.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
 import { TaskService } from '../../src/accountability/task.service';
+import { SurpriseService } from '../../src/accountability/surprise.service';
 import { Job } from 'bull';
+
+/** QueryBuilder stub for the atomic once-per-day claim. affected=1 → claim wins. */
+function claimQB(affected = 1) {
+  return {
+    update: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockResolvedValue({ affected }),
+  };
+}
 
 /**
  * Regression net for the prod outage where daily check-ins silently stopped
@@ -47,7 +58,11 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
   } as unknown as User;
 
   beforeEach(async () => {
-    userRepo = { findOne: jest.fn().mockResolvedValue(completeUser) };
+    userRepo = {
+      findOne: jest.fn().mockResolvedValue(completeUser),
+      // Atomic per-day check-in claim (createQueryBuilder().update()...execute()).
+      createQueryBuilder: jest.fn(() => claimQB(1)),
+    } as any;
     profileRepo = { findOne: jest.fn().mockResolvedValue(null) };
     messageRepo = { save: jest.fn().mockResolvedValue({ id: 'm-1' }) };
     messagingService = { send: jest.fn().mockResolvedValue(undefined) };
@@ -76,6 +91,7 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
         { provide: ScheduleService, useValue: scheduleService },
         { provide: CheckinService, useValue: checkinService },
         { provide: TaskService, useValue: taskService },
+        { provide: SurpriseService, useValue: { fire: jest.fn(), scheduleWeek: jest.fn() } },
         { provide: getQueueToken('accountability'), useValue: queue },
       ],
     }).compile();

@@ -4,7 +4,10 @@ import { getQueueToken } from '@nestjs/bull';
 import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
 import { AntiGhostState, GhostState } from '../../src/data/entities/anti-ghost-state.entity';
 import { User, UserStatus } from '../../src/data/entities/user.entity';
+import { Goal } from '../../src/data/entities/goal.entity';
+import { PsychologicalProfile } from '../../src/data/entities/psychological-profile.entity';
 import { StrikeService } from '../../src/accountability/strike.service';
+import { MessagingService } from '../../src/messaging/messaging.service';
 
 const userId = 'user-1';
 const taskId = 'task-1';
@@ -19,6 +22,8 @@ function makeState(state: GhostState = GhostState.ACTIVE): AntiGhostState {
 }
 
 function makeUser(crisis_hold = false): User {
+  // Partial mock — only the fields AntiGhostService reads. Cast because User
+  // has many more columns this service never touches.
   return {
     id: userId, phone_number: '+15551234567', name: 'Alex',
     coaching_focus: null as any, goals: null as any, checkin_time: '09:00',
@@ -26,7 +31,7 @@ function makeUser(crisis_hold = false): User {
     health_conditions: [], dietary_restrictions: [], injuries: null,
     status: UserStatus.ACTIVE, crisis_hold,
     registered_at: new Date(), last_active_at: null,
-  };
+  } as unknown as User;
 }
 
 describe('AntiGhostService', () => {
@@ -35,6 +40,9 @@ describe('AntiGhostService', () => {
   let mockQueue: any;
   let mockStrikeService: any;
   let mockUserRepo: any;
+  let mockGoalRepo: any;
+  let mockProfileRepo: any;
+  let mockMessagingService: any;
 
   beforeEach(async () => {
     mockStateRepo = {
@@ -52,14 +60,21 @@ describe('AntiGhostService', () => {
     mockUserRepo = {
       findOne: jest.fn().mockResolvedValue(makeUser(false)),
     };
+    // fireGhostMessage loads goal + profile and sends the scripted message.
+    mockGoalRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    mockProfileRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    mockMessagingService = { send: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AntiGhostService,
         { provide: getRepositoryToken(AntiGhostState), useValue: mockStateRepo },
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
+        { provide: getRepositoryToken(Goal), useValue: mockGoalRepo },
+        { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
         { provide: StrikeService, useValue: mockStrikeService },
+        { provide: MessagingService, useValue: mockMessagingService },
       ],
     }).compile();
 
@@ -80,7 +95,7 @@ describe('AntiGhostService', () => {
       expect(mockStrikeService.logStrike).toHaveBeenCalledWith(userId, taskId, 1);
     });
 
-    it('queues a ghost_2 escalation job delayed by 24h', async () => {
+    it('queues a ghost_2 escalation job (~3h after ghost_1, = 5h since miss)', async () => {
       await service.onMissedCheckin(userId, taskId);
       expect(mockQueue.add).toHaveBeenCalledWith(
         'ghost-escalate',
@@ -89,7 +104,7 @@ describe('AntiGhostService', () => {
       );
       const delay = mockQueue.add.mock.calls[0][2].delay;
       const hours = delay / (1000 * 60 * 60);
-      expect(hours).toBeCloseTo(24, 0);
+      expect(hours).toBeCloseTo(3, 0);
     });
 
     it('stores the BullMQ job id in state', async () => {
@@ -101,22 +116,27 @@ describe('AntiGhostService', () => {
   });
 
   describe('onEscalate', () => {
-    it('transitions ghost_1 → ghost_2 and logs strike level 2', async () => {
+    // NOTE: only ONE strike is logged per missed task (at level 1 in
+    // onMissedCheckin). Levels 2-6 are re-engagement pings on the same already-
+    // counted miss — onEscalate transitions state + sends the message, it does
+    // NOT log additional strikes (V5 PART 7).
+    it('transitions ghost_1 → ghost_2 and sends the ping', async () => {
       mockStateRepo.findOne.mockResolvedValue(makeState(GhostState.GHOST_1));
       await service.onEscalate(userId, taskId, 2);
       expect(mockStateRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ state: GhostState.GHOST_2 })
       );
-      expect(mockStrikeService.logStrike).toHaveBeenCalledWith(userId, taskId, 2);
+      expect(mockMessagingService.send).toHaveBeenCalled();
+      expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
     });
 
-    it('transitions ghost_2 → ghost_3 and logs strike level 3', async () => {
+    it('transitions ghost_2 → ghost_3 without a second strike', async () => {
       mockStateRepo.findOne.mockResolvedValue(makeState(GhostState.GHOST_2));
       await service.onEscalate(userId, taskId, 3);
       expect(mockStateRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ state: GhostState.GHOST_3 })
       );
-      expect(mockStrikeService.logStrike).toHaveBeenCalledWith(userId, taskId, 3);
+      expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
     });
   });
 

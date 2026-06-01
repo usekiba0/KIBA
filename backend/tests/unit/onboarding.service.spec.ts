@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { ConflictException } from '@nestjs/common';
 import { OnboardingService } from '../../src/onboarding/onboarding.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
+import { CheckinService } from '../../src/accountability/checkin.service';
 import { User, UserStatus } from '../../src/data/entities/user.entity';
 import { Subscription } from '../../src/data/entities/subscription.entity';
 import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
@@ -73,6 +74,7 @@ describe('OnboardingService — psychological profile + goal creation', () => {
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: getQueueToken('messaging'), useValue: messagingQueue },
         { provide: StripeService, useValue: mockStripe },
+        { provide: CheckinService, useValue: { scheduleCheckin: jest.fn().mockResolvedValue(undefined) } },
         {
           provide: ConfigService,
           useValue: {
@@ -153,6 +155,7 @@ describe('OnboardingService — psychological profile + goal creation', () => {
         { provide: getDataSourceToken(), useValue: {} },
         { provide: getQueueToken('messaging'), useValue: messagingQueue },
         { provide: StripeService, useValue: {} },
+        { provide: CheckinService, useValue: { scheduleCheckin: jest.fn().mockResolvedValue(undefined) } },
         { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn() } },
       ],
     }).compile();

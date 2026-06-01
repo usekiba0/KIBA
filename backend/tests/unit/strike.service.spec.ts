@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { StrikeService } from '../../src/accountability/strike.service';
 import { Strike } from '../../src/data/entities/strike.entity';
 import { DailyTask, TaskStatus } from '../../src/data/entities/daily-task.entity';
+import { User } from '../../src/data/entities/user.entity';
 
 const userId = 'user-1';
 const taskId = 'task-1';
@@ -20,6 +21,7 @@ describe('StrikeService', () => {
   let service: StrikeService;
   let mockStrikeRepo: any;
   let mockTaskRepo: any;
+  let mockUserRepo: any;
 
   beforeEach(async () => {
     mockStrikeRepo = {
@@ -31,12 +33,18 @@ describe('StrikeService', () => {
       findOne: jest.fn().mockResolvedValue(makeTask()),
       save: jest.fn(async (t: any) => t),
     };
+    // StrikeService bumps the user-local DOW miss counter on level-1 strikes.
+    mockUserRepo = {
+      findOne: jest.fn().mockResolvedValue({ id: userId, utc_offset_minutes: 0, miss_counts_by_dow: [0, 0, 0, 0, 0, 0, 0] }),
+      update: jest.fn().mockResolvedValue({}),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StrikeService,
         { provide: getRepositoryToken(Strike), useValue: mockStrikeRepo },
         { provide: getRepositoryToken(DailyTask), useValue: mockTaskRepo },
+        { provide: getRepositoryToken(User), useValue: mockUserRepo },
       ],
     }).compile();
 

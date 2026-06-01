@@ -74,7 +74,8 @@ describe('ScheduleService', () => {
       });
 
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.reason).toMatch(/future/i);
+      // A past time is rejected by the same "minimum 2 minutes from now" guard.
+      if (!result.ok) expect(result.reason).toMatch(/2 minutes|sooner|future|past/i);
       expect(queue.add).not.toHaveBeenCalled();
       expect(reminderRepo.save).not.toHaveBeenCalled();
     });

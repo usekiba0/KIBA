@@ -7,8 +7,10 @@ import { Message, MessageRole, MessageType } from '../../src/data/entities/messa
 import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
 import { ExecutionScore } from '../../src/data/entities/execution-score.entity';
 import { Strike } from '../../src/data/entities/strike.entity';
+import { CorrectionService } from '../../src/data/correction.service';
 
-const testUser: User = {
+// Partial mock — cast because User has many columns coaching never reads.
+const testUser = {
   id: 'user-1', phone_number: '+15551234567', name: 'Alex',
   coaching_focus: null as any, goals: null as any,
   height_cm: null, weight_kg: null, age: null,
@@ -16,7 +18,7 @@ const testUser: User = {
   status: UserStatus.TRIAL, crisis_hold: false,
   checkin_time: '09:00',
   registered_at: new Date(), last_active_at: null,
-};
+} as unknown as User;
 
 const testProfile: PsychologicalProfile = {
   id: 'profile-1', user_id: 'user-1',
@@ -47,16 +49,30 @@ describe('CoachingService', () => {
       usage: { input_tokens: 350, output_tokens: 40 },
     });
 
-    mockProfileRepo = { findOne: jest.fn().mockResolvedValue(testProfile) };
+    // create()/save() are used to synthesize+persist a default profile when none exists.
+    mockProfileRepo = {
+      findOne: jest.fn().mockResolvedValue(testProfile),
+      create: jest.fn((d: any) => d),
+      save: jest.fn(async (d: any) => ({ id: 'profile-default', ...d })),
+    };
     mockScoreRepo = { findOne: jest.fn().mockResolvedValue(testScore) };
     mockStrikeRepo = { count: jest.fn().mockResolvedValue(2) };
+    const mockUserRepo = {
+      findOne: jest.fn().mockResolvedValue(testUser),
+      update: jest.fn().mockResolvedValue({}),
+    };
+    const mockCorrectionService = {
+      getActiveKnowledge: jest.fn().mockResolvedValue([]),
+    };
 
     const module = await Test.createTestingModule({
       providers: [
         CoachingService,
+        { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
         { provide: getRepositoryToken(ExecutionScore), useValue: mockScoreRepo },
         { provide: getRepositoryToken(Strike), useValue: mockStrikeRepo },
+        { provide: CorrectionService, useValue: mockCorrectionService },
         {
           provide: ConfigService,
           useValue: {

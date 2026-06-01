@@ -5,6 +5,9 @@ import { Proof, ProofType, ProofValidationStatus } from '../../src/data/entities
 import { DailyTask, TaskStatus } from '../../src/data/entities/daily-task.entity';
 import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
 import { ScoreService } from '../../src/accountability/score.service';
+import { User } from '../../src/data/entities/user.entity';
+import { PsychologicalProfile } from '../../src/data/entities/psychological-profile.entity';
+import { MessagingService } from '../../src/messaging/messaging.service';
 
 const testTask: DailyTask = {
   id: 'task-1',
@@ -24,6 +27,9 @@ describe('ProofService', () => {
   let mockTaskRepo: any;
   let mockAntiGhostService: any;
   let mockScoreService: any;
+  let mockUserRepo: any;
+  let mockProfileRepo: any;
+  let mockMessagingService: any;
 
   beforeEach(async () => {
     mockProofRepo = {
@@ -33,6 +39,8 @@ describe('ProofService', () => {
     mockTaskRepo = {
       findOne: jest.fn().mockResolvedValue({ ...testTask }),
       save: jest.fn(async (t: any) => t),
+      // streak walk in fireMilestoneIfDue — empty = streak 0 = no milestone fired
+      find: jest.fn().mockResolvedValue([]),
     };
     mockAntiGhostService = {
       onUserResponse: jest.fn().mockResolvedValue(undefined),
@@ -40,14 +48,28 @@ describe('ProofService', () => {
     mockScoreService = {
       updateScore: jest.fn().mockResolvedValue(undefined),
     };
+    // Deps added for the streak-milestone auto-fire (best-effort path).
+    mockUserRepo = {
+      findOne: jest.fn().mockResolvedValue({ id: 'user-1', name: 'Alex', phone_number: '+15551234567', last_milestone_hit: 0 }),
+      update: jest.fn().mockResolvedValue({}),
+    };
+    mockProfileRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+    };
+    mockMessagingService = {
+      send: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProofService,
         { provide: getRepositoryToken(Proof), useValue: mockProofRepo },
         { provide: getRepositoryToken(DailyTask), useValue: mockTaskRepo },
+        { provide: getRepositoryToken(User), useValue: mockUserRepo },
+        { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
         { provide: AntiGhostService, useValue: mockAntiGhostService },
         { provide: ScoreService, useValue: mockScoreService },
+        { provide: MessagingService, useValue: mockMessagingService },
       ],
     }).compile();
 

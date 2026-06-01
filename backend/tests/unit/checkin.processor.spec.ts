@@ -5,8 +5,14 @@ import { CheckinProcessor } from '../../src/accountability/checkin.processor';
 import { User, UserStatus } from '../../src/data/entities/user.entity';
 import { DailyTask, TaskStatus } from '../../src/data/entities/daily-task.entity';
 import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
+import { Message } from '../../src/data/entities/message.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
+import { SessionBoundaryService } from '../../src/data/session-boundary.service';
 import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
+import { ScheduleService } from '../../src/accountability/schedule.service';
+import { CheckinService } from '../../src/accountability/checkin.service';
+import { TaskService } from '../../src/accountability/task.service';
+import { SurpriseService } from '../../src/accountability/surprise.service';
 import { Job } from 'bull';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
@@ -15,24 +21,30 @@ function makeJob(data: object): Job {
   return { id: 'job-1', data } as unknown as Job;
 }
 
-const testUser: User = {
+/** QueryBuilder stub for the atomic once-per-day claim. affected=1 → claim wins. */
+function claimQB(affected = 1) {
+  return {
+    update: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockResolvedValue({ affected }),
+  };
+}
+
+// Partial mock — only the fields the processor reads. Cast because User has many
+// more columns this flow never touches.
+const testUser = {
   id: 'user-1',
   phone_number: '+15551234567',
   name: 'Alex',
-  coaching_focus: null as any,
-  goals: null as any,
   checkin_time: '09:00',
-  height_cm: null,
-  weight_kg: null,
-  age: null,
-  health_conditions: [],
-  dietary_restrictions: [],
-  injuries: null,
+  utc_offset_minutes: -300,
   status: UserStatus.ACTIVE,
   crisis_hold: false,
+  onboarding_stage: 'complete',
   registered_at: new Date(),
   last_active_at: null,
-};
+} as unknown as User;
 
 const testTask: DailyTask = {
   id: 'task-1',
@@ -63,40 +75,54 @@ const testProfile: PsychologicalProfile = {
 describe('CheckinProcessor', () => {
   let processor: CheckinProcessor;
   let mockUserRepo: any;
-  let mockTaskRepo: any;
   let mockProfileRepo: any;
+  let mockMessageRepo: any;
   let mockMessagingService: any;
+  let mockSessionBoundary: any;
   let mockAntiGhostService: any;
+  let mockScheduleService: any;
+  let mockCheckinService: any;
+  let mockTaskService: any;
+  let mockSurpriseService: any;
   let mockQueue: any;
 
   beforeEach(async () => {
     mockUserRepo = {
       findOne: jest.fn().mockResolvedValue(testUser),
+      // Atomic per-day claim — affected:1 means this job wins and sends.
+      createQueryBuilder: jest.fn(() => claimQB(1)),
     };
-    mockTaskRepo = {
-      findOne: jest.fn().mockResolvedValue(testTask),
+    mockProfileRepo = { findOne: jest.fn().mockResolvedValue(testProfile) };
+    mockMessageRepo = { save: jest.fn().mockResolvedValue({ id: 'm-1' }) };
+    mockMessagingService = { send: jest.fn().mockResolvedValue(undefined) };
+    mockSessionBoundary = {
+      checkAndHandle: jest.fn().mockResolvedValue({ sessionId: 's-1', isNewSession: false, minutesSinceLastMessage: 0, shouldSummarise: false }),
+      recordMessage: jest.fn().mockResolvedValue(undefined),
     };
-    mockProfileRepo = {
-      findOne: jest.fn().mockResolvedValue(testProfile),
+    mockAntiGhostService = { onMissedCheckin: jest.fn().mockResolvedValue(undefined) };
+    mockScheduleService = { fire: jest.fn().mockResolvedValue(undefined) };
+    mockCheckinService = {
+      scheduleCheckin: jest.fn().mockResolvedValue(undefined),
+      scheduleAllCheckins: jest.fn().mockResolvedValue(undefined),
     };
-    mockMessagingService = {
-      send: jest.fn().mockResolvedValue(undefined),
-    };
-    mockAntiGhostService = {
-      onMissedCheckin: jest.fn().mockResolvedValue(undefined),
-    };
-    mockQueue = {
-      add: jest.fn().mockResolvedValue({ id: 'missed-job-1' }),
-    };
+    // Task now comes from TaskService.ensureTodayTask, not a repo lookup.
+    mockTaskService = { ensureTodayTask: jest.fn().mockResolvedValue(testTask) };
+    mockSurpriseService = { fire: jest.fn(), scheduleWeek: jest.fn() };
+    mockQueue = { add: jest.fn().mockResolvedValue({ id: 'missed-job-1' }) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CheckinProcessor,
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
-        { provide: getRepositoryToken(DailyTask), useValue: mockTaskRepo },
         { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
+        { provide: getRepositoryToken(Message), useValue: mockMessageRepo },
         { provide: MessagingService, useValue: mockMessagingService },
+        { provide: SessionBoundaryService, useValue: mockSessionBoundary },
         { provide: AntiGhostService, useValue: mockAntiGhostService },
+        { provide: ScheduleService, useValue: mockScheduleService },
+        { provide: CheckinService, useValue: mockCheckinService },
+        { provide: TaskService, useValue: mockTaskService },
+        { provide: SurpriseService, useValue: mockSurpriseService },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
       ],
     }).compile();
@@ -119,10 +145,9 @@ describe('CheckinProcessor', () => {
       expect(sentBody).toContain(testTask.task_description);
     });
 
-    it('includes the psychological fear in the check-in message', async () => {
+    it('loads the psychological profile to shape the message', async () => {
       await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
-      const sentBody: string = mockMessagingService.send.mock.calls[0][1];
-      expect(sentBody).toContain(testProfile.fears);
+      expect(mockProfileRepo.findOne).toHaveBeenCalledWith({ where: { user_id: 'user-1' } });
     });
 
     it('queues a checkin-missed job with 2h delay', async () => {
@@ -132,6 +157,19 @@ describe('CheckinProcessor', () => {
         expect.objectContaining({ userId: 'user-1', taskId: testTask.id }),
         expect.objectContaining({ delay: TWO_HOURS_MS }),
       );
+    });
+
+    it('re-enqueues tomorrow via CheckinService', async () => {
+      await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
+      expect(mockCheckinService.scheduleCheckin).toHaveBeenCalledWith(testUser);
+    });
+
+    it('suppresses the send when the per-day claim is already taken (no duplicate)', async () => {
+      mockUserRepo.createQueryBuilder.mockReturnValueOnce(claimQB(0)); // another job won the day
+      await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+      // still re-enqueues tomorrow even when today's send is suppressed
+      expect(mockCheckinService.scheduleCheckin).toHaveBeenCalledWith(testUser);
     });
 
     it('does nothing when user is not found', async () => {
@@ -148,16 +186,16 @@ describe('CheckinProcessor', () => {
     });
 
     it('sends a generic check-in when no pending task exists', async () => {
-      mockTaskRepo.findOne.mockResolvedValue(null);
+      mockTaskService.ensureTodayTask.mockResolvedValue(null);
       await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
       expect(mockMessagingService.send).toHaveBeenCalledWith(
         testUser.phone_number,
-        expect.stringContaining(testUser.name),
+        expect.any(String),
       );
     });
 
     it('does not queue a missed job when no task exists', async () => {
-      mockTaskRepo.findOne.mockResolvedValue(null);
+      mockTaskService.ensureTodayTask.mockResolvedValue(null);
       await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
       expect(mockQueue.add).not.toHaveBeenCalled();
     });

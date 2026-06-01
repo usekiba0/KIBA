@@ -5,6 +5,7 @@ import { CheckinService } from '../../src/accountability/checkin.service';
 import { User, UserStatus } from '../../src/data/entities/user.entity';
 
 function makeUser(overrides: Partial<User> = {}): User {
+  // Partial mock — cast because User has many columns the scheduler never reads.
   return {
     id: 'user-1',
     phone_number: '+15551234567',
@@ -23,7 +24,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     registered_at: new Date(),
     last_active_at: null,
     ...overrides,
-  };
+  } as unknown as User;
 }
 
 describe('CheckinService', () => {
@@ -76,9 +77,11 @@ describe('CheckinService', () => {
 
   describe('computeDelayMs', () => {
     beforeEach(() => {
-      // Pin clock to 2026-01-01 12:00:00 local time
+      // Pin clock to 2026-01-01 12:00:00 UTC. Must be UTC (trailing Z) — the
+      // default-offset computeDelayMs treats checkin_time as UTC and uses
+      // setUTCHours, so a local-time pin makes the math machine-TZ dependent.
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-01-01T12:00:00'));
+      jest.setSystemTime(new Date('2026-01-01T12:00:00Z'));
     });
 
     afterEach(() => {
