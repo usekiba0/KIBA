@@ -144,4 +144,11 @@ export class User {
   // call-outs at 2nd/3rd repeat per V5 PART 7.
   @Column({ type: 'integer', default: 0 })
   same_excuse_count: number;
+
+  // User-LOCAL calendar day (YYYY-MM-DD) of the last check-in actually sent.
+  // Claimed atomically by CheckinProcessor before each send so the daily
+  // check-in can never fire more than once per local day, no matter how many
+  // schedulers race at fire time (bugfix 2026-06-01).
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  last_checkin_date: string | null;
 }

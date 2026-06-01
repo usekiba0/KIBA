@@ -22,6 +22,18 @@ import { structuredLog } from '../common/logger';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
+/**
+ * User-LOCAL calendar day as YYYY-MM-DD — the key for the once-per-day check-in
+ * claim. `now` is injectable for tests. Null offset falls back to the UTC day.
+ */
+export function localDateString(offsetMinutes: number | null, now: number = Date.now()): string {
+  const d = new Date(now + (offsetMinutes ?? 0) * 60_000);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 @Processor('accountability')
 export class CheckinProcessor {
   private readonly logger = new Logger(CheckinProcessor.name);
@@ -53,81 +65,105 @@ export class CheckinProcessor {
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) return;
 
     if (!user.crisis_hold) {
-      // ensureTodayTask creates today's DailyTask if one doesn't exist yet
-      // (the schema was always queried but nothing wrote to it before this).
-      // Returns null if no goal / no action_plan / no daily_tasks defined —
-      // in which case we fall through to the "no tasks today" check-in copy.
-      const [task, profile] = await Promise.all([
-        this.taskService.ensureTodayTask(userId),
-        this.profileRepo.findOne({ where: { user_id: userId } }),
-      ]);
-
-      const safeName = user.name ?? 'friend';
-      // Compute user-local DOW so Thu/Fri get the end-of-week push variant.
-      // Sun=0..Sat=6. Null offset → null DOW → neutral template.
+      // ── Atomic per-day dedup ──────────────────────────────────────────────
+      // The check-in was firing 2-3x some mornings: Bull's jobId dedup is voided
+      // by removeOnComplete the instant the job runs, so racing schedulers (boot
+      // bootstrap, hourly safety cron, self-reschedule, scheduleOneShot) could
+      // re-enqueue the same target minute at fire time. We CLAIM the user-local
+      // day with a single conditional UPDATE — only one job per local day wins;
+      // the rest skip the send (but still re-enqueue tomorrow below).
       const offset = user.utc_offset_minutes ?? null;
-      const localDow = offset !== null
-        ? new Date(Date.now() + offset * 60_000).getUTCDay()
-        : null;
-      const message = task
-        ? buildCheckinMessage(safeName, profile, task.task_description, { localDow })
-        : buildCheckinMessage(safeName, profile, null, { localDow });
+      const localDate = localDateString(offset);
+      const claim = await this.userRepo
+        .createQueryBuilder()
+        .update(User)
+        .set({ last_checkin_date: localDate })
+        .where('id = :id AND (last_checkin_date IS DISTINCT FROM :date)', { id: userId, date: localDate })
+        .execute();
 
-      // CRITICAL: wrap send so a Twilio/SendBlue throw can't kill the
-      // re-enqueue chain below. We lost cadence for every prod user this way —
-      // the daily-checkin job ran once, send failed (or was silently dropped),
-      // the exception bubbled, BullMQ marked the job failed, and re-enqueue
-      // never happened. From that point forward the user got nothing forever.
-      // After this fix: send failures are logged but the daily chain survives.
-      let sendOk = false;
-      try {
-        await this.messagingService.send(user.phone_number, message);
-        sendOk = true;
-      } catch (err) {
-        structuredLog(this.logger, 'error', {
+      if (!claim.affected) {
+        structuredLog(this.logger, 'log', {
           service: 'accountability',
-          operation: 'checkin_send_failed',
+          operation: 'checkin_duplicate_suppressed',
           userId,
-          error: (err as Error).message,
+          localDate,
+        });
+      } else {
+        // ensureTodayTask creates today's DailyTask if one doesn't exist yet
+        // (the schema was always queried but nothing wrote to it before this).
+        // Returns null if no goal / no action_plan / no daily_tasks defined —
+        // in which case we fall through to the "no tasks today" check-in copy.
+        const [task, profile] = await Promise.all([
+          this.taskService.ensureTodayTask(userId),
+          this.profileRepo.findOne({ where: { user_id: userId } }),
+        ]);
+
+        const safeName = user.name ?? 'friend';
+        // Compute user-local DOW so Thu/Fri get the end-of-week push variant.
+        // Sun=0..Sat=6. Null offset → null DOW → neutral template.
+        const localDow = offset !== null
+          ? new Date(Date.now() + offset * 60_000).getUTCDay()
+          : null;
+        const message = task
+          ? buildCheckinMessage(safeName, profile, task.task_description, { localDow })
+          : buildCheckinMessage(safeName, profile, null, { localDow });
+
+        // CRITICAL: wrap send so a Twilio/SendBlue throw can't kill the
+        // re-enqueue chain below. We lost cadence for every prod user this way —
+        // the daily-checkin job ran once, send failed (or was silently dropped),
+        // the exception bubbled, BullMQ marked the job failed, and re-enqueue
+        // never happened. From that point forward the user got nothing forever.
+        // After this fix: send failures are logged but the daily chain survives.
+        let sendOk = false;
+        try {
+          await this.messagingService.send(user.phone_number, message);
+          sendOk = true;
+        } catch (err) {
+          structuredLog(this.logger, 'error', {
+            service: 'accountability',
+            operation: 'checkin_send_failed',
+            userId,
+            error: (err as Error).message,
+          });
+        }
+
+        // Persist the check-in as a Message row so it shows up in the admin API
+        // (filterable via is_checkin_prompt) and in the next coaching turn's
+        // recent-message context. Without this, check-ins were invisible —
+        // there's no way to confirm from the DB whether they ever fired, which
+        // is what masked the prod outage we're fixing here.
+        try {
+          const boundary = await this.sessionBoundary.checkAndHandle(userId);
+          await this.messageRepo.save({
+            user_id: userId,
+            session_id: boundary.sessionId,
+            role: MessageRole.AI,
+            message_type: MessageType.TEXT,
+            content: message,
+            is_checkin_prompt: true,
+          });
+          await this.sessionBoundary.recordMessage(boundary.sessionId);
+        } catch (err) {
+          // Visibility is a nice-to-have, not a correctness blocker. Log + move on.
+          this.logger.warn(`checkin Message row failed for ${userId}: ${(err as Error).message}`);
+        }
+
+        if (task && sendOk) {
+          await this.queue.add(
+            'checkin-missed',
+            { userId, taskId: task.id },
+            { delay: TWO_HOURS_MS },
+          );
+        }
+
+        structuredLog(this.logger, 'log', {
+          service: 'accountability',
+          operation: 'checkin_sent',
+          userId,
+          taskId: task?.id ?? null,
+          sendOk,
         });
       }
-
-      // Persist the check-in as a Message row so it shows up in the admin API
-      // (filterable via is_checkin_prompt) and in the next coaching turn's
-      // recent-message context. Without this, check-ins were invisible —
-      // there's no way to confirm from the DB whether they ever fired, which
-      // is what masked the prod outage we're fixing here.
-      try {
-        const boundary = await this.sessionBoundary.checkAndHandle(userId);
-        await this.messageRepo.save({
-          user_id: userId,
-          session_id: boundary.sessionId,
-          role: MessageRole.AI,
-          message_type: MessageType.TEXT,
-          content: message,
-          is_checkin_prompt: true,
-        });
-        await this.sessionBoundary.recordMessage(boundary.sessionId);
-      } catch (err) {
-        // Visibility is a nice-to-have, not a correctness blocker. Log + move on.
-        this.logger.warn(`checkin Message row failed for ${userId}: ${(err as Error).message}`);
-      }
-
-      if (task && sendOk) {
-        await this.queue.add(
-          'checkin-missed',
-          { userId, taskId: task.id },
-          { delay: TWO_HOURS_MS },
-        );
-      }
-
-      structuredLog(this.logger, 'log', {
-        service: 'accountability',
-        operation: 'checkin_sent',
-        userId,
-        taskId: task?.id ?? null,
-        sendOk,
-      });
     }
 
     // Re-enqueue tomorrow's check-in. Daily cadence is the whole product —
