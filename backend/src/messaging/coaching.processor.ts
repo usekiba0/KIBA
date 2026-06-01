@@ -571,17 +571,36 @@ export class CoachingProcessor {
     // Create (or reuse) Stripe customer. We don't have a stable customer id on
     // the user row for SMS leads, so create one each time the link is sent —
     // the previous customer gets garbage-collected on the Stripe side if unused.
-    const customer = await this.stripeService.createCustomer(liveUser.name, liveUser.phone_number);
-    const session = await this.stripeService.createCheckoutSession({
-      customerId: customer.id,
-      priceId,
-      trialDays,
-      userId: liveUser.id,
-      successUrl: `${appBaseUrl}/onboarding/success`,
-      cancelUrl: `${appBaseUrl}/onboarding/cancel`,
-    });
+    // Wrap the Stripe calls: a throw here used to bubble up and get swallowed
+    // into the model's tool-result context (user saw "backend thing", we saw
+    // NOTHING in the logs). Log the real error and return a clean failure.
+    let session: import('stripe').Stripe.Checkout.Session;
+    try {
+      const customer = await this.stripeService.createCustomer(liveUser.name, liveUser.phone_number);
+      session = await this.stripeService.createCheckoutSession({
+        customerId: customer.id,
+        priceId,
+        trialDays,
+        userId: liveUser.id,
+        successUrl: `${appBaseUrl}/onboarding/success`,
+        cancelUrl: `${appBaseUrl}/onboarding/cancel`,
+      });
+    } catch (err) {
+      structuredLog(this.logger, 'error', {
+        service: 'onboarding',
+        operation: 'payment_link_stripe_failed',
+        userId: liveUser.id,
+        error: (err as Error).message,
+      });
+      return { ok: false as const, error: 'stripe checkout creation failed' };
+    }
 
     if (!session.url) {
+      structuredLog(this.logger, 'error', {
+        service: 'onboarding',
+        operation: 'payment_link_no_url',
+        userId: liveUser.id,
+      });
       return { ok: false as const, error: 'stripe did not return a checkout url' };
     }
 

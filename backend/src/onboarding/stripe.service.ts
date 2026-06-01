@@ -87,10 +87,12 @@ export class StripeService {
     successUrl: string;
     cancelUrl: string;
   }): Promise<Stripe.Checkout.Session> {
-    // Stripe's default checkout session expiry is 24h. For SMS-first onboarding
-    // users routinely procrastinate well past that — expire at 30 days (the
-    // Stripe maximum) so the link in their inbox keeps working.
-    const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+    // Stripe caps checkout-session expiry at 24h after creation (min 30 min,
+    // max 24h). A previous value of 30 days here EXCEEDED that cap, so
+    // sessions.create threw and silently broke every SMS payment link. Use just
+    // under 24h to stay valid. (SMS users who procrastinate past 24h get a fresh
+    // link from the dunning nudge — see CheckinProcessor.handlePaymentLinkNudge.)
+    const expiresAt = Math.floor(Date.now() / 1000) + 24 * 60 * 60 - 60;
     return this.stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: args.customerId,
