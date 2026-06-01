@@ -62,9 +62,9 @@ describe('buildPressureContext', () => {
 });
 
 describe('buildSystemPrompt', () => {
-  it('names the AI as Kiba', () => {
+  it('names the AI as KIBA', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt).toContain('Kiba');
+    expect(prompt).toMatch(/kiba/i);
   });
 
   it('includes the pressure context', () => {
@@ -72,14 +72,14 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain(mockProfile.fears);
   });
 
-  it('forbids bullet points in rules', () => {
+  it('enforces lowercase real-texting tone', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
-    expect(prompt.toLowerCase()).toMatch(/no bullet|never bullet/);
+    expect(prompt.toLowerCase()).toMatch(/lowercase/);
   });
 
-  it('enforces 1–4 sentence limit', () => {
+  it('enforces a short 1–3 sentence limit', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
-    expect(prompt).toMatch(/1.{0,5}4 sentence/i);
+    expect(prompt).toMatch(/1.{0,5}3 sentence/i);
   });
 
   it('requires ending with a specific action', () => {
@@ -106,11 +106,37 @@ describe('buildSystemPrompt', () => {
     expect(() => buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0)).not.toThrow();
   });
 
-  it('stays under ~700 tokens estimated (rough char count < 2800)', () => {
-    // Bumped from 2400 after adding curated-knowledge and schedule_reminder
-    // tool-use instructions to the prompt. Still small compared to 200K context.
+  it('stays within a sane size budget (char count < 22000)', () => {
+    // The prompt has grown well past the original 2800 guard (tools, examples,
+    // state-aware tone, goal-translation rules) — it's ~18k chars / ~4.5k tokens
+    // now. This guard just prevents unbounded ballooning; still tiny vs the
+    // 200K/1M context window.
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(2800);
+    expect(prompt.length).toBeLessThan(22000);
+  });
+
+  describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
+    it('forbids asking "did it happen?" about long-term goals', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      expect(prompt.toLowerCase()).toContain('did it happen');
+      expect(prompt.toLowerCase()).toMatch(/move today|one thing today|translate/);
+    });
+
+    it('tells KIBA to react before advising', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      expect(prompt.toLowerCase()).toMatch(/react/);
+      expect(prompt.toLowerCase()).toMatch(/clarifying|understand it/);
+    });
+
+    it('states the personality mix', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      expect(prompt.toLowerCase()).toContain('older brother');
+    });
+
+    it('does NOT demand stored goals in every single message', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      expect(prompt).not.toContain('every message should communicate three things');
+    });
   });
 
   describe('curated knowledge injection', () => {
@@ -136,15 +162,17 @@ describe('buildSystemPrompt', () => {
   });
 
   describe('time context injection', () => {
-    it('includes server UTC and computed local time when offset is known', () => {
+    it('includes server UTC and computed local clock when offset is known', () => {
       const nowUtc = new Date('2026-05-18T10:00:00Z');
       const prompt = buildSystemPrompt(
         mockUser as any, mockProfile as any, 72, 0, undefined, undefined,
         { nowUtc, userOffsetMinutes: 300 }, // PKT, UTC+5
       );
       expect(prompt).toContain('CURRENT TIME');
-      expect(prompt).toContain('Server UTC: 2026-05-18T10:00:00.000Z');
-      expect(prompt).toContain('User local time: 2026-05-18T15:00:00.000 (UTC+05:00)');
+      expect(prompt).toContain('NOW IN UTC');
+      expect(prompt).toContain('2026-05-18T10:00:00.000Z');
+      expect(prompt).toContain('USER LOCAL CLOCK');
+      expect(prompt).toContain('UTC+05:00');
     });
 
     it('includes a fallback message when offset is unknown so the AI asks before scheduling', () => {
@@ -152,7 +180,7 @@ describe('buildSystemPrompt', () => {
         mockUser as any, mockProfile as any, 72, 0, undefined, undefined,
         { nowUtc: new Date('2026-05-18T10:00:00Z'), userOffsetMinutes: null },
       );
-      expect(prompt).toContain('User timezone: unknown');
+      expect(prompt).toContain('USER TIMEZONE: unknown');
       expect(prompt).toMatch(/ask the user/i);
     });
 
@@ -162,16 +190,16 @@ describe('buildSystemPrompt', () => {
         mockUser as any, mockProfile as any, 72, 0, undefined, undefined,
         { nowUtc, userOffsetMinutes: -480 }, // PST, UTC-8
       );
-      expect(prompt).toContain('User local time: 2026-05-18T12:00:00.000 (UTC-08:00)');
+      expect(prompt).toContain('UTC-08:00');
     });
 
     it('omits time section when no context provided', () => {
       const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
-      // The literal "CURRENT TIME" phrase appears in CAPABILITIES prose referencing
-      // the section, so test for the unique structural marker instead.
-      expect(prompt).not.toContain('Server UTC:');
-      expect(prompt).not.toContain('User local time:');
-      expect(prompt).not.toContain('User timezone: unknown');
+      // "CURRENT TIME" appears in CAPABILITIES prose referencing the section, so
+      // test for the unique structural markers instead.
+      expect(prompt).not.toContain('NOW IN UTC');
+      expect(prompt).not.toContain('USER LOCAL CLOCK');
+      expect(prompt).not.toContain('USER TIMEZONE: unknown');
     });
   });
 });

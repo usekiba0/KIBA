@@ -22,12 +22,33 @@ export function buildCheckinMessage(
   ctx: CheckinContext = {},
 ): string {
   const isThuFri = ctx.localDow === 4 || ctx.localDow === 5;
-  if (taskDescription) {
-    if (isThuFri) return pickEndOfWeekTaskVariant(userName, taskDescription, ctx.localDow as 4 | 5);
-    return pickTaskVariant(userName, taskDescription, profile);
+  const task = taskDescription ? humanizeTask(taskDescription) : null;
+  if (task) {
+    if (isThuFri) return pickEndOfWeekTaskVariant(userName, task, ctx.localDow as 4 | 5);
+    return pickTaskVariant(userName, task, profile);
   }
   if (isThuFri) return pickEndOfWeekNoTaskVariant(userName, ctx.localDow as 4 | 5);
   return pickNoTaskVariant(userName);
+}
+
+/**
+ * Turn a stored daily-task string into something a human would text.
+ *
+ * `goal.action_plan.daily_tasks[]` entries are stored as "Day 7 Sunday: Gym
+ * (20min), business planning, review compliance." — a whole-day schedule. The
+ * morning check-in should NOT read like that robotic dump (Karibi 2026-06-01).
+ * We strip the "Day N Weekday:" prefix and keep only the PRIMARY action (first
+ * clause); the remaining items are already seeded onto the to-do list by
+ * TodoService, and the full list is shown to the coaching model separately.
+ */
+export function humanizeTask(task: string): string {
+  const stripped = task.replace(/^\s*day\s+\d+(?:\s+\w+)?\s*[:\-—]\s*/i, '').trim();
+  const firstClause = stripped
+    .split(/(?<=[.!?])\s+|,\s+/)[0]
+    .trim()
+    .replace(/[.!?]+$/, '')
+    .trim();
+  return firstClause.length >= 3 ? firstClause : stripped;
 }
 
 function pickEndOfWeekTaskVariant(userName: string, task: string, dow: 4 | 5): string {

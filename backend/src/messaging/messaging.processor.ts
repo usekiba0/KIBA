@@ -9,6 +9,7 @@ import { User } from '../data/entities/user.entity';
 import { Goal } from '../data/entities/goal.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { CheckinService } from '../accountability/checkin.service';
+import { classifyGoalType } from '../ai/goal-classifier';
 import { structuredLog } from '../common/logger';
 
 @Processor('messaging')
@@ -59,6 +60,19 @@ export class MessagingProcessor {
     if (!user || !goal || !profile) {
       this.logger.warn(`[Plan] Missing data for userId=${userId} — skipping`);
       return;
+    }
+
+    // Classify the goal type up front (deterministic, no LLM) so proactive copy
+    // can branch — only TASK goals get "did it happen?", everything else gets
+    // "what's the move today?". Persisted independently of the plan LLM below so
+    // an Anthropic hiccup never leaves the goal unclassified. Karibi 2026-06-01.
+    try {
+      const goalType = classifyGoalType(goal.description, goal.timeline);
+      if (goalType !== goal.goal_type) {
+        await this.goalRepo.update(goal.id, { goal_type: goalType });
+      }
+    } catch (err) {
+      this.logger.warn(`[Plan] goal classification failed for userId=${userId}: ${(err as Error).message}`);
     }
 
     // Plan generation calls Anthropic and can fail (timeout, malformed JSON, etc.).

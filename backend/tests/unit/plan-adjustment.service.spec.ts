@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { PlanAdjustmentService } from '../../src/accountability/plan-adjustment.service';
 import { ExecutionScore } from '../../src/data/entities/execution-score.entity';
-import { Goal } from '../../src/data/entities/goal.entity';
+import { Goal, GoalType } from '../../src/data/entities/goal.entity';
 
 function makeScore(score: number, daysAgo: number): ExecutionScore {
   const d = new Date();
@@ -27,6 +27,7 @@ const testGoal: Goal = {
   timeline: '3 months',
   current_status: 'Just started',
   action_plan: { milestones: [], weekly_breakdown: [], daily_tasks: [] },
+  goal_type: GoalType.OUTCOME,
   difficulty_level: 3,
   created_at: new Date(),
   updated_at: new Date(),

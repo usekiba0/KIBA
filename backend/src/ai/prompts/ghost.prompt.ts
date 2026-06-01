@@ -1,4 +1,6 @@
 import { PsychologicalProfile } from '../../data/entities/psychological-profile.entity';
+import { GoalType } from '../../data/entities/goal.entity';
+import { shortGoalReference } from '../goal-classifier';
 
 /**
  * Per V5 PART 8 — scripted escalating ghost-reengagement copy, NOT an LLM call.
@@ -12,6 +14,13 @@ import { PsychologicalProfile } from '../../data/entities/psychological-profile.
  *
  * Two variants per level keep the same user from seeing identical wording
  * if they ghost more than once.
+ *
+ * Level 1 branches on goalType (Karibi 2026-06-01): a long-term OUTCOME /
+ * IDENTITY / EMOTIONAL / HABIT goal must NOT be asked "did it happen?" as if it
+ * could complete overnight — it gets "what's the move today?" instead. Only a
+ * deadline-bound TASK keeps the literal "happen or nah?". The raw goal text is
+ * also shortened so we never dump "Make 100k a month, become more fit stop
+ * procrastinating" into one line.
  */
 export function buildGhostMessage(
   level: 1 | 2 | 3 | 4 | 5 | 6,
@@ -19,8 +28,10 @@ export function buildGhostMessage(
   goalText: string | null,
   profile: PsychologicalProfile | null,
   daysSinceLastResponse: number,
+  goalType: GoalType = GoalType.OUTCOME,
 ): string {
   const goal = (goalText ?? '').trim() || 'your goal';
+  const goalShort = shortGoalReference(goalText);
   const name = userName || 'bro';
   const avoidance = profile?.avoidance_patterns?.trim() ?? '';
   const comparison = profile?.comparison_figure?.trim() ?? '';
@@ -36,10 +47,37 @@ export function buildGhostMessage(
 
   switch (level) {
     case 1:
-      return pick([
-        `${goal} — did it happen?`,
-        `${goal}. happen or nah?`,
-      ]);
+      // Only a deadline-bound TASK is fairly asked "did it happen?". Long-term
+      // goals get "what's the move today?" — the core Karibi 2026-06-01 fix.
+      switch (goalType) {
+        case GoalType.TASK:
+          return pick([
+            `${goalShort} — did it happen?`,
+            `${goalShort}. happen or nah?`,
+          ]);
+        case GoalType.EMOTIONAL:
+          // Don't pile accountability on a life/feeling goal — open the door.
+          return pick([
+            `haven't heard from you.\nwhat's actually on your mind today?`,
+            `${name} — you good? what's the headspace like today?`,
+          ]);
+        case GoalType.HABIT:
+          return pick([
+            `${goalShort} today?\nwhat time you getting it in?`,
+            `${goalShort} — that's the daily one. when today?`,
+          ]);
+        case GoalType.IDENTITY:
+          return pick([
+            `${goalShort} — that's the direction.\nwhat's one thing today that moves you there?`,
+            `not asking if you became a new person overnight 😭\nwhat's the one move today?`,
+          ]);
+        case GoalType.OUTCOME:
+        default:
+          return pick([
+            `${goalShort} is the target. cool.\nwhat's the actual move today?`,
+            `not asking if it happened overnight.\nwhat's the one thing we're doing today toward ${goalShort}?`,
+          ]);
+      }
 
     case 2:
       return pick([

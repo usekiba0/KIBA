@@ -5,7 +5,7 @@ import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { AntiGhostState, GhostState, GHOST_LEVEL_DELAY_MS } from '../data/entities/anti-ghost-state.entity';
 import { User } from '../data/entities/user.entity';
-import { Goal } from '../data/entities/goal.entity';
+import { Goal, GoalType } from '../data/entities/goal.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { StrikeService } from './strike.service';
 import { MessagingService } from '../messaging/messaging.service';
@@ -127,6 +127,7 @@ export class AntiGhostService {
         goal?.description ?? null,
         profile,
         days,
+        goal?.goal_type ?? GoalType.OUTCOME,
       );
       await this.messagingService.send(user.phone_number, message);
     } catch (err) {
