@@ -1,10 +1,12 @@
 import { Process, Processor } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Job, Queue } from 'bull';
 import { User, OnboardingStage, UserStatus } from '../data/entities/user.entity';
+import { StripeService } from '../onboarding/stripe.service';
 // DailyTask repo is no longer needed here — task lookup/creation is handled
 // by TaskService.ensureTodayTask, which encapsulates the day-index + cycling
 // logic. Keeps this processor lean.
@@ -34,6 +36,45 @@ export function localDateString(offsetMinutes: number | null, now: number = Date
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * Follow-up sequence for leads who got a payment link but haven't paid.
+ * Three nudges total. The first fires ~2.5h after the link (scheduled by
+ * CoachingProcessor.sendPaymentLink); these are the delays BEFORE the next one:
+ *   nudge 0 → nudge 1: ~22h later (~next day, ~24h after the link)
+ *   nudge 1 → nudge 2: ~48h later (~2-3 days after the link, final)
+ */
+const NUDGE_NEXT_DELAY_MS = [22 * 60 * 60 * 1000, 48 * 60 * 60 * 1000];
+const MAX_DUNNING_NUDGES = 3;
+
+/**
+ * Build a follow-up nudge in KIBA's voice, personalised with what the lead told
+ * us during intake. Falls back gracefully when a field is missing so we never
+ * render "undefined" or an empty reference. Pure + exported for testing.
+ */
+export function buildDunningNudge(
+  index: number,
+  ctx: { name: string | null; goal?: string | null; obstacle?: string | null; trialDays: number },
+): string {
+  const name = ctx.name?.trim() || '';
+  const tail = name ? ` ${name}` : '';
+  const goal = ctx.goal?.trim();
+  const obstacle = ctx.obstacle?.trim();
+  const d = ctx.trialDays;
+
+  switch (index) {
+    case 0:
+      return goal
+        ? `not gonna pressure you${tail}. but you literally just told me you want to ${goal}${obstacle ? ` — and that ${obstacle} keeps getting in the way` : ''}. ${d} days is free. nothing to lose.`
+        : `not gonna pressure you${tail}. but ${d} days is free — nothing to lose, and everything you said you wanted is actually possible.`;
+    case 1:
+      return `${name ? `${name}. ` : ''}most people stay stuck not because they don't know what they need — but because they get right to the edge of starting and then disappear. you already told me what you want. ${d} days. free. just see if it actually works.`;
+    default:
+      return goal
+        ? `last time i'm bringing this up${tail}. ${goal}${obstacle ? `. ${obstacle}` : ''}. you told me both. at some point the question stops being "should i try this" and becomes "how long am i gonna let this stay exactly the same." door's open.`
+        : `last time i'm bringing this up${tail}. at some point the question stops being "should i try this" and becomes "how long am i gonna let this stay exactly the same." door's open.`;
+  }
+}
+
 @Processor('accountability')
 export class CheckinProcessor {
   private readonly logger = new Logger(CheckinProcessor.name);
@@ -49,6 +90,8 @@ export class CheckinProcessor {
     private readonly checkinService: CheckinService,
     private readonly taskService: TaskService,
     private readonly surpriseService: SurpriseService,
+    private readonly stripeService: StripeService,
+    private readonly config: ConfigService,
     @InjectQueue('accountability') private readonly queue: Queue,
   ) {}
 
@@ -205,8 +248,11 @@ export class CheckinProcessor {
   }
 
   /**
-   * SMS-first onboarding dunning. Fires at 24h then 72h after the payment link
-   * is sent if the user hasn't paid yet. After two nudges we stop pestering.
+   * SMS-first onboarding follow-up sequence. Three nudges — ~2.5h, ~next day,
+   * ~2-3 days after the link — for leads who haven't paid yet. Each one is
+   * personalised with the lead's goal/obstacle and ships a FRESH checkout link
+   * (the original Stripe session expires at 24h, so reusing it would be a dead
+   * link by nudge 2). After three we stop pestering.
    */
   @Process('payment-link-nudge')
   async handlePaymentLinkNudge(job: Job<{ userId: string; nudgeIndex: number }>): Promise<void> {
@@ -214,29 +260,77 @@ export class CheckinProcessor {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) return;
     if (user.onboarding_stage !== OnboardingStage.PAYMENT_PENDING) return; // paid or moved on
-    if (user.dunning_nudges_sent >= 2) return;
+    if (user.dunning_nudges_sent >= MAX_DUNNING_NUDGES) return;
     if (user.crisis_hold) return;
 
-    const messages = [
-      "still got your payment link sitting in our chat. takes 30 sec — text me once you're in and we lock in day one.",
-      "last nudge — pay the link i sent and we start. ignore this if you're out, no hard feelings.",
-    ];
-    const text = messages[Math.min(nudgeIndex, messages.length - 1)];
+    const text = buildDunningNudge(nudgeIndex, {
+      name: user.name,
+      goal: user.intake_data?.goal_description ?? null,
+      obstacle: user.intake_data?.avoidance_patterns ?? null,
+      trialDays: this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
+    });
     await this.messagingService.send(user.phone_number, text);
+
+    // Ship a fresh link on its own line so it's always live and clickable. If
+    // regen fails (Stripe hiccup), fall back to a reply CTA rather than a dead
+    // or missing link — the conversation re-engages either way.
+    const freshUrl = await this.regenerateCheckoutLink(user);
+    await this.messagingService.send(
+      user.phone_number,
+      freshUrl ?? "reply 'go' and i'll send you a fresh link.",
+    );
+
     await this.userRepo.update(userId, { dunning_nudges_sent: user.dunning_nudges_sent + 1 });
 
     structuredLog(this.logger, 'log', {
       service: 'onboarding', operation: 'dunning_nudge_sent',
-      userId, nudgeIndex,
+      userId, nudgeIndex, linkRegenerated: !!freshUrl,
     });
 
-    // Schedule the next nudge (24h after the first → 72h total after link sent)
-    if (nudgeIndex === 0) {
+    // Schedule the next nudge in the sequence, if any remain.
+    const nextDelay = NUDGE_NEXT_DELAY_MS[nudgeIndex];
+    if (nextDelay !== undefined && nudgeIndex + 1 < MAX_DUNNING_NUDGES) {
       await this.queue.add(
         'payment-link-nudge',
-        { userId, nudgeIndex: 1 },
-        { delay: 48 * 60 * 60 * 1000 },
+        { userId, nudgeIndex: nudgeIndex + 1 },
+        { delay: nextDelay },
       );
+    }
+  }
+
+  /**
+   * Create a fresh Stripe checkout session for a still-unpaid lead and record it
+   * on the user row. Returns the hosted URL, or null if the user has no name or
+   * Stripe fails (caller falls back to a reply CTA). Does NOT change
+   * onboarding_stage — the lead is already PAYMENT_PENDING.
+   */
+  private async regenerateCheckoutLink(user: User): Promise<string | null> {
+    if (!user.name) return null;
+    try {
+      const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
+      const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
+      const appBaseUrl = this.config.get<string>('APP_BASE_URL', 'https://kiba.ai');
+      const customer = await this.stripeService.createCustomer(user.name, user.phone_number);
+      const session = await this.stripeService.createCheckoutSession({
+        customerId: customer.id,
+        priceId,
+        trialDays,
+        userId: user.id,
+        successUrl: `${appBaseUrl}/onboarding/success`,
+        cancelUrl: `${appBaseUrl}/onboarding/cancel`,
+      });
+      if (!session.url) return null;
+      await this.userRepo.update(user.id, {
+        payment_link_sent_at: new Date(),
+        stripe_checkout_session_id: session.id,
+      });
+      return session.url;
+    } catch (err) {
+      structuredLog(this.logger, 'error', {
+        service: 'onboarding', operation: 'dunning_link_regen_failed',
+        userId: user.id, error: (err as Error).message,
+      });
+      return null;
     }
   }
 

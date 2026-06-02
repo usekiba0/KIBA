@@ -13,6 +13,8 @@ import { ScheduleService } from '../../src/accountability/schedule.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
 import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
+import { StripeService } from '../../src/onboarding/stripe.service';
+import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
@@ -109,6 +111,8 @@ describe('CheckinProcessor', () => {
     mockTaskService = { ensureTodayTask: jest.fn().mockResolvedValue(testTask) };
     mockSurpriseService = { fire: jest.fn(), scheduleWeek: jest.fn() };
     mockQueue = { add: jest.fn().mockResolvedValue({ id: 'missed-job-1' }) };
+    const mockStripeService = { createCustomer: jest.fn(), createCheckoutSession: jest.fn() };
+    const mockConfig = { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -123,6 +127,8 @@ describe('CheckinProcessor', () => {
         { provide: CheckinService, useValue: mockCheckinService },
         { provide: TaskService, useValue: mockTaskService },
         { provide: SurpriseService, useValue: mockSurpriseService },
+        { provide: StripeService, useValue: mockStripeService },
+        { provide: ConfigService, useValue: mockConfig },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
       ],
     }).compile();

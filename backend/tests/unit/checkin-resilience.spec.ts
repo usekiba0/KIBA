@@ -12,6 +12,8 @@ import { ScheduleService } from '../../src/accountability/schedule.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
 import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
+import { StripeService } from '../../src/onboarding/stripe.service';
+import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
 
 /** QueryBuilder stub for the atomic once-per-day claim. affected=1 → claim wins. */
@@ -92,6 +94,8 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
         { provide: CheckinService, useValue: checkinService },
         { provide: TaskService, useValue: taskService },
         { provide: SurpriseService, useValue: { fire: jest.fn(), scheduleWeek: jest.fn() } },
+        { provide: StripeService, useValue: { createCustomer: jest.fn(), createCheckoutSession: jest.fn() } },
+        { provide: ConfigService, useValue: { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') } },
         { provide: getQueueToken('accountability'), useValue: queue },
       ],
     }).compile();

@@ -29,6 +29,7 @@ import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
 import { parseTimezoneOffset } from './reminder-parser';
 import { detectOnboardingVariant } from './onboarding-variant';
+import { splitBubbles } from './bubbles';
 
 interface CoachingJob {
   from: string;
@@ -642,11 +643,13 @@ export class CoachingProcessor {
     liveUser.payment_link_sent_at = now;
     liveUser.sample_coaching_given = false;
 
-    // Dunning: nudge at 24h, then at 72h (48h after the first nudge).
+    // Follow-up sequence for unpaid leads: first nudge ~2.5h after the link,
+    // then ~next day, then ~2-3 days (final). The cadence after nudge 0 is
+    // scheduled by CheckinProcessor.handlePaymentLinkNudge.
     await this.accountabilityQueue.add(
       'payment-link-nudge',
       { userId: liveUser.id, nudgeIndex: 0 },
-      { delay: 24 * 60 * 60 * 1000 },
+      { delay: 2.5 * 60 * 60 * 1000 },
     );
 
     structuredLog(this.logger, 'log', {
@@ -773,22 +776,40 @@ export class CoachingProcessor {
   }
 
   private async saveAndSend(user: User, sessionId: string, reply: string) {
+    // The AI may split a reply into multiple texts with [pause] markers so it
+    // lands as a natural burst (a thought, then another) instead of one block.
+    const bubbles = splitBubbles(reply);
+    // Store/cache the marker-free reply as ONE row (newline-joined) so [pause]
+    // tokens never leak into history or the model's next-turn context.
+    const stored = bubbles.length ? bubbles.join('\n') : reply.trim();
+
     const aiMsg = await this.messageRepo.save({
       user_id: user.id,
       session_id: sessionId,
       role: MessageRole.AI,
       message_type: MessageType.TEXT,
-      content: reply,
+      content: stored,
     });
 
-    await this.sessionCache.addMessage(user.id, 'assistant', reply);
-    await this.messagingService.send(user.phone_number, reply);
+    await this.sessionCache.addMessage(user.id, 'assistant', stored);
+
+    const toSend = bubbles.length ? bubbles : [reply.trim()].filter(Boolean);
+    const delayMs = this.config.get<number>('MESSAGE_BUBBLE_DELAY_MS', 1200);
+    for (let i = 0; i < toSend.length; i++) {
+      await this.messagingService.send(user.phone_number, toSend[i]);
+      // Small gap between bubbles so they arrive in order and feel typed, not
+      // dumped. No delay after the last one.
+      if (i < toSend.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
 
     structuredLog(this.logger, 'log', {
       service: 'coaching',
       operation: 'reply_sent',
       userId: user.id,
       messageId: aiMsg.id,
+      bubbles: toSend.length,
     });
   }
 }
