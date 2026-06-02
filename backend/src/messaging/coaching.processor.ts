@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Job, Queue } from 'bull';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User, OnboardingStage, UserStatus, IntakeData } from '../data/entities/user.entity';
+import { User, OnboardingStage, OnboardingVariant, UserStatus, IntakeData } from '../data/entities/user.entity';
 import { Subscription, SubscriptionStatus } from '../data/entities/subscription.entity';
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { SessionSummary, SummaryTrigger } from '../data/entities/session-summary.entity';
@@ -28,6 +28,7 @@ import { DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.en
 import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
 import { parseTimezoneOffset } from './reminder-parser';
+import { detectOnboardingVariant } from './onboarding-variant';
 
 interface CoachingJob {
   from: string;
@@ -149,6 +150,10 @@ export class CoachingProcessor {
     // SMS-first onboarding flow can take over.
     let user = await this.userRepo.findOne({ where: { phone_number: from } });
     if (!user) {
+      // Ad-attributed onboarding: the pre-filled deep-link text of the very
+      // first inbound message decides which opener the intake AI uses. Computed
+      // here (lead creation) and never recomputed — later turns keep the variant.
+      const variant = detectOnboardingVariant(body);
       user = await this.userRepo.save(this.userRepo.create({
         phone_number: from,
         name: null,
@@ -156,6 +161,7 @@ export class CoachingProcessor {
         goals: null,
         status: UserStatus.TRIAL,
         onboarding_stage: OnboardingStage.INTAKE,
+        onboarding_variant: variant,
         intake_data: {},
         // Default 9am local check-in so the daily cadence can kick in the moment
         // the user pays. Users can override mid-coaching ("check in at 7 instead")
@@ -163,7 +169,7 @@ export class CoachingProcessor {
         // default, scheduleCheckin early-returns and the user never hears from us.
         checkin_time: '09:00',
       }));
-      this.logger.log(`[Onboarding] Created lead ${user.id} for ${from}`);
+      this.logger.log(`[Onboarding] Created lead ${user.id} for ${from} (variant: ${variant})`);
     }
 
     // Update last active
@@ -442,6 +448,7 @@ export class CoachingProcessor {
       utcOffsetMinutes: user.utc_offset_minutes ?? null,
       paymentLinkSent: !!user.payment_link_sent_at,
       sampleCoachingGiven: !!user.sample_coaching_given,
+      variant: user.onboarding_variant ?? OnboardingVariant.STANDARD,
     };
 
     // Mutable copy we mutate as tool calls land so subsequent calls in the same

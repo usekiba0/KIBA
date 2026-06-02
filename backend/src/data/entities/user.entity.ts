@@ -25,6 +25,22 @@ export enum OnboardingStage {
   COMPLETE = 'complete',
 }
 
+/**
+ * Which onboarding flavour a cold lead landed in, derived from the ad's
+ * pre-filled SMS deep-link text on their FIRST inbound message (added
+ * 2026-06-02). Lets different ads open with a different first reply while still
+ * funnelling into the same intake → payment flow. Captured once at lead
+ * creation and never changed after.
+ */
+export enum OnboardingVariant {
+  /** Default — no recognised keyword, or an organic/unknown first message. */
+  STANDARD = 'standard',
+  /** Ad pre-fill like "what even is kiba" — answer the question first, then gather. */
+  EXPLAINER = 'explainer',
+  /** Ad pre-fill like "what's up kiba" — warm peer opener, then gather. */
+  CASUAL = 'casual',
+}
+
 export interface IntakeData {
   goal_description?: string;
   goal_timeline?: string;
@@ -97,6 +113,11 @@ export class User {
   @Index()
   @Column({ type: 'enum', enum: OnboardingStage, default: OnboardingStage.COMPLETE })
   onboarding_stage: OnboardingStage;
+
+  // Ad-attributed onboarding flavour, set once from the first inbound's
+  // pre-filled deep-link text. Defaults to STANDARD for organic / web signups.
+  @Column({ type: 'enum', enum: OnboardingVariant, default: OnboardingVariant.STANDARD })
+  onboarding_variant: OnboardingVariant;
 
   @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
   intake_data: IntakeData;

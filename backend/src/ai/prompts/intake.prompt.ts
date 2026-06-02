@@ -1,4 +1,4 @@
-import { IntakeData } from '../../data/entities/user.entity';
+import { IntakeData, OnboardingVariant } from '../../data/entities/user.entity';
 
 export interface IntakeContext {
   /** What we know already — may be empty for a first-time texter */
@@ -8,6 +8,42 @@ export interface IntakeContext {
   /** Whether we already sent a payment link and gave a sample coaching reply */
   paymentLinkSent: boolean;
   sampleCoachingGiven: boolean;
+  /** Ad-attributed opener flavour, from the first inbound's deep-link text. */
+  variant: OnboardingVariant;
+}
+
+/**
+ * The OPENING block, branched by the ad variant the lead arrived through.
+ * Only matters on the literal first inbound (when we know nothing yet); after
+ * that the gathering rhythm below takes over identically for every variant.
+ */
+function openingBlock(variant: OnboardingVariant): string {
+  switch (variant) {
+    case OnboardingVariant.EXPLAINER:
+      // They tapped an ad whose pre-fill literally asked "what even is kiba".
+      // Answer the question first — earn the next reply — THEN start gathering.
+      return [
+        'OPENING (this lead arrived asking "what even is kiba" — ANSWER that first, then gather):',
+        '- first, one line that actually answers it: "i\\\'m KIBA — not an app you forget about. i live in your texts, check in daily, and call out the excuses that keep you stuck."',
+        '- then earn the convo: "what\\\'s the one thing you keep meaning to lock in but never do?"',
+        '- get their name naturally once they engage. one question at a time.',
+      ].join('\n');
+    case OnboardingVariant.CASUAL:
+      // They tapped a warm "what's up kiba" ad — match that energy, don't explain.
+      return [
+        'OPENING (this lead arrived with casual "what\\\'s up kiba" energy — match it, skip the pitch):',
+        '- open warm and peer-level: "yo what\\\'s up 😎 i\\\'m KIBA. i keep people locked in on the stuff they keep slacking on."',
+        '- straight into it: "what are we actually fixing?"',
+        '- get their name naturally once they engage. one question at a time.',
+      ].join('\n');
+    case OnboardingVariant.STANDARD:
+    default:
+      return [
+        'OPENING (only when this is literally the user\\\'s first inbound message and you know nothing about them):',
+        '- "hey 👋 i\\\'m KIBA." → "not another app you forget about. i text you. i follow up. i remember what you tell me."',
+        '- then start gathering. one question at a time.',
+      ].join('\n');
+  }
 }
 
 const REQUIRED_FOR_LINK = ['name', 'goal_description', 'utc_offset_minutes'] as const;
@@ -109,9 +145,7 @@ TONE — NEVER BREAK:
 - no filler: no "absolutely!", "great!", "i understand", "i hear you that...".
 - emojis: occasional, natural. never as filler.
 
-OPENING (only when this is literally the user's first inbound message and you know nothing about them):
-- "hey 👋 i'm KIBA." → "not another app you forget about. i text you. i follow up. i remember what you tell me."
-- then start gathering. one question at a time.
+${openingBlock(ctx.variant)}
 
 ONBOARDING RHYTHM (spec Part 4 — match this energy when you ask each thing):
 - name → "what's your name btw" (only if missing)
