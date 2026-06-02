@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
 import { VisionService, ProofValidationResult } from '../../src/ai/vision.service';
+
+jest.mock('axios');
 
 describe('VisionService — validateProof', () => {
   let service: VisionService;
@@ -74,5 +77,26 @@ describe('VisionService — validateProof', () => {
     const callArgs = mockCreate.mock.calls[0][0];
     const textContent = callArgs.messages[0].content.find((c: any) => c.type === 'text');
     expect(textContent.text).toContain('Do 50 push-ups');
+  });
+
+  describe('validateProofFromUrl', () => {
+    it('fetches the photo and returns the verdict for a normal jpeg', async () => {
+      (axios.get as jest.Mock).mockResolvedValue({ data: Buffer.from('fake-jpeg-bytes') });
+      const result = await service.validateProofFromUrl(
+        'Run 5km',
+        'https://storage.googleapis.com/inbound-file-store/abc_IMG.jpeg',
+        'image/jpeg',
+      );
+      expect(result.is_valid).toBe(true);
+      expect(result.confidence).toBeCloseTo(0.92);
+      expect(axios.get).toHaveBeenCalled();
+    });
+
+    it('FAILS OPEN (is_valid true, confidence 0) when the fetch throws — never block a real user on infra', async () => {
+      (axios.get as jest.Mock).mockRejectedValue(new Error('network down'));
+      const result = await service.validateProofFromUrl('Run 5km', 'https://cdn/x.jpg', 'image/jpeg');
+      expect(result.is_valid).toBe(true);
+      expect(result.confidence).toBe(0);
+    });
   });
 });

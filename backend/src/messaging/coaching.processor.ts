@@ -13,6 +13,7 @@ import { ProofType } from '../data/entities/proof.entity';
 import { CoachingService } from '../ai/coaching.service';
 import { CrisisService } from '../ai/crisis.service';
 import { SummarisationService } from '../ai/summarisation.service';
+import { VisionService } from '../ai/vision.service';
 import { SessionCacheService } from '../data/session-cache.service';
 import { SessionBoundaryService } from '../data/session-boundary.service';
 import { CorrectionService } from '../data/correction.service';
@@ -30,6 +31,7 @@ import { structuredLog } from '../common/logger';
 import { parseTimezoneOffset } from './reminder-parser';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
+import { sniffRemoteMediaType } from './media-type';
 
 interface CoachingJob {
   from: string;
@@ -89,6 +91,7 @@ export class CoachingProcessor {
     @InjectRepository(DailyTask) private readonly dailyTaskRepo: Repository<DailyTask>,
     private readonly config: ConfigService,
     private readonly coachingService: CoachingService,
+    private readonly visionService: VisionService,
     private readonly crisisService: CrisisService,
     private readonly summarisationService: SummarisationService,
     private readonly sessionCache: SessionCacheService,
@@ -256,12 +259,38 @@ export class CoachingProcessor {
       user = { ...user, utc_offset_minutes: tzOffset };
     }
 
+    // Resolve inbound media type ONCE for every stage. The controller's
+    // guessContentType() is extension-based; when it yields nothing usable
+    // (extension-less SendBlue CDN URL) we sniff the file's magic bytes so a real
+    // photo isn't misclassified. Computed here — BEFORE stage routing — because
+    // onboarding (intake) users send photos too and must reach vision (Karibi:
+    // "it's not seeing the photo" — the image branch below only ran for COMPLETE
+    // users, so pre-payment photos were silently dropped and the AI improvised
+    // "i can't see images").
+    const firstMediaUrl = mediaUrls[0] ?? null;
+    let resolvedMediaCt = (mediaContentTypes[0] ?? '').toLowerCase().split(';')[0].trim();
+    if (numMedia > 0 && firstMediaUrl && (!resolvedMediaCt || resolvedMediaCt === 'application/octet-stream')) {
+      const sniffed = await sniffRemoteMediaType(firstMediaUrl);
+      if (sniffed) {
+        structuredLog(this.logger, 'log', {
+          service: 'messaging', operation: 'media_type_sniffed',
+          userId: user.id, channel, contentType: sniffed,
+        });
+        resolvedMediaCt = sniffed;
+      }
+    }
+    const inboundIsImage = numMedia > 0 && resolvedMediaCt.startsWith('image/');
+
     // === Stage routing: SMS-first onboarding ===
     // Pre-payment users go through the intake AI flow, not the coaching flow.
     // Correction triggers, score queries, reminders, etc. are all coach-mode
     // features and are gated behind onboarding_stage === COMPLETE.
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) {
-      const reply = await this.handleIntakeMessage(user, dbMessages, body, boundary.sessionId, inboundMsg.id);
+      const reply = await this.handleIntakeMessage(
+        user, dbMessages, body, boundary.sessionId, inboundMsg.id,
+        inboundIsImage ? (firstMediaUrl ?? undefined) : undefined,
+        inboundIsImage ? resolvedMediaCt : undefined,
+      );
       await this.saveAndSend(user, boundary.sessionId, reply);
       return;
     }
@@ -346,9 +375,9 @@ export class CoachingProcessor {
 
     // Image = proof submission — look up today's pending task
     if (numMedia > 0) {
-      const mediaUrl = mediaUrls[0] ?? null;
-      const mediaCt = (mediaContentTypes[0] ?? '').toLowerCase();
-      const isImage = mediaCt.startsWith('image/');
+      const mediaUrl = firstMediaUrl;
+      const mediaCt = resolvedMediaCt;
+      const isImage = inboundIsImage;
       const isAudio = mediaCt.startsWith('audio/');
       const isVideo = mediaCt.startsWith('video/');
 
@@ -377,6 +406,27 @@ export class CoachingProcessor {
       });
 
       if (task) {
+        // Actually LOOK at the proof. Lenient by design: we only refuse when the
+        // model is CONFIDENT the photo doesn't match the task (>= 0.8). Anything
+        // uncertain — or any infra failure (validateProofFromUrl fails open) — is
+        // accepted, because wrongly rejecting a real user's proof is far worse
+        // than occasionally letting a borderline one through.
+        const verdict = mediaUrl
+          ? await this.visionService.validateProofFromUrl(task.task_description, mediaUrl, mediaCt)
+          : { is_valid: true, confidence: 0, reason: '' };
+
+        if (!verdict.is_valid && verdict.confidence >= 0.8) {
+          structuredLog(this.logger, 'log', {
+            service: 'accountability', operation: 'proof_rejected_low_match',
+            userId: user.id, taskId: task.id, confidence: verdict.confidence,
+          });
+          await this.saveAndSend(
+            user, boundary.sessionId,
+            `hmm that doesn't look like "${task.task_description}" to me — send a quick shot of the actual thing and i'll log it 💪`,
+          );
+          return;
+        }
+
         await this.proofService.submitProof({
           userId: user.id,
           taskId: task.id,
@@ -386,14 +436,14 @@ export class CoachingProcessor {
         });
         await this.saveAndSend(
           user, boundary.sessionId,
-          `Proof received ✓ "${task.task_description}" marked complete. Your execution score has been updated.`,
+          `proof in ✓ "${task.task_description}" logged — score updated. 💪`,
         );
       } else {
         // No pending task today — route to coaching AI with vision
         const visionTodos = await this.todoService.ensureSeededForToday(user.id).catch(() => []);
         const visionPatterns = derivePatternSignals(user);
         const { reply, tokenCount } = await this.coachingService.generateReply(
-          user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaContentTypes[0],
+          user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaCt,
           this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
           visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
           visionPatterns,
@@ -441,6 +491,8 @@ export class CoachingProcessor {
     body: string,
     sessionId: string,
     userMessageId: string,
+    imageUrl?: string,
+    imageContentType?: string,
   ): Promise<string> {
     // Build the intake context snapshot used by the prompt.
     const ctx = {
@@ -469,7 +521,12 @@ export class CoachingProcessor {
       },
     };
 
-    const { reply } = await this.coachingService.generateIntakeReply(user, recentMessages, body, ctx, handlers);
+    // Strip the "[image]" placeholder so the AI sees a real caption (or empty)
+    // alongside the photo, not the literal sentinel.
+    const intakeText = body !== '[image]' ? body : '';
+    const { reply } = await this.coachingService.generateIntakeReply(
+      user, recentMessages, intakeText, ctx, handlers, imageUrl, imageContentType,
+    );
 
     // If we just gave the sample-coaching reply (post-link), flip the flag so
     // the next turn falls into the PAYWALL phase.

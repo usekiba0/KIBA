@@ -538,6 +538,8 @@ export class CoachingService {
     incomingText: string,
     ctx: IntakeContext,
     toolHandlers: IntakeToolHandlers,
+    imageUrl?: string,
+    imageContentType?: string,
   ): Promise<{ reply: string; tokenCount: number }> {
     const systemPrompt = buildIntakeSystemPrompt(ctx);
     const tools = [SAVE_INTAKE_FIELD_TOOL, SEND_PAYMENT_LINK_TOOL];
@@ -548,6 +550,8 @@ export class CoachingService {
       systemPrompt,
       recentMessages,
       incomingText,
+      imageUrl,
+      imageContentType,
       tools,
       dispatch,
       userId: user.id,
@@ -586,7 +590,7 @@ export class CoachingService {
         usingImage = true;
         lastContent = [
           prep.block,
-          { type: 'text', text: args.incomingText || 'What do you see? Respond as my accountability coach.' },
+          { type: 'text', text: args.incomingText || 'The user sent this photo with no caption — react to what you actually see in it, in your voice.' },
         ];
       } else {
         return {

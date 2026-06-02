@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import axios from 'axios';
+import heicConvert = require('heic-convert');
 import { createAnthropicClient } from './anthropic.factory';
 import { User } from '../data/entities/user.entity';
 import { buildNutritionPrompt } from './prompts/vision.prompt';
@@ -117,6 +119,46 @@ Return ONLY valid JSON: {"is_valid": boolean, "confidence": 0.0-1.0, "reason": "
       };
     } catch {
       return { is_valid: false, confidence: 0, reason: 'Could not parse validation response' };
+    }
+  }
+
+  /**
+   * Validate a proof photo given its CDN URL. Fetches the bytes (converting HEIC
+   * to JPEG, since Anthropic's vision API rejects HEIC) and runs validateProof.
+   *
+   * FAILS OPEN: any fetch/convert/parse failure returns is_valid:true with
+   * confidence 0, so an infra hiccup never blocks a real user's proof. The caller
+   * decides what to do with the verdict — current policy only rejects on a
+   * confident mismatch, so confidence 0 is always treated as "accept".
+   */
+  async validateProofFromUrl(
+    taskDescription: string,
+    mediaUrl: string,
+    mimeType?: string,
+  ): Promise<ProofValidationResult> {
+    try {
+      const ct = (mimeType ?? '').toLowerCase().split(';')[0].trim();
+      const urlLower = mediaUrl.toLowerCase().split('?')[0];
+      const isHeic = ct === 'image/heic' || ct === 'image/heif' ||
+        urlLower.endsWith('.heic') || urlLower.endsWith('.heif');
+
+      const resp = await axios.get<ArrayBuffer>(mediaUrl, {
+        responseType: 'arraybuffer',
+        timeout: 15_000,
+      });
+
+      let bytes = Buffer.from(resp.data);
+      let mime = ct || 'image/jpeg';
+      if (isHeic) {
+        const jpeg = await heicConvert({ buffer: resp.data, format: 'JPEG', quality: 0.9 });
+        bytes = Buffer.from(jpeg);
+        mime = 'image/jpeg';
+      }
+
+      return await this.validateProof(taskDescription, bytes, mime);
+    } catch (err) {
+      this.logger.warn(`proof validation failed for ${mediaUrl}: ${(err as Error).message}`);
+      return { is_valid: true, confidence: 0, reason: 'could not analyse image' };
     }
   }
 
