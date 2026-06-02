@@ -56,3 +56,28 @@ describe('buildGhostMessage — level 1 goal-type branching (Karibi 2026-06-01)'
     expect(buildGhostMessage(6, NAME, LONG_GOAL, null, 7)).toContain(NAME);
   });
 });
+
+describe('buildGhostMessage — tough-love is gated on cussing consent', () => {
+  const profile = (cussing_ok: boolean) =>
+    ({ cussing_ok, avoidance_patterns: '', comparison_figure: '', fears: '' } as any);
+
+  it('uses the harsh level-4 variant only when the user opted into cussing', () => {
+    const optedIn = Array.from({ length: 30 }, () =>
+      buildGhostMessage(4, NAME, 'finish the deck', profile(true), 1, GoalType.TASK),
+    );
+    expect(optedIn.some((m) => /TF/.test(m))).toBe(true);
+  });
+
+  it('NEVER uses the harsh variant when the user wants it clean (pg)', () => {
+    for (let i = 0; i < 30; i++) {
+      const m = buildGhostMessage(4, NAME, 'finish the deck', profile(false), 1, GoalType.TASK);
+      expect(m).not.toMatch(/TF/);
+    }
+  });
+
+  it('defaults to clean when there is no profile at all', () => {
+    for (let i = 0; i < 30; i++) {
+      expect(buildGhostMessage(4, NAME, 'finish the deck', null, 1, GoalType.TASK)).not.toMatch(/TF/);
+    }
+  });
+});

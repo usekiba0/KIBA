@@ -63,15 +63,21 @@ export function buildDunningNudge(
 
   switch (index) {
     case 0:
+      // Playful + value-demonstrating: their ghosting IS the proof of what they
+      // need. Plant FOMO, not pressure. Free trial framed as zero-risk, not an ask.
       return goal
-        ? `not gonna pressure you${tail}. but you literally just told me you want to ${goal}${obstacle ? ` — and that ${obstacle} keeps getting in the way` : ''}. ${d} days is free. nothing to lose.`
-        : `not gonna pressure you${tail}. but ${d} days is free — nothing to lose, and everything you said you wanted is actually possible.`;
+        ? `ngl${tail} — good thing you haven't fully locked in yet 😭 cause if you ghosted me like this AFTER we started, i'd be ALL over you about ${goal}${obstacle ? ` — especially when ${obstacle} starts creeping back in` : ''}. that's literally the point though. ${d} days free, zero risk — wanna see what that actually feels like?`
+        : `ngl${tail} — good thing you haven't fully locked in yet 😭 cause if you ghosted me like this after, i'd be all over you. that's the whole point though. ${d} days free, zero risk. wanna see what it feels like?`;
     case 1:
-      return `${name ? `${name}. ` : ''}most people stay stuck not because they don't know what they need — but because they get right to the edge of starting and then disappear. you already told me what you want. ${d} days. free. just see if it actually works.`;
-    default:
+      // FOMO + value: name what they're missing, keep it light and human.
       return goal
-        ? `last time i'm bringing this up${tail}. ${goal}${obstacle ? `. ${obstacle}` : ''}. you told me both. at some point the question stops being "should i try this" and becomes "how long am i gonna let this stay exactly the same." door's open.`
-        : `last time i'm bringing this up${tail}. at some point the question stops being "should i try this" and becomes "how long am i gonna let this stay exactly the same." door's open.`;
+        ? `${name ? `${name} 👀 ` : '👀 '}you told me ${goal} actually mattered to you${obstacle ? `, and that ${obstacle} keeps winning` : ''}. most people fold right at the edge of starting — that's exactly where i come in. ${d} days. free. just feel the difference. 🔥`
+        : `${name ? `${name} 👀 ` : '👀 '}most people fold right at the edge of starting — that's exactly where i come in. you already told me what you want. ${d} days, free, just feel the difference. 🔥`;
+    default:
+      // Final — warm FOMO, no guilt-trip, door stays open.
+      return goal
+        ? `last time i bring it up${tail} 🙏 ${goal}${obstacle ? `. ${obstacle}` : ''} — you told me both, and none of that's changed. at some point it stops being "should i try this" and becomes "how long do i let it stay the same." door's open whenever you are. ${d} days free.`
+        : `last time i bring it up${tail} 🙏 at some point it stops being "should i try this" and becomes "how long do i let it stay exactly the same." door's open whenever you are. ${d} days free.`;
   }
 }
 

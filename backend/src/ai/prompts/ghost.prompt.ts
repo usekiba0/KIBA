@@ -37,6 +37,9 @@ export function buildGhostMessage(
   const comparison = profile?.comparison_figure?.trim() ?? '';
   const goalsFromProfile = profile?.fears?.trim() ?? '';
   const excuse = '';  // user.last_excuse_phrase is read by caller, not used here
+  // Tough-love / cussing variants only fire if the user opted in at intake.
+  // Default is clean — never cuss at someone who asked for pg.
+  const cussingOk = profile?.cussing_ok === true;
 
   // Helper: pick a variant deterministically per level + user so two ghost
   // cycles for the same user don't always pick variant 0.
@@ -52,45 +55,46 @@ export function buildGhostMessage(
       switch (goalType) {
         case GoalType.TASK:
           return pick([
-            `${goalShort} — did it happen?`,
-            `${goalShort}. happen or nah?`,
+            `yo 👀 ${goalShort} — did it happen or nah?`,
+            `${goalShort}. happen or nah? 😭 don't leave me hanging`,
           ]);
         case GoalType.EMOTIONAL:
           // Don't pile accountability on a life/feeling goal — open the door.
           return pick([
-            `haven't heard from you.\nwhat's actually on your mind today?`,
+            `haven't heard from you 👀\nwhat's actually on your mind today?`,
             `${name} — you good? what's the headspace like today?`,
           ]);
         case GoalType.HABIT:
           return pick([
-            `${goalShort} today?\nwhat time you getting it in?`,
-            `${goalShort} — that's the daily one. when today?`,
+            `${goalShort} today? 👀\nwhat time you getting it in?`,
+            `${goalShort} — that's the daily one. when today? 🔥`,
           ]);
         case GoalType.IDENTITY:
           return pick([
-            `${goalShort} — that's the direction.\nwhat's one thing today that moves you there?`,
+            `${goalShort} — that's the direction.\nwhat's one thing today that moves you there? 🔥`,
             `not asking if you became a new person overnight 😭\nwhat's the one move today?`,
           ]);
         case GoalType.OUTCOME:
         default:
           return pick([
-            `${goalShort} is the target. cool.\nwhat's the actual move today?`,
-            `not asking if it happened overnight.\nwhat's the one thing we're doing today toward ${goalShort}?`,
+            `${goalShort} is the target. cool.\nwhat's the actual move today? 👀`,
+            `not asking if it happened overnight 😭\nwhat's the one thing we're doing today toward ${goalShort}?`,
           ]);
       }
 
     case 2:
+      // Playful callout — light, human, slightly intrusive. Still logs as a miss.
       return pick([
-        `you went quiet. that's a miss.\nscore drops. talk to me.`,
-        `nothing back. that's a miss.\ntalk to me.`,
+        `bro why you ignoring me 😭\nyou went quiet — that's a miss. talk to me.`,
+        `you can ghost your group chat but not me 😈\nnothing back = a miss. talk to me.`,
       ]);
 
     case 3: {
       const tail = avoidance
-        ? `disappearing right when things get hard is kinda your pattern. we fixing that or repeating it?`
-        : `disappearing right when things get hard. we fixing that or repeating it?`;
+        ? `disappearing right when things get hard is kinda your pattern. we fixing that or repeating it? 👀`
+        : `disappearing right when things get hard. we fixing that or repeating it? 👀`;
       return pick([
-        `two days.\nnot gonna lie… ${tail}`,
+        `two days 😬\nnot gonna lie… ${tail}`,
         `${name} two days. ${tail}`,
       ]);
     }
@@ -99,16 +103,24 @@ export function buildGhostMessage(
       const hook = goalsFromProfile
         ? `you said you were tired of ${shortify(goalsFromProfile)}.`
         : `you said you wanted this.`;
+      // Stronger tough love ONLY if the user opted into direct/cussing tone.
+      if (cussingOk) {
+        return pick([
+          `WHERE TF YOU AT 😭\nhaven't heard from you all day${name ? ` ${name}` : ''}. did the move happen or are we doing the disappearing act again?`,
+          `bro 😤 haven't heard a word. ${hook} don't ghost yourself again — what's the move?`,
+        ]);
+      }
       return pick([
-        `${name} i'm still here.\n${hook} don't ghost yourself again.`,
+        `${name} i'm still here. 🙏\n${hook} don't ghost yourself again.`,
         `still here.\n${hook} don't disappear on yourself again.`,
       ]);
     }
 
     case 5:
+      // Pattern callout — name the cycle without judgment, then a hard choice.
       return pick([
-        `bro you wanted this bad ${daysSinceLastResponse} days ago. what changed?\nyou're probably scrolling right now instead of doing the thing you said mattered.\nprove me wrong.`,
-        `5 days ${name}.\nyou wanted this bad. what changed.\nprove me wrong.`,
+        `this is the pattern 👀\nyou get motivated, say you're serious, then disappear when it's time to prove it.\nnot judging — just not letting you pretend i don't see it. reset or finish it. pick one.`,
+        `${daysSinceLastResponse} days ${name}.\nyou wanted this bad. what changed? you're probably scrolling right now instead of doing the thing you said mattered.\nprove me wrong. 🔥`,
       ]);
 
     case 6: {
@@ -121,7 +133,7 @@ export function buildGhostMessage(
         lines.push(`i still remember — ${hooks.join(' ')}`);
       }
       lines.push(`none of that changed. you just got quiet.`);
-      lines.push(`i'm here when you're ready.`);
+      lines.push(`no pressure — i'm here when you're ready. 🙏`);
       return lines.join('\n');
     }
   }
