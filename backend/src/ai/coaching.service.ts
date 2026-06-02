@@ -196,18 +196,20 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
   name: 'save_intake_field',
   description:
     'Persist a single fact about the user that they just shared. Call this every time the user gives you a new fact, ' +
-    'even mid-sentence. Field MUST be one of: name, goal_description, goal_timeline, current_status, fears, ' +
-    'avoidance_patterns, comparison_figure, public_failure_scenario, typical_failure_moment, pressure_preference, ' +
+    'even mid-sentence. Field MUST be one of: name, goal_description, goal_timeline, current_status, why_it_matters, ' +
+    'fears, avoidance_patterns, comparison_figure, public_failure_scenario, typical_failure_moment, pressure_preference, ' +
     'cussing_ok, utc_offset_minutes, checkin_time. For utc_offset_minutes pass an integer (minutes ahead/behind UTC, ' +
     'e.g. 300 for PKT). For pressure_preference pass "pressure" or "encouragement". For checkin_time pass HH:MM 24h. ' +
     'For cussing_ok pass a boolean (true if the user explicitly said cussing is fine, false if they said keep it pg). ' +
+    'why_it_matters = why their main goal actually matters to them (the emotional reason). ' +
+    'avoidance_patterns = what makes them fold / the pattern that shows up when they try. ' +
     'Everything else is free text.',
   input_schema: {
     type: 'object' as const,
     properties: {
       field: {
         type: 'string',
-        enum: ['name', 'goal_description', 'goal_timeline', 'current_status', 'fears', 'avoidance_patterns',
+        enum: ['name', 'goal_description', 'goal_timeline', 'current_status', 'why_it_matters', 'fears', 'avoidance_patterns',
                'comparison_figure', 'public_failure_scenario', 'typical_failure_moment', 'pressure_preference',
                'cussing_ok', 'utc_offset_minutes', 'checkin_time'],
         description: 'Which structured field to save.',
@@ -249,7 +251,10 @@ const SEND_PAYMENT_LINK_TOOL: Tool = {
   name: 'send_payment_link',
   description:
     'Create a Stripe checkout session and SMS the URL to the user. ' +
-    'In INTAKE mode: use ONLY when name, goal_description, and utc_offset_minutes are all saved. ' +
+    'In INTAKE mode: use ONLY at the payment close — after you have name, goal_description, and utc_offset_minutes ' +
+    'saved AND you have walked them through the build (why it matters, their obstacle, the "i see you" moment, value) ' +
+    'AND they gave you a clear yes to the micro-commitment ("are you actually ready"). Do NOT send it the moment the ' +
+    'three fields exist — the emotional yes comes before the link. ' +
     'In COACHING mode: call this whenever the user asks to pay, subscribe, get the link, sign up, ' +
     'check out, upgrade, or otherwise wants to start/restart their subscription — even mid-coaching. ' +
     'The system SMSes the URL on its own line automatically; your text reply should be a SHORT confirmation only ' +

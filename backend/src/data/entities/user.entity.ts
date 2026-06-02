@@ -45,6 +45,10 @@ export interface IntakeData {
   goal_description?: string;
   goal_timeline?: string;
   current_status?: string;
+  // Why the main goal actually matters to them — the emotional driver captured
+  // during the conversion-optimized intake build (Text 4/5 of the sales flow).
+  // Read back by the coaching prompt to keep KIBA's pushes personal.
+  why_it_matters?: string;
   fears?: string;
   avoidance_patterns?: string;
   comparison_figure?: string;

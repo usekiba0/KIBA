@@ -449,6 +449,10 @@ export class CoachingProcessor {
       paymentLinkSent: !!user.payment_link_sent_at,
       sampleCoachingGiven: !!user.sample_coaching_given,
       variant: user.onboarding_variant ?? OnboardingVariant.STANDARD,
+      // Quote trial length + price from config so the AI's copy can never drift
+      // from what Stripe actually bills. Defaults match the agreed offer (7d / $20).
+      trialDays: this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
+      priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month'),
     };
 
     // Mutable copy we mutate as tool calls land so subsequent calls in the same
@@ -513,7 +517,7 @@ export class CoachingProcessor {
 
     // Otherwise, persist into intake_data JSONB.
     const allowed = new Set([
-      'goal_description', 'goal_timeline', 'current_status', 'fears', 'avoidance_patterns',
+      'goal_description', 'goal_timeline', 'current_status', 'why_it_matters', 'fears', 'avoidance_patterns',
       'comparison_figure', 'public_failure_scenario', 'typical_failure_moment', 'pressure_preference',
       'cussing_ok',
     ]);
@@ -572,7 +576,9 @@ export class CoachingProcessor {
     }
 
     const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
-    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 30);
+    // 7-day trial is the agreed offer; the intake AI quotes the same number from
+    // STRIPE_TRIAL_DAYS so the checkout trial and the SMS copy always agree.
+    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
     const appBaseUrl = this.config.get<string>('APP_BASE_URL', 'https://kiba.ai');
 
     // Create (or reuse) Stripe customer. We don't have a stable customer id on
