@@ -61,4 +61,34 @@ describe('buildIntakeSystemPrompt', () => {
     expect(buildIntakeSystemPrompt(ctx({ variant: OnboardingVariant.EXPLAINER }))).toContain('what even is kiba');
     expect(buildIntakeSystemPrompt(ctx({ variant: OnboardingVariant.CASUAL }))).toContain("what's up kiba");
   });
+
+  it('lets users keep more than one goal instead of forcing one', () => {
+    const p = buildIntakeSystemPrompt(ctx());
+    // The goal step must invite multiple goals and tell KIBA to keep them all...
+    expect(p).toMatch(/KEEP ALL OF THEM/);
+    expect(p).toContain('save_intake_field("goals"');
+    // ...and explicitly forbid the oppositional "you'll end up locked in on nothing" line.
+    expect(p).toMatch(/NEVER tell them they have too many goals/i);
+    // The anchor is framed as a daily focus, not a cut.
+    expect(p).toMatch(/ANCHOR/);
+  });
+
+  it('recaps every goal with the daily anchor marked when there are several', () => {
+    const p = buildIntakeSystemPrompt(ctx({
+      name: 'Sam',
+      intakeData: { goal_description: 'scale the business', goals: ['scale the business', 'gym every morning', 'read the bible'] },
+    }));
+    expect(p).toContain('scale the business (daily anchor)');
+    expect(p).toContain('gym every morning');
+    expect(p).toContain('read the bible');
+  });
+
+  it('treats a goal list (no explicit anchor) as a captured goal, not missing', () => {
+    const p = buildIntakeSystemPrompt(ctx({
+      name: 'Sam',
+      intakeData: { goals: ['gym', 'money'] },
+      utcOffsetMinutes: -360,
+    }));
+    expect(p).not.toMatch(/STILL MISSING[^\n]*goal_description/);
+  });
 });

@@ -51,7 +51,20 @@ function openingBlock(variant: OnboardingVariant): string {
 function summariseKnown(ctx: IntakeContext): string {
   const lines: string[] = [];
   if (ctx.name) lines.push(`- name: ${ctx.name}`);
-  if (ctx.intakeData.goal_description) lines.push(`- goal: ${ctx.intakeData.goal_description}`);
+  // Show the FULL goal list when they gave more than one, with the daily anchor
+  // marked — so KIBA references everything they're working on, not just the one.
+  const extraGoals = (ctx.intakeData.goals ?? []).filter(
+    (g) => g && g !== ctx.intakeData.goal_description,
+  );
+  if (ctx.intakeData.goal_description) {
+    lines.push(
+      extraGoals.length
+        ? `- goals: ${ctx.intakeData.goal_description} (daily anchor), plus ${extraGoals.join(', ')}`
+        : `- goal: ${ctx.intakeData.goal_description}`,
+    );
+  } else if (extraGoals.length) {
+    lines.push(`- goals: ${extraGoals.join(', ')}`);
+  }
   if (ctx.intakeData.goal_timeline) lines.push(`- timeline: ${ctx.intakeData.goal_timeline}`);
   if (ctx.intakeData.current_status) lines.push(`- current status: ${ctx.intakeData.current_status}`);
   if (ctx.intakeData.why_it_matters) lines.push(`- why it matters: ${ctx.intakeData.why_it_matters}`);
@@ -69,7 +82,10 @@ function summariseKnown(ctx: IntakeContext): string {
 function missingFields(ctx: IntakeContext): string[] {
   const missing: string[] = [];
   if (!ctx.name) missing.push('name');
-  if (!ctx.intakeData.goal_description) missing.push('goal_description');
+  // A goal is captured once we have either the anchor or any goal in the list.
+  if (!ctx.intakeData.goal_description && !(ctx.intakeData.goals ?? []).length) {
+    missing.push('goal_description');
+  }
   if (ctx.utcOffsetMinutes === null) missing.push('utc_offset_minutes');
   return missing;
 }
@@ -104,7 +120,8 @@ export function buildIntakeSystemPrompt(ctx: IntakeContext): string {
           '',
           'THE FLOW — move through it in order, ONE step per turn, always reacting to their actual words first:',
           '1. NAME — get it, lock it. call save_intake_field("name", ...).',
-          '2. GOALS — "what are 1-3 things you actually want to lock in this year? gym, money, business, discipline, school — whatever actually matters." then: "out of those — which one would change your life the most if you fixed it first?" save the chosen one with save_intake_field("goal_description", ...).',
+          '2. GOALS — "what are the things you actually want to lock in? gym, money, business, discipline, school — whatever actually matters." they can name as many as they want — you are NOT here to talk them down to one. if they give you several, KEEP ALL OF THEM. save the full list with save_intake_field("goals", ["goal one", "goal two", ...]). NEVER tell them they have too many goals or that they\'ll "end up locked in on nothing" — that\'s the opposite of how you talk now.',
+          '2a. ANCHOR (only when they named MORE THAN ONE) — you still pick ONE to build the daily rhythm around, framed as the anchor, not a cut: "love it — we keep all of it. but every morning i\'m gonna hold you to ONE so you actually move and the rest ride alongside it. which one\'s the anchor — the one that, if you nail it, makes the others easier?" save their pick with save_intake_field("goal_description", "<their anchor>"). if they only gave ONE goal, that one IS the anchor — just save it as goal_description (and it\'s fine to also include it in goals).',
           '3. WHY — "why does it actually matter to you though? not the surface answer — what actually changes in your life if you stop playing with this?" save it with save_intake_field("why_it_matters", ...).',
           '4. OBSTACLE — "be honest — what usually makes you fold? what\'s the pattern that shows up when you try to lock in?" save it with save_intake_field("avoidance_patterns", ...).',
           '5. THE "I SEE YOU" MOMENT (most important message in the whole flow): reflect something MORE specific and true than what they said — name the real mechanism behind their pattern, then land "that\'s what i\'m built for." This is what makes them feel understood. NEVER generic. Tie it to THEIR exact obstacle.',

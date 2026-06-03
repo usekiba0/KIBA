@@ -42,7 +42,18 @@ export enum OnboardingVariant {
 }
 
 export interface IntakeData {
+  // The PRIMARY goal — the one KIBA anchors the daily check-in on. Kept as a
+  // single string for backwards-compat: every downstream consumer (dunning
+  // nudges, payment-link guard, plan generation) reads this one. When a user
+  // names several goals we still designate one anchor here AND store the full
+  // set in `goals` below — we no longer discard the rest (Karibi 2026-06-03:
+  // "it should allow people to have more than one goal").
   goal_description?: string;
+  // The user's FULL goal list when they have more than one. The anchor above is
+  // also present in this array. Empty/absent for single-goal users. Surfaced in
+  // the intake recap so KIBA remembers everything they're working on, not just
+  // the anchor.
+  goals?: string[];
   goal_timeline?: string;
   current_status?: string;
   // Why the main goal actually matters to them — the emotional driver captured

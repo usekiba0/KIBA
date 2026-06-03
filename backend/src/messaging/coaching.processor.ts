@@ -575,7 +575,7 @@ export class CoachingProcessor {
 
     // Otherwise, persist into intake_data JSONB.
     const allowed = new Set([
-      'goal_description', 'goal_timeline', 'current_status', 'why_it_matters', 'fears', 'avoidance_patterns',
+      'goal_description', 'goals', 'goal_timeline', 'current_status', 'why_it_matters', 'fears', 'avoidance_patterns',
       'comparison_figure', 'public_failure_scenario', 'typical_failure_moment', 'pressure_preference',
       'cussing_ok',
     ]);
@@ -583,7 +583,29 @@ export class CoachingProcessor {
       return { ok: false as const, error: `unknown field: ${field}` };
     }
     const intake: IntakeData = { ...(liveUser.intake_data ?? {}) };
-    if (field === 'pressure_preference') {
+    if (field === 'goals') {
+      // The full multi-goal list. Accept an array of strings (the tool schema),
+      // but tolerate a single string the model may pass by mistake. Trim, drop
+      // blanks, cap each entry and the list so a runaway model can't bloat the
+      // JSONB row. We do NOT touch goal_description here — the anchor is saved
+      // separately so every downstream consumer keeps reading one string.
+      const raw = Array.isArray(value) ? value : [value];
+      const goals = raw
+        .map((g) => String(g).trim().slice(0, 2000))
+        .filter((g) => g.length > 0)
+        .slice(0, 10);
+      if (goals.length === 0) {
+        return { ok: false as const, error: 'goals must be a non-empty array of strings' };
+      }
+      intake.goals = goals;
+      // Guarantee an anchor exists so the payment-link guard, dunning nudges and
+      // plan generation (all of which read the single goal_description) never see
+      // a user with goals-but-no-anchor. The model overwrites this with the
+      // user's explicit anchor pick at step 2a when they have more than one.
+      if (!intake.goal_description) {
+        intake.goal_description = goals[0];
+      }
+    } else if (field === 'pressure_preference') {
       const s = String(value).toLowerCase();
       if (s !== 'pressure' && s !== 'encouragement') {
         return { ok: false as const, error: 'pressure_preference must be "pressure" or "encouragement"' };

@@ -196,11 +196,14 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
   name: 'save_intake_field',
   description:
     'Persist a single fact about the user that they just shared. Call this every time the user gives you a new fact, ' +
-    'even mid-sentence. Field MUST be one of: name, goal_description, goal_timeline, current_status, why_it_matters, ' +
+    'even mid-sentence. Field MUST be one of: name, goal_description, goals, goal_timeline, current_status, why_it_matters, ' +
     'fears, avoidance_patterns, comparison_figure, public_failure_scenario, typical_failure_moment, pressure_preference, ' +
     'cussing_ok, utc_offset_minutes, checkin_time. For utc_offset_minutes pass an integer (minutes ahead/behind UTC, ' +
     'e.g. 300 for PKT). For pressure_preference pass "pressure" or "encouragement". For checkin_time pass HH:MM 24h. ' +
     'For cussing_ok pass a boolean (true if the user explicitly said cussing is fine, false if they said keep it pg). ' +
+    'goals = an ARRAY of strings, the user\'s full list when they name more than one goal — save all of them, never drop any. ' +
+    'goal_description = the single daily ANCHOR goal (one string). When the user has several goals, save the whole list to ' +
+    'goals AND their chosen anchor to goal_description. When they have just one, save it to goal_description. ' +
     'why_it_matters = why their main goal actually matters to them (the emotional reason). ' +
     'avoidance_patterns = what makes them fold / the pattern that shows up when they try. ' +
     'Everything else is free text.',
@@ -209,13 +212,13 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
     properties: {
       field: {
         type: 'string',
-        enum: ['name', 'goal_description', 'goal_timeline', 'current_status', 'why_it_matters', 'fears', 'avoidance_patterns',
+        enum: ['name', 'goal_description', 'goals', 'goal_timeline', 'current_status', 'why_it_matters', 'fears', 'avoidance_patterns',
                'comparison_figure', 'public_failure_scenario', 'typical_failure_moment', 'pressure_preference',
                'cussing_ok', 'utc_offset_minutes', 'checkin_time'],
         description: 'Which structured field to save.',
       },
       value: {
-        description: 'The value. String for text fields, integer for utc_offset_minutes, HH:MM for checkin_time, boolean for cussing_ok.',
+        description: 'The value. String for text fields, an array of strings for goals, integer for utc_offset_minutes, HH:MM for checkin_time, boolean for cussing_ok.',
       },
     },
     required: ['field', 'value'],
