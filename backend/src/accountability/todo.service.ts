@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DailyTodo, DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { Goal } from '../data/entities/goal.entity';
+import { findAnchorGoal } from '../data/goal-selection';
 import { structuredLog } from '../common/logger';
 
 /**
@@ -94,10 +95,8 @@ export class TodoService {
       return existing;
     }
 
-    const goal = await this.goalRepo.findOne({
-      where: { user_id: userId },
-      order: { created_at: 'DESC' },
-    });
+    // Seed today's plan todos from the ANCHOR goal's action plan.
+    const goal = await findAnchorGoal(this.goalRepo, userId);
     const dailyTasks = goal?.action_plan?.daily_tasks;
     if (!goal || !dailyTasks || dailyTasks.length === 0) {
       return existing;

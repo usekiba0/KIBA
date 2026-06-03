@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { Goal } from '../data/entities/goal.entity';
+import { findAnchorGoal } from '../data/goal-selection';
 import { structuredLog } from '../common/logger';
 
 const LOW_SCORE_THRESHOLD = 30;
@@ -20,7 +21,8 @@ export class PlanAdjustmentService {
   ) {}
 
   async evaluateAndAdjust(userId: string): Promise<void> {
-    const goal = await this.goalRepo.findOne({ where: { user_id: userId } });
+    // Difficulty adjustment tracks the anchor goal — the one with the daily plan.
+    const goal = await findAnchorGoal(this.goalRepo, userId);
     if (!goal) return;
 
     const since = new Date();

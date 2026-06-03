@@ -125,7 +125,8 @@ export class AdminService {
         WHERE user_id = u.id AND created_at >= NOW() - INTERVAL '7 days'
       ) sk ON true
       LEFT JOIN LATERAL (
-        SELECT action_plan FROM goals WHERE user_id = u.id LIMIT 1
+        SELECT action_plan FROM goals WHERE user_id = u.id
+        ORDER BY is_anchor DESC, created_at DESC LIMIT 1
       ) g ON true
       ORDER BY u.last_active_at DESC NULLS LAST
     `);
@@ -159,7 +160,7 @@ export class AdminService {
          FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id WHERE u.id = $1`, [userId],
       ),
       this.dataSource.query(`SELECT * FROM psychological_profiles WHERE user_id = $1`, [userId]),
-      this.dataSource.query(`SELECT * FROM goals WHERE user_id = $1 LIMIT 1`, [userId]),
+      this.dataSource.query(`SELECT * FROM goals WHERE user_id = $1 ORDER BY is_anchor DESC, created_at DESC LIMIT 1`, [userId]),
       this.dataSource.query(
         `SELECT * FROM daily_tasks WHERE user_id = $1 ORDER BY scheduled_date DESC LIMIT 30`, [userId],
       ),

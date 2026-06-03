@@ -7,6 +7,7 @@ import { MessagingService } from './messaging.service';
 import { PlanService } from '../ai/plan.service';
 import { User } from '../data/entities/user.entity';
 import { Goal } from '../data/entities/goal.entity';
+import { findAnchorGoal } from '../data/goal-selection';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { CheckinService } from '../accountability/checkin.service';
 import { classifyGoalType } from '../ai/goal-classifier';
@@ -51,9 +52,12 @@ export class MessagingProcessor {
   async handlePlanGeneration(job: Job<{ userId: string }>) {
     const { userId } = job.data;
 
+    // Plan generation targets the ANCHOR goal — the one that drives the daily
+    // loop. Secondary goals are stored without a generated plan (promotable
+    // later) so signup stays a single LLM call.
     const [user, goal, profile] = await Promise.all([
       this.userRepo.findOne({ where: { id: userId } }),
-      this.goalRepo.findOne({ where: { user_id: userId }, order: { created_at: 'DESC' } }),
+      findAnchorGoal(this.goalRepo, userId),
       this.profileRepo.findOne({ where: { user_id: userId } }),
     ]);
 

@@ -128,6 +128,8 @@ export class OnboardingService {
           timeline: dto.goal_timeline,
           current_status: dto.current_status,
           difficulty_level: 3,
+          // The web form captures a single goal — it's the anchor by definition.
+          is_anchor: true,
         });
         await manager.save(Goal, goal);
 

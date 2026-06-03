@@ -6,6 +6,7 @@ import { Queue } from 'bull';
 import { AntiGhostState, GhostState, GHOST_LEVEL_DELAY_MS } from '../data/entities/anti-ghost-state.entity';
 import { User } from '../data/entities/user.entity';
 import { Goal, GoalType } from '../data/entities/goal.entity';
+import { findAnchorGoal } from '../data/goal-selection';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { StrikeService } from './strike.service';
 import { MessagingService } from '../messaging/messaging.service';
@@ -113,7 +114,7 @@ export class AntiGhostService {
     try {
       const [profile, goal, state] = await Promise.all([
         this.profileRepo.findOne({ where: { user_id: user.id } }),
-        this.goalRepo.findOne({ where: { user_id: user.id }, order: { created_at: 'DESC' } }),
+        findAnchorGoal(this.goalRepo, user.id),
         this.stateRepo.findOne({ where: { user_id: user.id } }),
       ]);
       const lastResponseAt = state?.last_response_at ?? user.last_active_at ?? user.registered_at;
