@@ -10,7 +10,7 @@ import { Message, MessageRole, MessageType } from '../data/entities/message.enti
 import { SessionSummary, SummaryTrigger } from '../data/entities/session-summary.entity';
 import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { ProofType } from '../data/entities/proof.entity';
-import { CoachingService } from '../ai/coaching.service';
+import { CoachingService, CoachingToolHandlers } from '../ai/coaching.service';
 import { CrisisService } from '../ai/crisis.service';
 import { SummarisationService } from '../ai/summarisation.service';
 import { VisionService } from '../ai/vision.service';
@@ -41,6 +41,10 @@ interface CoachingJob {
   mediaUrls: string[];
   mediaContentTypes: string[];
   channel: 'sms' | 'imessage';
+  // Apple GUID of the user's most recent iMessage in this batch — the message a
+  // tapback reaction lands on. Null for SMS (no tapback support). Optional so
+  // older callers/tests that don't set it still type-check.
+  messageHandle?: string | null;
 }
 
 const RESET_INTENTS = ['reset my coaching', 'start fresh', 'clear my history', 'reset context'];
@@ -165,6 +169,7 @@ export class CoachingProcessor {
 
   async process(data: CoachingJob): Promise<void> {
     const { from, body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = data;
+    const messageHandle = data.messageHandle ?? null;
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Carrier shortcodes (e.g. +195686 from Citi) get misrouted to our SendBlue
@@ -474,7 +479,7 @@ export class CoachingProcessor {
         const visionPatterns = derivePatternSignals(user);
         const { reply, tokenCount } = await this.coachingService.generateReply(
           user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaCt,
-          this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
+          this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
           visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
           visionPatterns,
         );
@@ -502,7 +507,7 @@ export class CoachingProcessor {
       latestSummary?.summary,
       undefined,
       undefined,
-      this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
+      this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
       todos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
       patterns,
     );
@@ -798,10 +803,16 @@ export class CoachingProcessor {
    * from AccountabilityModule — the processor (which already wires both)
    * stitches them together.
    */
-  private buildToolHandlers(user: User, sessionId: string, userMessageId: string) {
+  private buildToolHandlers(
+    user: User,
+    sessionId: string,
+    userMessageId: string,
+    channel: 'sms' | 'imessage' = 'sms',
+    messageHandle: string | null = null,
+  ) {
     const userId = user.id;
     const userOffsetMinutes = user.utc_offset_minutes;
-    return {
+    const handlers: CoachingToolHandlers = {
       scheduleReminder: async (input: {
         fire_at_iso: string;
         message: string;
@@ -906,6 +917,20 @@ export class CoachingProcessor {
         return this.coachingService.saveProfileField(userId, input.field, input.value);
       },
     };
+
+    // Tapbacks are iMessage-only and need the message_handle to target. Attach
+    // the tool only when both hold, so the AI is never offered react_to_message
+    // on SMS (where it would degrade to a "Liked 'x'" text) or without a target.
+    if (channel === 'imessage' && messageHandle) {
+      handlers.reactToMessage = async (input: { reaction: string }) => {
+        const res = await this.messagingService.sendReaction(user.phone_number, messageHandle, input.reaction);
+        return res.ok
+          ? { ok: true as const, reaction: input.reaction }
+          : { ok: false as const, error: res.error ?? 'reaction failed' };
+      };
+    }
+
+    return handlers;
   }
 
   private async saveAndSend(user: User, sessionId: string, reply: string) {

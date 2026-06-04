@@ -12,6 +12,9 @@ export class MessagingService implements OnModuleInit {
   private readonly twilioClient: twilio.Twilio;
   private sendBlueReady = false;
 
+  /** The six iMessage tapbacks SendBlue accepts. */
+  static readonly VALID_REACTIONS = ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question'] as const;
+
   constructor(
     private readonly config: ConfigService,
     @InjectQueue('messaging') private readonly messagingQueue: Queue,
@@ -164,6 +167,53 @@ export class MessagingService implements OnModuleInit {
       this.logger.warn(
         `[SendBlue] Read receipt failed for ${to}: http=${status} ${(err as Error).message} | body: ${detail}`,
       );
+    }
+  }
+
+  /**
+   * Send an iMessage tapback (heart / thumbs / laugh / etc.) onto a message the
+   * user sent us. iMessage-only — SMS/RCS have no tapback concept, so this no-ops
+   * with ok:false off-iMessage rather than sending the ugly "Liked 'x'" text.
+   * `messageHandle` is the Apple GUID from the inbound SendBlue webhook.
+   *
+   * Endpoint mirrors the proven send-message host (api.sendblue.co). Best-effort:
+   * returns a result instead of throwing so a failed reaction never breaks a turn.
+   */
+  async sendReaction(
+    to: string,
+    messageHandle: string | null,
+    reaction: string,
+    partIndex = 0,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!this.sendBlueReady) return { ok: false, error: 'reactions require iMessage (SendBlue not configured)' };
+    if (!MessagingService.VALID_REACTIONS.includes(reaction as never)) {
+      return { ok: false, error: `invalid reaction: ${reaction}` };
+    }
+    const keyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
+    const secret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
+    const fromNumber = this.config.get<string>('SENDBLUE_FROM_NUMBER');
+    if (!keyId || !secret) return { ok: false, error: 'SendBlue not configured' };
+    if (!fromNumber) return { ok: false, error: 'SENDBLUE_FROM_NUMBER missing' };
+    if (!messageHandle) return { ok: false, error: 'no message_handle to react to' };
+
+    try {
+      const response = await axios.post(
+        'https://api.sendblue.co/api/send-reaction',
+        { from_number: fromNumber, message_handle: messageHandle, reaction, part_index: partIndex },
+        { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret, 'Content-Type': 'application/json' }, timeout: 5_000 },
+      );
+      const status = response.data?.status;
+      if (status && String(status).toUpperCase() === 'ERROR') {
+        return { ok: false, error: `SendBlue rejected reaction: ${response.data?.error_message ?? status}` };
+      }
+      structuredLog(this.logger, 'log', {
+        service: 'messaging', operation: 'send_reaction', to, reaction,
+      });
+      return { ok: true };
+    } catch (err) {
+      const detail = (err as any)?.response?.data ? JSON.stringify((err as any).response.data) : '';
+      this.logger.warn(`[SendBlue] Reaction failed for ${to}: ${(err as Error).message} | body: ${detail}`);
+      return { ok: false, error: (err as Error).message };
     }
   }
 

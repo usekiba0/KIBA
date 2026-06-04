@@ -47,6 +47,12 @@ export interface CoachingToolHandlers {
   // into both intake_data JSONB and the PsychologicalProfile row.
   saveProfileField: (input: { field: string; value: string | boolean }) =>
     Promise<{ ok: true; field: string } | { ok: false; error: string }>;
+  // React to the user's most recent message with an iMessage tapback. Optional:
+  // only present on iMessage conversations (the processor omits it on SMS), so
+  // the react_to_message tool is offered to the model only when a tapback can
+  // actually land.
+  reactToMessage?: (input: { reaction: string }) =>
+    Promise<{ ok: true; reaction: string } | { ok: false; error: string }>;
 }
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
@@ -249,6 +255,24 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
       value: { description: 'String for free-text fields, boolean for cussing_ok.' },
     },
     required: ['field', 'value'],
+  },
+};
+
+const REACT_TO_MESSAGE_TOOL: Tool = {
+  name: 'react_to_message',
+  description:
+    'React to the user\'s most recent message with an iMessage tapback. Use SPARINGLY — only when a reaction genuinely fits and adds warmth, the way a real friend taps back. ' +
+    'Guidance: a real win / something heartfelt → "love"; simple agreement or acknowledgement → "like"; something funny → "laugh"; a point you strongly want to stress → "emphasize"; a weak excuse you want to gently push back on → "dislike" (rare); a confusing or surprising message → "question". ' +
+    'A tapback can REPLACE a text reply when no words are needed, or sit alongside one. Do NOT react to every message — overusing tapbacks kills the effect. iMessage only (this tool is simply absent on SMS).',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      reaction: {
+        type: 'string',
+        enum: ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question'],
+      },
+    },
+    required: ['reaction'],
   },
 };
 
@@ -520,6 +544,8 @@ export class CoachingService {
           SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, CANCEL_REMINDER_TOOL,
           ADD_TODO_TOOL, LIST_TODAY_TODOS_TOOL, MARK_TODO_DONE_TOOL, REMOVE_TODO_TOOL,
           SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL,
+          // Only offered on iMessage — the handler is present only then.
+          ...(toolHandlers.reactToMessage ? [REACT_TO_MESSAGE_TOOL] : []),
         ]
       : undefined;
     const dispatch = toolHandlers
@@ -816,6 +842,21 @@ export class CoachingService {
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_save_profile_field',
         userId, ok: result.ok, field: input.field,
+      });
+      return result;
+    }
+    if (block.name === 'react_to_message') {
+      if (!toolHandlers.reactToMessage) {
+        return { ok: false, error: 'reactions are only available on iMessage' };
+      }
+      const input = block.input as { reaction?: unknown };
+      if (typeof input.reaction !== 'string') {
+        return { ok: false, error: 'reaction must be a string' };
+      }
+      const result = await toolHandlers.reactToMessage({ reaction: input.reaction });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_react_to_message',
+        userId, ok: result.ok, reaction: input.reaction,
       });
       return result;
     }
