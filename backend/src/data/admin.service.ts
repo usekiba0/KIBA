@@ -7,6 +7,7 @@ import { Message } from './entities/message.entity';
 import { Subscription } from './entities/subscription.entity';
 import { CrisisAlert, AlertStatus } from './entities/crisis-alert.entity';
 import { ConversationSession } from './entities/conversation-session.entity';
+import { DataRightsService } from './data-rights.service';
 
 const PLAN_PRICE_CENTS: Record<string, number> = {
   individual: 2000,
@@ -24,6 +25,7 @@ export class AdminService {
     @InjectRepository(ConversationSession) private readonly sessionRepo: Repository<ConversationSession>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    private readonly dataRightsService: DataRightsService,
   ) {}
 
   async getDashboardStats() {
@@ -303,7 +305,9 @@ export class AdminService {
   async deleteUserByPhone(phone: string) {
     const user = await this.userRepo.findOne({ where: { phone_number: phone } });
     if (!user) return { deleted: false, message: `No user found with phone ${phone}` };
-    await this.dataSource.query(`DELETE FROM users WHERE id = $1`, [user.id]);
+    // Full cascading wipe (all user-scoped tables + Stripe sub cancel) so a
+    // re-test from the same number comes in genuinely clean, with no orphans.
+    await this.dataRightsService.deleteUserData(user.id);
     return { deleted: true, user_id: user.id, name: user.name, phone_number: phone };
   }
 

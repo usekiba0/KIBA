@@ -6,6 +6,7 @@ import { Message } from '../../src/data/entities/message.entity';
 import { Subscription } from '../../src/data/entities/subscription.entity';
 import { CrisisAlert } from '../../src/data/entities/crisis-alert.entity';
 import { ConversationSession } from '../../src/data/entities/conversation-session.entity';
+import { DataRightsService } from '../../src/data/data-rights.service';
 import { ConfigService } from '@nestjs/config';
 
 const baseUserRow = {
@@ -41,6 +42,7 @@ describe('AdminService — T074 listUsers', () => {
         { provide: getRepositoryToken(ConversationSession), useValue: {} },
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: ConfigService, useValue: { get: jest.fn() } },
+        { provide: DataRightsService, useValue: { deleteUserData: jest.fn() } },
       ],
     }).compile();
 
@@ -114,6 +116,7 @@ describe('AdminService — T076 getUserDetail', () => {
         { provide: getRepositoryToken(ConversationSession), useValue: {} },
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: ConfigService, useValue: { get: jest.fn() } },
+        { provide: DataRightsService, useValue: { deleteUserData: jest.fn() } },
       ],
     }).compile();
 
@@ -147,5 +150,50 @@ describe('AdminService — T076 getUserDetail', () => {
   it('returns recent strike count', async () => {
     const detail = await service.getUserDetail('user-1');
     expect(detail.strike_count_7d).toBe(3);
+  });
+});
+
+describe('AdminService — deleteUserByPhone', () => {
+  let service: AdminService;
+  let userRepo: { findOne: jest.Mock };
+  let dataRights: { deleteUserData: jest.Mock };
+
+  beforeEach(async () => {
+    userRepo = { findOne: jest.fn() };
+    dataRights = { deleteUserData: jest.fn().mockResolvedValue(undefined) };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AdminService,
+        { provide: getRepositoryToken(User), useValue: userRepo },
+        { provide: getRepositoryToken(Message), useValue: {} },
+        { provide: getRepositoryToken(Subscription), useValue: {} },
+        { provide: getRepositoryToken(CrisisAlert), useValue: {} },
+        { provide: getRepositoryToken(ConversationSession), useValue: {} },
+        { provide: getDataSourceToken(), useValue: { query: jest.fn(), transaction: jest.fn() } },
+        { provide: ConfigService, useValue: { get: jest.fn() } },
+        { provide: DataRightsService, useValue: dataRights },
+      ],
+    }).compile();
+
+    service = module.get<AdminService>(AdminService);
+  });
+
+  it('delegates to the full cascading wipe instead of a raw users delete', async () => {
+    userRepo.findOne.mockResolvedValue({ id: 'user-1', name: 'Alex', phone_number: '+15551234567' });
+
+    const result = await service.deleteUserByPhone('+15551234567');
+
+    expect(dataRights.deleteUserData).toHaveBeenCalledWith('user-1');
+    expect(result).toEqual({ deleted: true, user_id: 'user-1', name: 'Alex', phone_number: '+15551234567' });
+  });
+
+  it('returns not-deleted and never touches data when no user matches', async () => {
+    userRepo.findOne.mockResolvedValue(null);
+
+    const result = await service.deleteUserByPhone('+15550000000');
+
+    expect(dataRights.deleteUserData).not.toHaveBeenCalled();
+    expect(result.deleted).toBe(false);
   });
 });
