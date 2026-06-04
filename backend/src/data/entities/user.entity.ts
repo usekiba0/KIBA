@@ -65,6 +65,9 @@ export interface IntakeData {
   comparison_figure?: string;
   public_failure_scenario?: string;
   typical_failure_moment?: string;
+  // What the user would be most ashamed for people to see if they keep failing.
+  // Elicited ~week 2 in coaching (not at intake) — see PsychologicalProfile.embarrassment.
+  embarrassment?: string;
   pressure_preference?: 'pressure' | 'encouragement';
   // Whether the user has explicitly opted in to KIBA cursing. False by default
   // (no cursing without consent). Mirrored to PsychologicalProfile.cussing_ok.

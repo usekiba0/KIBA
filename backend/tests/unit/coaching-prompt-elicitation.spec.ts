@@ -10,6 +10,7 @@ function profile(overrides: Partial<PsychologicalProfile> = {}): PsychologicalPr
     comparison_figure: '',
     public_failure_scenario: '',
     typical_failure_moment: '',
+    embarrassment: null,
     pressure_preference: PressurePreference.PRESSURE,
     cussing_ok: false,
     created_at: new Date(),
@@ -51,5 +52,27 @@ describe('buildPressureContext — elicitation prompting', () => {
     expect(ctx).toMatch(/- Fear: falling behind/);
     expect(ctx).not.toMatch(/- Comparison figure:/);
     expect(ctx).toMatch(/MISSING PROFILE FIELDS \(you do NOT have this info\): avoidance_patterns, comparison_figure, public_failure_scenario, typical_failure_moment/);
+  });
+
+  describe('embarrassment — week-2 gated elicitation', () => {
+    it('does NOT ask for embarrassment in week 1 (weeksIn < 2)', () => {
+      const ctx = buildPressureContext(profile(), 50, 0, 1);
+      expect(ctx).not.toMatch(/embarrassment/);
+    });
+
+    it('adds embarrassment to the missing list once into week 2', () => {
+      const ctx = buildPressureContext(profile(), 50, 0, 2);
+      expect(ctx).toMatch(/MISSING PROFILE FIELDS[^\n]*embarrassment/);
+      expect(ctx).toMatch(/you'd hate for anyone to actually see/);
+    });
+
+    it('shows embarrassment as known when set, and never lists it as missing', () => {
+      const ctx = buildPressureContext(
+        profile({ embarrassment: 'everyone seeing i quit again' }),
+        50, 0, 5,
+      );
+      expect(ctx).toMatch(/- Embarrassment[^\n]*everyone seeing i quit again/);
+      expect(ctx).not.toMatch(/MISSING PROFILE FIELDS[^\n]*embarrassment/);
+    });
   });
 });

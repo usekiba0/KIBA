@@ -230,10 +230,11 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
   description:
     'Persist a psychological-profile fact the user just revealed mid-coaching. ' +
     'Use whenever the user names a comparison figure / mentor, a fear, an avoidance pattern, ' +
-    'a public failure scenario, or a typical failure moment — even casually, even mid-sentence. ' +
+    'a public failure scenario, a typical failure moment, or an embarrassment (the private outcome ' +
+    'they\'d be ashamed for people to see if they keep failing) — even casually, even mid-sentence. ' +
     'Also use when the user explicitly grants or revokes cursing consent ("you can cuss", "keep it clean from now on"). ' +
     'Field MUST be one of: fears, avoidance_patterns, comparison_figure, public_failure_scenario, ' +
-    'typical_failure_moment, pressure_preference, cussing_ok. ' +
+    'typical_failure_moment, embarrassment, pressure_preference, cussing_ok. ' +
     'For pressure_preference pass "pressure" or "encouragement". For cussing_ok pass a boolean. ' +
     'Everything else is free text — paraphrase tightly (3–10 words is ideal, the model reads it back later).',
   input_schema: {
@@ -242,7 +243,8 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
       field: {
         type: 'string',
         enum: ['fears', 'avoidance_patterns', 'comparison_figure',
-               'public_failure_scenario', 'typical_failure_moment', 'pressure_preference', 'cussing_ok'],
+               'public_failure_scenario', 'typical_failure_moment', 'embarrassment',
+               'pressure_preference', 'cussing_ok'],
       },
       value: { description: 'String for free-text fields, boolean for cussing_ok.' },
     },
@@ -389,7 +391,8 @@ export class CoachingService {
     value: string | boolean,
   ): Promise<{ ok: true; field: string } | { ok: false; error: string }> {
     const allowed = ['fears', 'avoidance_patterns', 'comparison_figure',
-                     'public_failure_scenario', 'typical_failure_moment', 'pressure_preference', 'cussing_ok'];
+                     'public_failure_scenario', 'typical_failure_moment', 'embarrassment',
+                     'pressure_preference', 'cussing_ok'];
     if (!allowed.includes(field)) return { ok: false, error: `unknown field: ${field}` };
 
     // cussing_ok takes a boolean; everything else takes a non-empty string.
@@ -495,6 +498,10 @@ export class CoachingService {
       userOffsetMinutes: user.utc_offset_minutes ?? null,
     };
     const userName = user.name ?? 'friend';
+    // Whole weeks since signup — gates the week-2 embarrassment elicitation.
+    const weeksIn = Math.floor(
+      (Date.now() - new Date(user.registered_at).getTime()) / (7 * 24 * 60 * 60 * 1000),
+    );
     const systemPrompt = buildSystemPrompt(
       { id: user.id, name: userName, phone_number: user.phone_number },
       profile,
@@ -505,6 +512,7 @@ export class CoachingService {
       timeContext,
       todos,
       patterns,
+      weeksIn,
     );
 
     const tools = toolHandlers

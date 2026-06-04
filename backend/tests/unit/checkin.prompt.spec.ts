@@ -10,6 +10,7 @@ const testProfile: PsychologicalProfile = {
   comparison_figure: 'college roommate who now runs a startup',
   public_failure_scenario: 'having to admit I failed again',
   typical_failure_moment: 'Sunday evenings',
+  embarrassment: null,
   pressure_preference: PressurePreference.PRESSURE,
   cussing_ok: false,
   created_at: new Date(),
