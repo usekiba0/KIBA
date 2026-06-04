@@ -31,6 +31,7 @@ import { structuredLog } from '../common/logger';
 import { parseTimezoneOffset } from './reminder-parser';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
+import { humanizeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 
 interface CoachingJob {
@@ -82,6 +83,11 @@ function derivePatternSignals(user: User) {
 // False positives are fine (extra link sent) — false negatives (LLM refuses
 // a paying customer) burned us in production, so the regex stays broad.
 const BILLING_INTENT_RE = /\b(subscri(be|ption|bed|bing)|stripe|checkout|billing|membership)\b|\b(payment|pay)\s+(link|me|the|for|to|via|by)|\b(sign\s*up|signup)\b/i;
+
+// An intake lead explicitly asking us to send the payment link. Used to deliver
+// the link deterministically the moment they ask (once we have name+goal+tz),
+// instead of letting the model loop re-asking build questions (Karibi 2026-06-05).
+export const LINK_REQUEST_RE = /\b(send|resend|drop|share|gimme|give\s+me|text|where(?:'?s| is)?)\b[^.\n]{0,15}\blink\b|\bsend\s+it\b|\blink\s+(?:again|now|please|pls)\b|\b(?:don'?t|do\s+not|dont)\s+have\b[^.\n]{0,15}\blink\b/i;
 
 /**
  * Intake turns with the full emotional build captured but no link sent before
@@ -563,15 +569,33 @@ export class CoachingProcessor {
       user, recentMessages, intakeText, ctx, handlers, imageUrl, imageContentType,
     );
 
-    // ── Safety-net close ──────────────────────────────────────────────────
+    // ── Link delivery: explicit ask + safety-net ──────────────────────────
     // PRIMARY path is unchanged: the intake AI runs the emotional build and
-    // fires the link itself at the close. But a model can stall — capture
-    // everything and never call send_payment_link, stranding a ready lead. So
-    // once the build is complete and the link STILL isn't out, give it a couple
-    // of grace turns, then force-send. Runs AFTER the reply so the lead gets the
-    // close text followed by the link, never the link cold. Reset once a link
-    // exists so post-link turns never re-trigger it.
-    if (!liveUser.payment_link_sent_at && intakeBuildComplete(liveUser)) {
+    // fires the link itself at the close. Two deterministic backstops sit under
+    // it so a stalled/looping model can never strand a ready lead (Karibi
+    // 2026-06-05 watched it re-ask the same question instead of sending the
+    // link he kept requesting):
+    //   (1) the user EXPLICITLY asks for the link and we have the functional
+    //       minimum (name + goal + timezone) -> send it now. An explicit ask
+    //       overrides the build-first preference; looping a begging lead is the
+    //       worst outcome.
+    //   (2) the build is complete but the AI hasn't sent it -> grace, then force.
+    // Runs after the reply so the lead gets the close text then the link.
+    const askedForLink = LINK_REQUEST_RE.test(intakeText);
+    const hasMinimumForLink =
+      !!liveUser.name &&
+      !!liveUser.intake_data?.goal_description &&
+      liveUser.utc_offset_minutes !== null &&
+      liveUser.utc_offset_minutes !== undefined;
+
+    if (!liveUser.payment_link_sent_at && askedForLink && hasMinimumForLink) {
+      const sent = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
+      await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
+      structuredLog(this.logger, 'log', {
+        service: 'onboarding', operation: 'payment_link_sent_on_request',
+        userId: user.id, ok: sent.ok,
+      });
+    } else if (!liveUser.payment_link_sent_at && intakeBuildComplete(liveUser)) {
       const stalledTurns = (user.intake_link_stall_turns ?? 0) + 1;
       if (stalledTurns >= FORCE_LINK_AFTER_STALLED_TURNS) {
         const forced = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
@@ -933,7 +957,11 @@ export class CoachingProcessor {
     return handlers;
   }
 
-  private async saveAndSend(user: User, sessionId: string, reply: string) {
+  private async saveAndSend(user: User, sessionId: string, replyRaw: string) {
+    // Deterministic voice cleanup (strip em-dashes etc.) before anything else,
+    // so it applies to every AI reply — intake and coaching — regardless of how
+    // the model phrased it.
+    const reply = humanizeVoice(replyRaw);
     // The AI may split a reply into multiple texts with [pause] markers so it
     // lands as a natural burst (a thought, then another) instead of one block.
     const bubbles = splitBubbles(reply);
