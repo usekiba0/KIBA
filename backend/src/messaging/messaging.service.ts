@@ -47,26 +47,34 @@ export class MessagingService implements OnModuleInit {
     this.logger.log(`[Queue] Job added for ${to}`);
   }
 
-  async send(to: string, body: string): Promise<void> {
+  /**
+   * Send a message, optionally with a media attachment (photo / GIF / video).
+   * `mediaUrl` must be a publicly-fetchable HTTPS URL — both SendBlue and Twilio
+   * pull the file from the URL, neither accepts a raw upload. Full media works
+   * over iMessage (SendBlue); SMS falls back to Twilio MMS where GIFs render as a
+   * static image and video is unreliable.
+   */
+  async send(to: string, body: string, mediaUrl?: string): Promise<void> {
     const sendBlueKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const sendBlueSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
 
     if (this.sendBlueReady && sendBlueKeyId && sendBlueSecret) {
       try {
-        await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret);
+        await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret, mediaUrl);
         return;
       } catch (err) {
         this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
       }
     }
 
-    await this.sendViaTwilio(to, body);
+    await this.sendViaTwilio(to, body, mediaUrl);
   }
 
-  async sendViaSendBlue(to: string, body: string, keyId: string, secret: string): Promise<void> {
+  async sendViaSendBlue(to: string, body: string, keyId: string, secret: string, mediaUrl?: string): Promise<void> {
     const fromNumber = this.config.get<string>('SENDBLUE_FROM_NUMBER');
     const payload: Record<string, string> = { number: to, content: body };
     if (fromNumber) payload.from_number = fromNumber;
+    if (mediaUrl) payload.media_url = mediaUrl;
     try {
       const response = await axios.post(
         'https://api.sendblue.co/api/send-message',
@@ -159,11 +167,16 @@ export class MessagingService implements OnModuleInit {
     }
   }
 
-  async sendViaTwilio(to: string, body: string): Promise<void> {
+  async sendViaTwilio(to: string, body: string, mediaUrl?: string): Promise<void> {
     const from = this.config.getOrThrow('TWILIO_PHONE_NUMBER');
     this.logger.log(`[Twilio] Sending from ${from} to ${to}`);
     try {
-      const message = await this.twilioClient.messages.create({ from, to, body });
+      const message = await this.twilioClient.messages.create({
+        from,
+        to,
+        body,
+        ...(mediaUrl ? { mediaUrl: [mediaUrl] } : {}),
+      });
       structuredLog(this.logger, 'log', {
         service: 'messaging',
         operation: 'send_sms',

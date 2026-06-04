@@ -3,6 +3,7 @@ import {
   HttpCode, BadRequestException, Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, QueryFailedError } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
@@ -32,6 +33,7 @@ export class StripeWebhookController {
     @InjectQueue('messaging') private readonly messagingQueue: Queue,
     private readonly messagingService: MessagingService,
     private readonly checkinService: CheckinService,
+    private readonly config: ConfigService,
   ) {}
 
   @Post('stripe')
@@ -156,6 +158,26 @@ export class StripeWebhookController {
           this.logger.error(
             `[StripeWebhook] activation SMS failed for ${user.id}: ${(err as Error).message}`,
           );
+        }
+
+        // Retention nudge: a one-time "pin our chat" image so KIBA stays at the
+        // top of their messages. Static asset — same image for everyone — sent
+        // only if PIN_CHAT_IMAGE_URL is configured (a public HTTPS URL SendBlue/
+        // Twilio can fetch), so this is a safe no-op until the image is hosted.
+        // Best-effort: a media-send failure must never block activation.
+        const pinImageUrl = this.config.get<string>('PIN_CHAT_IMAGE_URL');
+        if (pinImageUrl) {
+          try {
+            await this.messagingService.send(
+              user.phone_number,
+              'one more thing — pin our chat so i stay at the top and you never lose track of your day 📌 here\'s how:',
+              pinImageUrl,
+            );
+          } catch (err) {
+            this.logger.warn(
+              `[StripeWebhook] pin-chat image send failed for ${user.id}: ${(err as Error).message}`,
+            );
+          }
         }
 
         // Kick off the daily check-in cadence. The intake AI promised this

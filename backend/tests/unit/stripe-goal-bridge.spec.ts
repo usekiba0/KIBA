@@ -30,6 +30,7 @@ describe('StripeWebhookController.bridgeGoalsFromIntake', () => {
       messagingQueue,
       {} as any, // messagingService
       {} as any, // checkinService
+      { get: () => undefined } as any, // config
     );
     return { controller, goalRepo, messagingQueue, created };
   }
