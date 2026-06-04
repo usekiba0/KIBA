@@ -152,6 +152,15 @@ export class User {
   @Column({ type: 'smallint', default: 0 })
   dunning_nudges_sent: number;
 
+  // Safety-net counter for the cold-SMS close: how many intake turns have passed
+  // with the full emotional build captured (name+goal+tz+why+obstacle) but the
+  // intake AI still not having sent the payment link. After a short grace it
+  // force-sends, so a stalled/forgetful model never leaves a ready lead without a
+  // link — without firing early and undercutting the emotional-build-first close
+  // (added 2026-06-05). Reset to 0 once the link is sent.
+  @Column({ type: 'smallint', default: 0 })
+  intake_link_stall_turns: number;
+
   @CreateDateColumn()
   registered_at: Date;
 

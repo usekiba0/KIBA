@@ -79,6 +79,36 @@ function derivePatternSignals(user: User) {
 // a paying customer) burned us in production, so the regex stays broad.
 const BILLING_INTENT_RE = /\b(subscri(be|ption|bed|bing)|stripe|checkout|billing|membership)\b|\b(payment|pay)\s+(link|me|the|for|to|via|by)|\b(sign\s*up|signup)\b/i;
 
+/**
+ * Intake turns with the full emotional build captured but no link sent before
+ * the system force-sends one. Gives the AI the turn it completed the build plus
+ * one grace turn to close naturally; if it still hasn't, the safety-net fires.
+ */
+export const FORCE_LINK_AFTER_STALLED_TURNS = 2;
+
+/**
+ * The emotional build is "complete" once the functional minimum (name + goal +
+ * timezone) AND the two anchors the close leans on (why it matters + their
+ * obstacle) are persisted. The micro-commitment "yes" isn't a stored field, but
+ * in the script it lands right after these — so this is the safe proxy for "the
+ * AI should be closing now" without firing the link on bare name+goal+tz.
+ */
+export function intakeBuildComplete(user: {
+  name: string | null;
+  utc_offset_minutes: number | null;
+  intake_data?: IntakeData | null;
+}): boolean {
+  const d = user.intake_data ?? {};
+  return Boolean(
+    user.name &&
+      user.utc_offset_minutes !== null &&
+      user.utc_offset_minutes !== undefined &&
+      d.goal_description &&
+      d.why_it_matters &&
+      d.avoidance_patterns,
+  );
+}
+
 @Processor('coaching')
 export class CoachingProcessor {
   private readonly logger = new Logger(CoachingProcessor.name);
@@ -527,6 +557,30 @@ export class CoachingProcessor {
     const { reply } = await this.coachingService.generateIntakeReply(
       user, recentMessages, intakeText, ctx, handlers, imageUrl, imageContentType,
     );
+
+    // ── Safety-net close ──────────────────────────────────────────────────
+    // PRIMARY path is unchanged: the intake AI runs the emotional build and
+    // fires the link itself at the close. But a model can stall — capture
+    // everything and never call send_payment_link, stranding a ready lead. So
+    // once the build is complete and the link STILL isn't out, give it a couple
+    // of grace turns, then force-send. Runs AFTER the reply so the lead gets the
+    // close text followed by the link, never the link cold. Reset once a link
+    // exists so post-link turns never re-trigger it.
+    if (!liveUser.payment_link_sent_at && intakeBuildComplete(liveUser)) {
+      const stalledTurns = (user.intake_link_stall_turns ?? 0) + 1;
+      if (stalledTurns >= FORCE_LINK_AFTER_STALLED_TURNS) {
+        const forced = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
+        await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
+        structuredLog(this.logger, 'log', {
+          service: 'onboarding', operation: 'payment_link_force_sent',
+          userId: user.id, afterStalledTurns: stalledTurns, ok: forced.ok,
+        });
+      } else {
+        await this.userRepo.update(user.id, { intake_link_stall_turns: stalledTurns });
+      }
+    } else if ((user.intake_link_stall_turns ?? 0) !== 0) {
+      await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
+    }
 
     // If we just gave the sample-coaching reply (post-link), flip the flag so
     // the next turn falls into the PAYWALL phase.
