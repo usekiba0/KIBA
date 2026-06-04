@@ -12,6 +12,7 @@ import { ScheduleService } from '../../src/accountability/schedule.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
 import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
+import { RecapService } from '../../src/accountability/recap.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
@@ -94,6 +95,7 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
         { provide: CheckinService, useValue: checkinService },
         { provide: TaskService, useValue: taskService },
         { provide: SurpriseService, useValue: { fire: jest.fn(), scheduleWeek: jest.fn() } },
+        { provide: RecapService, useValue: { fire: jest.fn(), scheduleAllRecaps: jest.fn(), scheduleRecap: jest.fn() } },
         { provide: StripeService, useValue: { createCustomer: jest.fn(), createCheckoutSession: jest.fn() } },
         { provide: ConfigService, useValue: { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') } },
         { provide: getQueueToken('accountability'), useValue: queue },
@@ -170,10 +172,14 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
 describe('CheckinProcessor.handleSafetyReschedule', () => {
   it('delegates to scheduleAllCheckins so the hourly cron can self-heal cadence', async () => {
     const checkinService = { scheduleAllCheckins: jest.fn().mockResolvedValue(undefined) } as unknown as CheckinService;
+    const recapService = { scheduleAllRecaps: jest.fn().mockResolvedValue(undefined) };
+    // Positional args mirror the constructor: …, checkinService(8), taskService(9),
+    // surpriseService(10), recapService(11).
     const processor = new (CheckinProcessor as any)(
-      {}, {}, {}, {}, {}, {}, {}, checkinService, {}, {},
+      {}, {}, {}, {}, {}, {}, {}, checkinService, {}, {}, recapService,
     );
     await processor.handleSafetyReschedule();
     expect(checkinService.scheduleAllCheckins).toHaveBeenCalledTimes(1);
+    expect(recapService.scheduleAllRecaps).toHaveBeenCalledTimes(1);
   });
 });

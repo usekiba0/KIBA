@@ -187,4 +187,11 @@ export class User {
   // schedulers race at fire time (bugfix 2026-06-01).
   @Column({ type: 'varchar', length: 10, nullable: true })
   last_checkin_date: string | null;
+
+  // User-LOCAL calendar day (YYYY-MM-DD) of the last night-recap actually sent.
+  // Claimed atomically by RecapService before each send so the nightly recap
+  // fires at most once per local day regardless of racing schedulers (added
+  // 2026-06-05 with the Night Recap flow).
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  last_recap_date: string | null;
 }

@@ -13,6 +13,7 @@ import { ScheduleService } from '../../src/accountability/schedule.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
 import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
+import { RecapService } from '../../src/accountability/recap.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
@@ -86,6 +87,7 @@ describe('CheckinProcessor', () => {
   let mockCheckinService: any;
   let mockTaskService: any;
   let mockSurpriseService: any;
+  let mockRecapService: any;
   let mockQueue: any;
   let mockStripeService: any;
 
@@ -111,6 +113,7 @@ describe('CheckinProcessor', () => {
     // Task now comes from TaskService.ensureTodayTask, not a repo lookup.
     mockTaskService = { ensureTodayTask: jest.fn().mockResolvedValue(testTask) };
     mockSurpriseService = { fire: jest.fn(), scheduleWeek: jest.fn() };
+    mockRecapService = { fire: jest.fn(), scheduleAllRecaps: jest.fn(), scheduleRecap: jest.fn() };
     mockQueue = { add: jest.fn().mockResolvedValue({ id: 'missed-job-1' }) };
     mockStripeService = { createCustomer: jest.fn(), createCheckoutSession: jest.fn() };
     const mockConfig = { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') };
@@ -128,6 +131,7 @@ describe('CheckinProcessor', () => {
         { provide: CheckinService, useValue: mockCheckinService },
         { provide: TaskService, useValue: mockTaskService },
         { provide: SurpriseService, useValue: mockSurpriseService },
+        { provide: RecapService, useValue: mockRecapService },
         { provide: StripeService, useValue: mockStripeService },
         { provide: ConfigService, useValue: mockConfig },
         { provide: getQueueToken('accountability'), useValue: mockQueue },

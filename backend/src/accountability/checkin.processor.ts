@@ -19,6 +19,7 @@ import { ScheduleService } from './schedule.service';
 import { CheckinService } from './checkin.service';
 import { TaskService } from './task.service';
 import { SurpriseService } from './surprise.service';
+import { RecapService } from './recap.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { structuredLog } from '../common/logger';
 
@@ -96,6 +97,7 @@ export class CheckinProcessor {
     private readonly checkinService: CheckinService,
     private readonly taskService: TaskService,
     private readonly surpriseService: SurpriseService,
+    private readonly recapService: RecapService,
     private readonly stripeService: StripeService,
     private readonly config: ConfigService,
     @InjectQueue('accountability') private readonly queue: Queue,
@@ -246,6 +248,18 @@ export class CheckinProcessor {
   @Process('safety-reschedule-checkins')
   async handleSafetyReschedule(): Promise<void> {
     await this.checkinService.scheduleAllCheckins();
+    // Re-arm night recaps on the same hourly heartbeat so a Redis flap can't
+    // permanently kill recap cadence either. Idempotent via deterministic jobId.
+    await this.recapService.scheduleAllRecaps();
+  }
+
+  /**
+   * Worker for a single user's night recap. Aggregates the day, sends, and
+   * self-reschedules tomorrow's recap. Re-checks eligibility at fire time.
+   */
+  @Process('send-recap')
+  async handleSendRecap(job: Job<{ userId: string }>): Promise<void> {
+    await this.recapService.fire(job.data.userId);
   }
 
   @Process('send-scheduled-reminder')

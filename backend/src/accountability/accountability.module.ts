@@ -29,6 +29,7 @@ import { PlanAdjustmentService } from './plan-adjustment.service';
 import { TaskService } from './task.service';
 import { TodoService } from './todo.service';
 import { SurpriseService } from './surprise.service';
+import { RecapService } from './recap.service';
 import { MessagingModule } from '../messaging/messaging.module';
 import { DataModule } from '../data/data.module';
 
@@ -43,7 +44,7 @@ import { DataModule } from '../data/data.module';
     forwardRef(() => MessagingModule),
     forwardRef(() => DataModule),
   ],
-  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService],
-  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService],
+  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService, RecapService],
+  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService, RecapService],
 })
 export class AccountabilityModule {}
