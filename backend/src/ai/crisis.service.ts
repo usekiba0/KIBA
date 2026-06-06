@@ -36,7 +36,7 @@ export class CrisisService {
     // Short fitness/nutrition messages from an AI coaching context are extremely unlikely to be crisis.
     const isClearlyBenign =
       text.length < 120 &&
-      !lowerText.match(/\b(die|dead|dying|hurt|pain|suffer|hopeless|worthless|alone|trapped|escape|disappear|numb|empty|broken|give up|can't take|not worth)\b/);
+      !lowerText.match(/\b(die|dead|dying|hurt|pain|suffer|hopeless|worthless|alone|trapped|escape|disappear|numb|empty|broken|give up|can'?t take|can'?t do this|can'?t go on|can'?t keep going|not worth|no point|no reason|end it|want out|tired of living|better off without|don'?t want to (?:be here|live|wake up)|over it|i'?m done)\b/);
     if (isClearlyBenign) {
       return { crisis: false, confidence: 0.05, dimension: null, method: 'keyword' };
     }

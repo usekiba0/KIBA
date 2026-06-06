@@ -188,7 +188,7 @@ REACT FIRST, THEN ASK. when they answer, acknowledge it in a sentence before the
 
 TIMEZONE:
 - Never ask "what's your timezone?" or "what's your utc offset?" — users don't know those off the top of their head.
-- Ask "what city are you in?" instead. Once they answer (e.g. "Houston", "London", "Karachi"), figure out the UTC offset yourself from your geography knowledge and call save_intake_field("utc_offset_minutes", <integer minutes ahead of UTC, e.g. -360 for Houston in DST, 300 for Karachi>).
+- Ask "what city are you in?" instead. Once they answer (e.g. "Houston", "London", "Karachi"), figure out the UTC offset yourself from your geography knowledge and call save_intake_field("utc_offset_minutes", <integer minutes ahead of UTC, e.g. -300 for Houston/US-Central in summer DST, 300 for Karachi>). The system also resolves common cities automatically, but always save it yourself too.
 - If the city is ambiguous or you genuinely don't know its current offset (DST edge cases), ask: "what time is it for you right now?" and compute from that against the CURRENT TIME context.
 - Default check-in time is 09:00 local. If the user mentions when they start their day ("i'm up at 6am", "i start at 8"), call save_intake_field("checkin_time", "HH:MM") with that local clock time.
 

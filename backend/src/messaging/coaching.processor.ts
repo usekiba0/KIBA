@@ -28,7 +28,7 @@ import { TodoService } from '../accountability/todo.service';
 import { DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
-import { parseTimezoneOffset } from './reminder-parser';
+import { parseTimezoneOffset, parseCityOffset, parseReminderTime } from './reminder-parser';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
 import { humanizeVoice } from './voice';
@@ -48,7 +48,13 @@ interface CoachingJob {
   messageHandle?: string | null;
 }
 
-const RESET_INTENTS = ['reset my coaching', 'start fresh', 'clear my history', 'reset context'];
+// Context-reset intent. Anchored to the WHOLE message (optional leading filler +
+// reset phrase + optional politeness) so a colloquial mention inside a larger
+// sentence can't trigger a destructive session wipe — e.g. "start fresh on
+// monday with a new workout plan" must NOT reset, while "start fresh" /
+// "i want to start over" / "can you clear my history please" do.
+export const RESET_INTENT_RE =
+  /^\s*(?:can you|could you|would you|please|pls|hey|yo|ok|okay|i want to|i wanna|i'?d like to|lets|let'?s|can we)?\s*(?:reset (?:my )?(?:coaching|context|chat)|clear (?:my )?(?:history|context|chat)|start (?:over|fresh)|restart (?:my )?coaching|fresh start)\s*(?:please|pls|now|again)?\s*[.!]*\s*$/i;
 
 /**
  * Pull the derived pattern signals off the user row into the shape the coaching
@@ -398,7 +404,7 @@ export class CoachingProcessor {
     }
 
     // Context reset intent
-    if (RESET_INTENTS.some((intent) => lowerBody.includes(intent))) {
+    if (RESET_INTENT_RE.test(body.trim())) {
       await this.sessionCache.invalidateSession(user.id);
       await this.messagingService.send(
         user.phone_number,
@@ -535,6 +541,37 @@ export class CoachingProcessor {
     imageUrl?: string,
     imageContentType?: string,
   ): Promise<string> {
+    // ── Deterministic slot capture (don't trust the model to do the math) ──
+    // The intake prompt's "STILL MISSING" gate reads PERSISTED state, but the
+    // only path that wrote the timezone from a city was the model computing the
+    // UTC offset and remembering to call save_intake_field — which it skipped,
+    // then re-asked "what city are you in?" forever (the offset stayed null so
+    // the gate never cleared). Resolve city → offset and "9am" → check-in time
+    // here so an answered question can never be re-asked. The model's tool calls
+    // still work as a fallback for cities/phrasings we don't recognise.
+    if ((user.utc_offset_minutes ?? null) === null) {
+      const cityOffset = parseCityOffset(body.toLowerCase());
+      if (cityOffset !== null) {
+        await this.userRepo.update(user.id, { utc_offset_minutes: cityOffset });
+        user = { ...user, utc_offset_minutes: cityOffset };
+        structuredLog(this.logger, 'log', {
+          service: 'onboarding', operation: 'tz_captured_from_city',
+          userId: user.id, utcOffsetMinutes: cityOffset,
+        });
+      }
+    }
+    if (!user.checkin_time) {
+      const checkinTime = parseReminderTime(body);
+      if (checkinTime) {
+        await this.userRepo.update(user.id, { checkin_time: checkinTime });
+        user = { ...user, checkin_time: checkinTime };
+        structuredLog(this.logger, 'log', {
+          service: 'onboarding', operation: 'checkin_captured_from_text',
+          userId: user.id, checkinTime,
+        });
+      }
+    }
+
     // Build the intake context snapshot used by the prompt.
     const ctx = {
       name: user.name,
@@ -554,7 +591,7 @@ export class CoachingProcessor {
     const liveUser = { ...user };
 
     const handlers = {
-      saveIntakeField: async (input: { field: string; value: string | number }) => {
+      saveIntakeField: async (input: { field: string; value: string | number | boolean | string[] }) => {
         return this.saveIntakeField(liveUser, input.field, input.value);
       },
       sendPaymentLink: async () => {
@@ -624,7 +661,7 @@ export class CoachingProcessor {
    * Persist a single intake field. Structured fields land on the user row;
    * everything else falls into the intake_data JSONB blob.
    */
-  private async saveIntakeField(liveUser: User, field: string, value: string | number | boolean) {
+  private async saveIntakeField(liveUser: User, field: string, value: string | number | boolean | string[]) {
     const userColumnFields: Record<string, keyof User> = {
       name: 'name',
       utc_offset_minutes: 'utc_offset_minutes',

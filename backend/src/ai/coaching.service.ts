@@ -57,7 +57,7 @@ export interface CoachingToolHandlers {
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
 export interface IntakeToolHandlers {
-  saveIntakeField: (input: { field: string; value: string | number | boolean }) =>
+  saveIntakeField: (input: { field: string; value: string | number | boolean | string[] }) =>
     Promise<{ ok: true; field: string } | { ok: false; error: string }>;
   sendPaymentLink: () =>
     Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
@@ -873,10 +873,20 @@ export class CoachingService {
       if (typeof input.field !== 'string') {
         return { ok: false, error: 'field must be a string' };
       }
-      if (typeof input.value !== 'string' && typeof input.value !== 'number' && typeof input.value !== 'boolean') {
-        return { ok: false, error: 'value must be a string, number, or boolean' };
+      // `goals` is an array of strings (multi-goal intake); everything else is a
+      // string/number/boolean. Reject anything outside that set BEFORE it reaches
+      // the handler — but DO let string[] through (this guard used to drop arrays
+      // silently, so save_intake_field("goals", [...]) always failed).
+      const value = input.value;
+      const isValid =
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean' ||
+        (Array.isArray(value) && value.every((v) => typeof v === 'string'));
+      if (!isValid) {
+        return { ok: false, error: 'value must be a string, number, boolean, or array of strings' };
       }
-      const result = await toolHandlers.saveIntakeField({ field: input.field, value: input.value });
+      const result = await toolHandlers.saveIntakeField({ field: input.field, value: value as string | number | boolean | string[] });
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_save_intake_field',
         userId, ok: result.ok, field: input.field,
