@@ -48,6 +48,10 @@ import { HealthController } from './common/health/health.controller';
         STRIPE_WEBHOOK_SECRET: Joi.string().required(),
         STRIPE_PRICE_ID_INDIVIDUAL: Joi.string().required(),
         STRIPE_TRIAL_DAYS: Joi.number().default(30),
+        // Human price label KIBA quotes to users. MUST match the real amount on
+        // STRIPE_PRICE_ID_INDIVIDUAL or the bot promises one price and Stripe
+        // charges another. Defaulted so it can't silently drift to a stale value.
+        STRIPE_PRICE_DISPLAY: Joi.string().default('$20/month'),
 
         // Anthropic
         ANTHROPIC_API_KEY: Joi.string().required(),
