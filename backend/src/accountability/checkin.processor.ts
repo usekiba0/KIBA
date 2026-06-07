@@ -329,15 +329,17 @@ export class CheckinProcessor {
     try {
       const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
       const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
-      const appBaseUrl = this.config.get<string>('APP_BASE_URL', 'https://kiba.ai');
+      // Return pages are FRONTEND routes — use FRONTEND_URL, not APP_BASE_URL
+      // (the backend has no /onboarding/success route and would 404 after pay).
+      const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://kiba.ai');
       const customer = await this.stripeService.createCustomer(user.name, user.phone_number);
       const session = await this.stripeService.createCheckoutSession({
         customerId: customer.id,
         priceId,
         trialDays,
         userId: user.id,
-        successUrl: `${appBaseUrl}/onboarding/success`,
-        cancelUrl: `${appBaseUrl}/onboarding/cancel`,
+        successUrl: `${frontendUrl}/onboarding/success`,
+        cancelUrl: `${frontendUrl}/onboarding/cancel`,
       });
       if (!session.url) return null;
       await this.userRepo.update(user.id, {

@@ -779,7 +779,10 @@ export class CoachingProcessor {
     // 7-day trial is the agreed offer; the intake AI quotes the same number from
     // STRIPE_TRIAL_DAYS so the checkout trial and the SMS copy always agree.
     const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
-    const appBaseUrl = this.config.get<string>('APP_BASE_URL', 'https://kiba.ai');
+    // Checkout return pages (/onboarding/success|cancel) are FRONTEND Next.js
+    // routes, so they must point at FRONTEND_URL — NOT APP_BASE_URL (the NestJS
+    // backend, which has no such route and would 404 the user right after they pay).
+    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://kiba.ai');
 
     // Create (or reuse) Stripe customer. We don't have a stable customer id on
     // the user row for SMS leads, so create one each time the link is sent —
@@ -795,8 +798,8 @@ export class CoachingProcessor {
         priceId,
         trialDays,
         userId: liveUser.id,
-        successUrl: `${appBaseUrl}/onboarding/success`,
-        cancelUrl: `${appBaseUrl}/onboarding/cancel`,
+        successUrl: `${frontendUrl}/onboarding/success`,
+        cancelUrl: `${frontendUrl}/onboarding/cancel`,
       });
     } catch (err) {
       structuredLog(this.logger, 'error', {
