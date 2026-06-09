@@ -13,6 +13,7 @@ import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { Strike } from '../data/entities/strike.entity';
 import { buildSystemPrompt } from './prompts/coaching.prompt';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
+import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { CorrectionService } from '../data/correction.service';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
@@ -57,7 +58,7 @@ export interface CoachingToolHandlers {
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
 export interface IntakeToolHandlers {
-  saveIntakeField: (input: { field: string; value: string | number | boolean }) =>
+  saveIntakeField: (input: { field: string; value: string | number | boolean | string[] }) =>
     Promise<{ ok: true; field: string } | { ok: false; error: string }>;
   sendPaymentLink: () =>
     Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
@@ -597,6 +598,43 @@ export class CoachingService {
   }
 
   /**
+   * Generate ONE personalised win-back text for an unpaid lead who went quiet
+   * after getting the link. Replaces the old fixed template that read identically
+   * to every lead. Single short, tool-less LLM call (fires <=3x per lead, so the
+   * cost is negligible). Returns trimmed text, or null on any failure/empty so the
+   * caller can fall back to the deterministic template — a missed nudge must never
+   * become a crash or a blank send.
+   */
+  async generateWinbackNudge(ctx: WinbackContext): Promise<string | null> {
+    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    try {
+      const response = await this.client.messages.create({
+        model,
+        max_tokens: 200,
+        system: buildWinbackPrompt(ctx),
+        messages: [{ role: 'user', content: 'Write the win-back text now.' }],
+      });
+      const text = response.content
+        .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n')
+        .trim();
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'winback_nudge',
+        model,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+        nudgeIndex: ctx.nudgeIndex,
+      });
+      return text.length > 0 ? text : null;
+    } catch (err) {
+      this.logger.warn(`generateWinbackNudge failed (falling back to template): ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
    * Shared tool-use loop. Caller provides a system prompt, optional tools, and a
    * dispatch function that turns a tool_use block into a JSON-stringifiable result.
    */
@@ -873,10 +911,20 @@ export class CoachingService {
       if (typeof input.field !== 'string') {
         return { ok: false, error: 'field must be a string' };
       }
-      if (typeof input.value !== 'string' && typeof input.value !== 'number' && typeof input.value !== 'boolean') {
-        return { ok: false, error: 'value must be a string, number, or boolean' };
+      // `goals` is an array of strings (multi-goal intake); everything else is a
+      // string/number/boolean. Reject anything outside that set BEFORE it reaches
+      // the handler — but DO let string[] through (this guard used to drop arrays
+      // silently, so save_intake_field("goals", [...]) always failed).
+      const value = input.value;
+      const isValid =
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean' ||
+        (Array.isArray(value) && value.every((v) => typeof v === 'string'));
+      if (!isValid) {
+        return { ok: false, error: 'value must be a string, number, boolean, or array of strings' };
       }
-      const result = await toolHandlers.saveIntakeField({ field: input.field, value: input.value });
+      const result = await toolHandlers.saveIntakeField({ field: input.field, value: value as string | number | boolean | string[] });
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_save_intake_field',
         userId, ok: result.ok, field: input.field,

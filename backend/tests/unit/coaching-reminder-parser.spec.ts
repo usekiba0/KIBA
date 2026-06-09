@@ -2,7 +2,9 @@ import {
   REMINDER_REGEX,
   parseRelativeDelayMs,
   parseReminderTime,
+  parseCityOffset,
 } from '../../src/messaging/reminder-parser';
+import { RESET_INTENT_RE } from '../../src/messaging/coaching.processor';
 
 describe('REMINDER_REGEX', () => {
   it.each([
@@ -88,5 +90,108 @@ describe('parseReminderTime', () => {
 
   it('returns null when no time present', () => {
     expect(parseReminderTime('remind me in 30 minutes')).toBeNull();
+  });
+});
+
+describe('parseCityOffset', () => {
+  // Fixed clocks so DST promotion is deterministic in tests.
+  const summer = new Date(Date.UTC(2026, 6, 1)); // July — US DST active
+  const winter = new Date(Date.UTC(2026, 0, 15)); // January — US DST inactive
+
+  it('resolves "Houston" to CDT (-300) in summer', () => {
+    expect(parseCityOffset('houston', summer)).toBe(-300);
+  });
+
+  it('resolves "Houston" to CST (-360) in winter', () => {
+    expect(parseCityOffset('houston', winter)).toBe(-360);
+  });
+
+  it('matches a city embedded in a sentence: "Houston boss"', () => {
+    expect(parseCityOffset('houston boss', summer)).toBe(-300);
+  });
+
+  it('matches "i\'m from chicago"', () => {
+    expect(parseCityOffset("i'm from chicago", summer)).toBe(-300);
+  });
+
+  it('matches multi-word "los angeles" (PDT in summer)', () => {
+    expect(parseCityOffset('los angeles', summer)).toBe(-420);
+  });
+
+  it('matches standalone "nyc" (EDT in summer)', () => {
+    expect(parseCityOffset('nyc', summer)).toBe(-240);
+  });
+
+  it('matches standalone short name "la"', () => {
+    expect(parseCityOffset('im in la', summer)).toBe(-420);
+  });
+
+  it('does NOT match "la" inside another word (atlanta → EDT)', () => {
+    // atlanta maps to Eastern; the "la" substring must not win Pacific.
+    expect(parseCityOffset('atlanta', summer)).toBe(-240);
+  });
+
+  it('keeps Arizona (Phoenix) fixed at -420 regardless of DST', () => {
+    expect(parseCityOffset('phoenix', summer)).toBe(-420);
+    expect(parseCityOffset('phoenix', winter)).toBe(-420);
+  });
+
+  it('keeps Hawaii (Honolulu) fixed at -600', () => {
+    expect(parseCityOffset('honolulu', summer)).toBe(-600);
+  });
+
+  it('resolves an international city: karachi → +300 (no US DST)', () => {
+    expect(parseCityOffset('karachi', summer)).toBe(300);
+  });
+
+  it('returns null when no known city is present', () => {
+    expect(parseCityOffset('make 100k/month', summer)).toBeNull();
+  });
+
+  // Coverage expansion (the original Houston bug re-loops on any unmapped city).
+  it('resolves expanded US metros (Plano/Arlington-area Texas → CDT)', () => {
+    expect(parseCityOffset('plano', summer)).toBe(-300);
+    expect(parseCityOffset("i'm in frisco", summer)).toBe(-300);
+  });
+
+  it('resolves expanded Pacific metros (Anaheim → PDT)', () => {
+    expect(parseCityOffset('anaheim', summer)).toBe(-420);
+  });
+
+  it('keeps expanded Arizona metros fixed at -420 (no DST)', () => {
+    expect(parseCityOffset('chandler', summer)).toBe(-420);
+    expect(parseCityOffset('gilbert', winter)).toBe(-420);
+  });
+
+  it('resolves expanded international cities', () => {
+    expect(parseCityOffset('manila', summer)).toBe(480);
+    expect(parseCityOffset('bogota', summer)).toBe(-300);
+    expect(parseCityOffset('barcelona', summer)).toBe(60);
+  });
+});
+
+describe('RESET_INTENT_RE', () => {
+  it.each([
+    'start fresh',
+    'start over',
+    "let's start fresh",
+    'i want to start over',
+    'reset my coaching',
+    'clear my history',
+    'can you clear my history please',
+    'reset context',
+    'fresh start',
+  ])('treats a reset-dominant message as a reset: %s', (text) => {
+    expect(RESET_INTENT_RE.test(text.trim())).toBe(true);
+  });
+
+  it.each([
+    'i want to start fresh on monday with a new workout plan',
+    'starting fresh this week feels good',
+    'i cleared my history at the gym today',
+    'we reset the machine between sets',
+    'how do i start over on leg day',
+  ])('does NOT reset when the phrase is part of a larger thought: %s', (text) => {
+    expect(RESET_INTENT_RE.test(text.trim())).toBe(false);
   });
 });

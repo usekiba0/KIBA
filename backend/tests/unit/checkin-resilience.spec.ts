@@ -14,6 +14,7 @@ import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
 import { RecapService } from '../../src/accountability/recap.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
+import { CoachingService } from '../../src/ai/coaching.service';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
 
@@ -98,6 +99,7 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
         { provide: RecapService, useValue: { fire: jest.fn(), scheduleAllRecaps: jest.fn(), scheduleRecap: jest.fn() } },
         { provide: StripeService, useValue: { createCustomer: jest.fn(), createCheckoutSession: jest.fn() } },
         { provide: ConfigService, useValue: { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') } },
+        { provide: CoachingService, useValue: { generateWinbackNudge: jest.fn().mockResolvedValue(null) } },
         { provide: getQueueToken('accountability'), useValue: queue },
       ],
     }).compile();

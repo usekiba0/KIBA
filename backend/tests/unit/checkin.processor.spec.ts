@@ -15,6 +15,7 @@ import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
 import { RecapService } from '../../src/accountability/recap.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
+import { CoachingService } from '../../src/ai/coaching.service';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
 
@@ -135,6 +136,9 @@ describe('CheckinProcessor', () => {
         { provide: RecapService, useValue: mockRecapService },
         { provide: StripeService, useValue: mockStripeService },
         { provide: ConfigService, useValue: mockConfig },
+        // Win-back nudges are now LLM-generated; return null so the deterministic
+        // template fallback runs in these tests (keeps assertions stable).
+        { provide: CoachingService, useValue: { generateWinbackNudge: jest.fn().mockResolvedValue(null) } },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
       ],
     }).compile();
