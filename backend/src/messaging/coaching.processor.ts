@@ -28,6 +28,7 @@ import { TodoService } from '../accountability/todo.service';
 import { DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
+import { normalizePhoneNumber } from '../common/phone';
 import { parseTimezoneOffset, parseCityOffset, parseReminderTime } from './reminder-parser';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
@@ -94,6 +95,19 @@ const BILLING_INTENT_RE = /\b(subscri(be|ption|bed|bing)|stripe|checkout|billing
 // the link deterministically the moment they ask (once we have name+goal+tz),
 // instead of letting the model loop re-asking build questions (Karibi 2026-06-05).
 export const LINK_REQUEST_RE = /\b(send|resend|drop|share|gimme|give\s+me|text|where(?:'?s| is)?)\b[^.\n]{0,15}\blink\b|\bsend\s+it\b|\blink\s+(?:again|now|please|pls)\b|\b(?:don'?t|do\s+not|dont)\s+have\b[^.\n]{0,15}\blink\b/i;
+
+/**
+ * The user is actively asking KIBA to explain itself / prove its value
+ * ("how are you gonna help me?", "explain first", "what's the point?", "how
+ * does this work?"). On these turns the force-link safety-net must NOT fire —
+ * dropping a checkout link in response to a sincere question is the exact
+ * money-hungry behavior the client flagged. KIBA answers first; we reset the
+ * stall counter so the model gets a fresh runway to earn the close naturally.
+ * An EXPLICIT link request (LINK_REQUEST_RE) still overrides this — if they ask
+ * for the link, they get it.
+ */
+export const EXPLAIN_REQUEST_RE =
+  /\bexplain\b|\bhow\s+(?:are|r|u|you|would|will|do|does|can|exactly)\b[^?\n]{0,30}\bhelp\b|\bhow\s+does\s+(?:this|it)\b|\bwhat\s+(?:do|does|are|is|even)\b|\bwhat'?s\s+the\s+point\b|\bwhy\s+(?:should|would)\b|\bis\s+(?:this|it)\s+(?:worth|legit|real|gonna)\b|\bwdym\b/i;
 
 /**
  * Intake turns with the full emotional build captured but no link sent before
@@ -180,7 +194,13 @@ export class CoachingProcessor {
   }
 
   async process(data: CoachingJob): Promise<void> {
-    const { from, body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = data;
+    const { body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = data;
+    // Canonicalize to E.164 so a returning user always resolves to their existing
+    // row. Twilio/web are already E.164, but SendBlue can hand us looser formats
+    // ("7135551234", "+1 (713)...") — without this the lookup below misses and a
+    // fresh INTAKE lead is created, wiping the user's name/state (the "keeps
+    // resetting" bug). See common/phone.ts.
+    const from = normalizePhoneNumber(data.from);
     const messageHandle = data.messageHandle ?? null;
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
@@ -619,6 +639,10 @@ export class CoachingProcessor {
     //   (2) the build is complete but the AI hasn't sent it -> grace, then force.
     // Runs after the reply so the lead gets the close text then the link.
     const askedForLink = LINK_REQUEST_RE.test(intakeText);
+    // A sincere "how does this help me / explain first" must never trigger the
+    // force-net — answering with a checkout link is the money-hungry feel we're
+    // killing. (An explicit link request still wins below.)
+    const askedToUnderstand = !askedForLink && EXPLAIN_REQUEST_RE.test(intakeText);
     const hasMinimumForLink =
       !!liveUser.name &&
       !!liveUser.intake_data?.goal_description &&
@@ -632,7 +656,7 @@ export class CoachingProcessor {
         service: 'onboarding', operation: 'payment_link_sent_on_request',
         userId: user.id, ok: sent.ok,
       });
-    } else if (!liveUser.payment_link_sent_at && intakeBuildComplete(liveUser)) {
+    } else if (!liveUser.payment_link_sent_at && intakeBuildComplete(liveUser) && !askedToUnderstand) {
       const stalledTurns = (user.intake_link_stall_turns ?? 0) + 1;
       if (stalledTurns >= FORCE_LINK_AFTER_STALLED_TURNS) {
         const forced = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });

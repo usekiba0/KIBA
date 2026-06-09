@@ -32,6 +32,7 @@ import { SurpriseService } from './surprise.service';
 import { RecapService } from './recap.service';
 import { MessagingModule } from '../messaging/messaging.module';
 import { DataModule } from '../data/data.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { DataModule } from '../data/data.module';
     BullModule.registerQueue({ name: 'accountability' }),
     forwardRef(() => MessagingModule),
     forwardRef(() => DataModule),
+    forwardRef(() => AiModule),
   ],
   providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService, RecapService],
   exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService, RecapService],
