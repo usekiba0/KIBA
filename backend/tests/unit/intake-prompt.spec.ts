@@ -42,10 +42,14 @@ describe('buildIntakeSystemPrompt', () => {
     expect(p).toContain('obstacle / what makes them fold: lose motivation');
   });
 
-  it('flags missing why/obstacle so the AI does not close early', () => {
+  it('treats the build as best-effort and tells the AI to back off / move on when pushed', () => {
     const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' }, utcOffsetMinutes: -360 }));
-    expect(p).toContain('do NOT have their "why" yet');
-    expect(p).toContain('do NOT have their obstacle yet');
+    // why/obstacle are still part of the flow, but must NOT be a trap the AI loops on
+    expect(p).toMatch(/best-effort/i);
+    expect(p).toMatch(/READ THE ROOM/);
+    expect(p).toMatch(/NEVER ask the exact same question more than once/i);
+    // value-first during intake: it must deliver help when asked, not refuse
+    expect(p).toMatch(/DELIVER VALUE WHEN THEY ASK FOR IT/i);
   });
 
   it('switches to the objection-handling paywall after the post-link reply', () => {
