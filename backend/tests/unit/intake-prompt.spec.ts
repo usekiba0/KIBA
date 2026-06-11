@@ -87,6 +87,28 @@ describe('buildIntakeSystemPrompt', () => {
     expect(p).toContain('read the bible');
   });
 
+  it('bans deferring value behind the trial (deliver help first, then tie back)', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' } }));
+    // The meal-plan/homework dodge: refusing OR deferring help until they sign up.
+    expect(p).toMatch(/DEFERRING the help/i);
+    expect(p).toMatch(/activate the trial first/i);
+    // And the post-link paywall must also deliver concrete asks immediately.
+    const paywall = buildIntakeSystemPrompt(ctx({ paymentLinkSent: true, sampleCoachingGiven: true }));
+    expect(paywall).toMatch(/GIVE THE FULL THING right now/i);
+  });
+
+  it('forbids generic fortune-cookie reflections in the I-SEE-YOU moment', () => {
+    const p = buildIntakeSystemPrompt(ctx());
+    expect(p).toMatch(/short on time, you're short on structure/i);
+    expect(p).toMatch(/if your reflection would fit anyone, it's wrong/i);
+  });
+
+  it('sanity-checks an evening time given as the morning check-in', () => {
+    const p = buildIntakeSystemPrompt(ctx());
+    expect(p).toMatch(/SANITY-CHECK the time/i);
+    expect(p).toMatch(/never describe a PM time as morning/i);
+  });
+
   it('treats a goal list (no explicit anchor) as a captured goal, not missing', () => {
     const p = buildIntakeSystemPrompt(ctx({
       name: 'Sam',
