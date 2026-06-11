@@ -35,3 +35,23 @@ export class HealthController {
     return { status, checks, timestamp: new Date().toISOString() };
   }
 }
+
+/**
+ * Lightweight deploy probe — answers "what commit is actually running right now?"
+ * Render auto-injects RENDER_GIT_COMMIT into every deploy's environment, so this
+ * lets us confirm a push has gone live without opening the dashboard. No auth:
+ * it leaks nothing but the commit SHA, and it has to be hittable by a bare curl.
+ */
+@Controller('version')
+export class VersionController {
+  @Get()
+  version() {
+    const commit = process.env.RENDER_GIT_COMMIT ?? 'unknown';
+    return {
+      commit,
+      short: commit === 'unknown' ? 'unknown' : commit.slice(0, 7),
+      branch: process.env.RENDER_GIT_BRANCH ?? 'unknown',
+      timestamp: new Date().toISOString(),
+    };
+  }
+}

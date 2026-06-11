@@ -11,7 +11,7 @@ import { MessagingModule } from './messaging/messaging.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { AiModule } from './ai/ai.module';
 import { SafetyModule } from './safety/safety.module';
-import { HealthController } from './common/health/health.controller';
+import { HealthController, VersionController } from './common/health/health.controller';
 
 @Module({
   imports: [
@@ -148,7 +148,7 @@ import { HealthController } from './common/health/health.controller';
     AiModule,
     SafetyModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, VersionController],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
