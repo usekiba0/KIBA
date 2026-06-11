@@ -65,6 +65,9 @@ export interface IntakeData {
   comparison_figure?: string;
   public_failure_scenario?: string;
   typical_failure_moment?: string;
+  // What the user would be most ashamed for people to see if they keep failing.
+  // Elicited ~week 2 in coaching (not at intake) — see PsychologicalProfile.embarrassment.
+  embarrassment?: string;
   pressure_preference?: 'pressure' | 'encouragement';
   // Whether the user has explicitly opted in to KIBA cursing. False by default
   // (no cursing without consent). Mirrored to PsychologicalProfile.cussing_ok.
@@ -149,6 +152,15 @@ export class User {
   @Column({ type: 'smallint', default: 0 })
   dunning_nudges_sent: number;
 
+  // Safety-net counter for the cold-SMS close: how many intake turns have passed
+  // with the full emotional build captured (name+goal+tz+why+obstacle) but the
+  // intake AI still not having sent the payment link. After a short grace it
+  // force-sends, so a stalled/forgetful model never leaves a ready lead without a
+  // link — without firing early and undercutting the emotional-build-first close
+  // (added 2026-06-05). Reset to 0 once the link is sent.
+  @Column({ type: 'smallint', default: 0 })
+  intake_link_stall_turns: number;
+
   @CreateDateColumn()
   registered_at: Date;
 
@@ -187,4 +199,11 @@ export class User {
   // schedulers race at fire time (bugfix 2026-06-01).
   @Column({ type: 'varchar', length: 10, nullable: true })
   last_checkin_date: string | null;
+
+  // User-LOCAL calendar day (YYYY-MM-DD) of the last night-recap actually sent.
+  // Claimed atomically by RecapService before each send so the nightly recap
+  // fires at most once per local day regardless of racing schedulers (added
+  // 2026-06-05 with the Night Recap flow).
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  last_recap_date: string | null;
 }

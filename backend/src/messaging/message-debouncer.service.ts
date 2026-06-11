@@ -88,6 +88,11 @@ export class MessageDebouncerService {
     const mediaContentTypes: string[] = [];
     let twilioSid: string | null = null;
     let channel: 'sms' | 'imessage' = buf.messages[0].channel;
+    // The Apple GUID of the most recent iMessage in the batch — the message a
+    // tapback would land on. Only meaningful for iMessage (uniqueId is the
+    // SendBlue message_handle there; for SMS it's the Twilio SID, which can't
+    // be reacted to).
+    let messageHandle: string | null = null;
 
     for (const m of buf.messages) {
       const trimmed = m.text.trim();
@@ -98,6 +103,7 @@ export class MessageDebouncerService {
       }
       if (m.twilioSid && !twilioSid) twilioSid = m.twilioSid;
       channel = m.channel;
+      if (m.channel === 'imessage' && m.uniqueId) messageHandle = m.uniqueId;
     }
 
     const body = textParts.length > 0
@@ -120,6 +126,7 @@ export class MessageDebouncerService {
       mediaUrls,
       mediaContentTypes,
       channel,
+      messageHandle,
     });
   }
 }

@@ -13,6 +13,7 @@ import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { Strike } from '../data/entities/strike.entity';
 import { buildSystemPrompt } from './prompts/coaching.prompt';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
+import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { CorrectionService } from '../data/correction.service';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
@@ -47,11 +48,17 @@ export interface CoachingToolHandlers {
   // into both intake_data JSONB and the PsychologicalProfile row.
   saveProfileField: (input: { field: string; value: string | boolean }) =>
     Promise<{ ok: true; field: string } | { ok: false; error: string }>;
+  // React to the user's most recent message with an iMessage tapback. Optional:
+  // only present on iMessage conversations (the processor omits it on SMS), so
+  // the react_to_message tool is offered to the model only when a tapback can
+  // actually land.
+  reactToMessage?: (input: { reaction: string }) =>
+    Promise<{ ok: true; reaction: string } | { ok: false; error: string }>;
 }
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
 export interface IntakeToolHandlers {
-  saveIntakeField: (input: { field: string; value: string | number | boolean }) =>
+  saveIntakeField: (input: { field: string; value: string | number | boolean | string[] }) =>
     Promise<{ ok: true; field: string } | { ok: false; error: string }>;
   sendPaymentLink: () =>
     Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
@@ -230,10 +237,11 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
   description:
     'Persist a psychological-profile fact the user just revealed mid-coaching. ' +
     'Use whenever the user names a comparison figure / mentor, a fear, an avoidance pattern, ' +
-    'a public failure scenario, or a typical failure moment — even casually, even mid-sentence. ' +
+    'a public failure scenario, a typical failure moment, or an embarrassment (the private outcome ' +
+    'they\'d be ashamed for people to see if they keep failing) — even casually, even mid-sentence. ' +
     'Also use when the user explicitly grants or revokes cursing consent ("you can cuss", "keep it clean from now on"). ' +
     'Field MUST be one of: fears, avoidance_patterns, comparison_figure, public_failure_scenario, ' +
-    'typical_failure_moment, pressure_preference, cussing_ok. ' +
+    'typical_failure_moment, embarrassment, pressure_preference, cussing_ok. ' +
     'For pressure_preference pass "pressure" or "encouragement". For cussing_ok pass a boolean. ' +
     'Everything else is free text — paraphrase tightly (3–10 words is ideal, the model reads it back later).',
   input_schema: {
@@ -242,11 +250,30 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
       field: {
         type: 'string',
         enum: ['fears', 'avoidance_patterns', 'comparison_figure',
-               'public_failure_scenario', 'typical_failure_moment', 'pressure_preference', 'cussing_ok'],
+               'public_failure_scenario', 'typical_failure_moment', 'embarrassment',
+               'pressure_preference', 'cussing_ok'],
       },
       value: { description: 'String for free-text fields, boolean for cussing_ok.' },
     },
     required: ['field', 'value'],
+  },
+};
+
+const REACT_TO_MESSAGE_TOOL: Tool = {
+  name: 'react_to_message',
+  description:
+    'React to the user\'s most recent message with an iMessage tapback. Use SPARINGLY — only when a reaction genuinely fits and adds warmth, the way a real friend taps back. ' +
+    'Guidance: a real win / something heartfelt → "love"; simple agreement or acknowledgement → "like"; something funny → "laugh"; a point you strongly want to stress → "emphasize"; a weak excuse you want to gently push back on → "dislike" (rare); a confusing or surprising message → "question". ' +
+    'A tapback can REPLACE a text reply when no words are needed, or sit alongside one. Do NOT react to every message — overusing tapbacks kills the effect. iMessage only (this tool is simply absent on SMS).',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      reaction: {
+        type: 'string',
+        enum: ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question'],
+      },
+    },
+    required: ['reaction'],
   },
 };
 
@@ -389,7 +416,8 @@ export class CoachingService {
     value: string | boolean,
   ): Promise<{ ok: true; field: string } | { ok: false; error: string }> {
     const allowed = ['fears', 'avoidance_patterns', 'comparison_figure',
-                     'public_failure_scenario', 'typical_failure_moment', 'pressure_preference', 'cussing_ok'];
+                     'public_failure_scenario', 'typical_failure_moment', 'embarrassment',
+                     'pressure_preference', 'cussing_ok'];
     if (!allowed.includes(field)) return { ok: false, error: `unknown field: ${field}` };
 
     // cussing_ok takes a boolean; everything else takes a non-empty string.
@@ -495,6 +523,10 @@ export class CoachingService {
       userOffsetMinutes: user.utc_offset_minutes ?? null,
     };
     const userName = user.name ?? 'friend';
+    // Whole weeks since signup — gates the week-2 embarrassment elicitation.
+    const weeksIn = Math.floor(
+      (Date.now() - new Date(user.registered_at).getTime()) / (7 * 24 * 60 * 60 * 1000),
+    );
     const systemPrompt = buildSystemPrompt(
       { id: user.id, name: userName, phone_number: user.phone_number },
       profile,
@@ -505,6 +537,7 @@ export class CoachingService {
       timeContext,
       todos,
       patterns,
+      weeksIn,
     );
 
     const tools = toolHandlers
@@ -512,6 +545,8 @@ export class CoachingService {
           SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, CANCEL_REMINDER_TOOL,
           ADD_TODO_TOOL, LIST_TODAY_TODOS_TOOL, MARK_TODO_DONE_TOOL, REMOVE_TODO_TOOL,
           SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL,
+          // Only offered on iMessage — the handler is present only then.
+          ...(toolHandlers.reactToMessage ? [REACT_TO_MESSAGE_TOOL] : []),
         ]
       : undefined;
     const dispatch = toolHandlers
@@ -560,6 +595,43 @@ export class CoachingService {
       userId: user.id,
       operationLabel: 'intake_reply',
     });
+  }
+
+  /**
+   * Generate ONE personalised win-back text for an unpaid lead who went quiet
+   * after getting the link. Replaces the old fixed template that read identically
+   * to every lead. Single short, tool-less LLM call (fires <=3x per lead, so the
+   * cost is negligible). Returns trimmed text, or null on any failure/empty so the
+   * caller can fall back to the deterministic template — a missed nudge must never
+   * become a crash or a blank send.
+   */
+  async generateWinbackNudge(ctx: WinbackContext): Promise<string | null> {
+    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    try {
+      const response = await this.client.messages.create({
+        model,
+        max_tokens: 200,
+        system: buildWinbackPrompt(ctx),
+        messages: [{ role: 'user', content: 'Write the win-back text now.' }],
+      });
+      const text = response.content
+        .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n')
+        .trim();
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'winback_nudge',
+        model,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+        nudgeIndex: ctx.nudgeIndex,
+      });
+      return text.length > 0 ? text : null;
+    } catch (err) {
+      this.logger.warn(`generateWinbackNudge failed (falling back to template): ${(err as Error).message}`);
+      return null;
+    }
   }
 
   /**
@@ -811,6 +883,21 @@ export class CoachingService {
       });
       return result;
     }
+    if (block.name === 'react_to_message') {
+      if (!toolHandlers.reactToMessage) {
+        return { ok: false, error: 'reactions are only available on iMessage' };
+      }
+      const input = block.input as { reaction?: unknown };
+      if (typeof input.reaction !== 'string') {
+        return { ok: false, error: 'reaction must be a string' };
+      }
+      const result = await toolHandlers.reactToMessage({ reaction: input.reaction });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_react_to_message',
+        userId, ok: result.ok, reaction: input.reaction,
+      });
+      return result;
+    }
     return { ok: false, error: `unknown tool: ${block.name}` };
   }
 
@@ -824,10 +911,20 @@ export class CoachingService {
       if (typeof input.field !== 'string') {
         return { ok: false, error: 'field must be a string' };
       }
-      if (typeof input.value !== 'string' && typeof input.value !== 'number' && typeof input.value !== 'boolean') {
-        return { ok: false, error: 'value must be a string, number, or boolean' };
+      // `goals` is an array of strings (multi-goal intake); everything else is a
+      // string/number/boolean. Reject anything outside that set BEFORE it reaches
+      // the handler — but DO let string[] through (this guard used to drop arrays
+      // silently, so save_intake_field("goals", [...]) always failed).
+      const value = input.value;
+      const isValid =
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean' ||
+        (Array.isArray(value) && value.every((v) => typeof v === 'string'));
+      if (!isValid) {
+        return { ok: false, error: 'value must be a string, number, boolean, or array of strings' };
       }
-      const result = await toolHandlers.saveIntakeField({ field: input.field, value: input.value });
+      const result = await toolHandlers.saveIntakeField({ field: input.field, value: value as string | number | boolean | string[] });
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_save_intake_field',
         userId, ok: result.ok, field: input.field,

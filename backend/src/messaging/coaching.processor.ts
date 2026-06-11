@@ -10,7 +10,7 @@ import { Message, MessageRole, MessageType } from '../data/entities/message.enti
 import { SessionSummary, SummaryTrigger } from '../data/entities/session-summary.entity';
 import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { ProofType } from '../data/entities/proof.entity';
-import { CoachingService } from '../ai/coaching.service';
+import { CoachingService, CoachingToolHandlers } from '../ai/coaching.service';
 import { CrisisService } from '../ai/crisis.service';
 import { SummarisationService } from '../ai/summarisation.service';
 import { VisionService } from '../ai/vision.service';
@@ -28,9 +28,11 @@ import { TodoService } from '../accountability/todo.service';
 import { DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
-import { parseTimezoneOffset } from './reminder-parser';
+import { normalizePhoneNumber } from '../common/phone';
+import { parseTimezoneOffset, parseCityOffset, parseReminderTime } from './reminder-parser';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
+import { humanizeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 
 interface CoachingJob {
@@ -41,9 +43,19 @@ interface CoachingJob {
   mediaUrls: string[];
   mediaContentTypes: string[];
   channel: 'sms' | 'imessage';
+  // Apple GUID of the user's most recent iMessage in this batch — the message a
+  // tapback reaction lands on. Null for SMS (no tapback support). Optional so
+  // older callers/tests that don't set it still type-check.
+  messageHandle?: string | null;
 }
 
-const RESET_INTENTS = ['reset my coaching', 'start fresh', 'clear my history', 'reset context'];
+// Context-reset intent. Anchored to the WHOLE message (optional leading filler +
+// reset phrase + optional politeness) so a colloquial mention inside a larger
+// sentence can't trigger a destructive session wipe — e.g. "start fresh on
+// monday with a new workout plan" must NOT reset, while "start fresh" /
+// "i want to start over" / "can you clear my history please" do.
+export const RESET_INTENT_RE =
+  /^\s*(?:can you|could you|would you|please|pls|hey|yo|ok|okay|i want to|i wanna|i'?d like to|lets|let'?s|can we)?\s*(?:reset (?:my )?(?:coaching|context|chat)|clear (?:my )?(?:history|context|chat)|start (?:over|fresh)|restart (?:my )?coaching|fresh start)\s*(?:please|pls|now|again)?\s*[.!]*\s*$/i;
 
 /**
  * Pull the derived pattern signals off the user row into the shape the coaching
@@ -78,6 +90,54 @@ function derivePatternSignals(user: User) {
 // False positives are fine (extra link sent) — false negatives (LLM refuses
 // a paying customer) burned us in production, so the regex stays broad.
 const BILLING_INTENT_RE = /\b(subscri(be|ption|bed|bing)|stripe|checkout|billing|membership)\b|\b(payment|pay)\s+(link|me|the|for|to|via|by)|\b(sign\s*up|signup)\b/i;
+
+// An intake lead explicitly asking us to send the payment link. Used to deliver
+// the link deterministically the moment they ask (once we have name+goal+tz),
+// instead of letting the model loop re-asking build questions (Karibi 2026-06-05).
+export const LINK_REQUEST_RE = /\b(send|resend|drop|share|gimme|give\s+me|text|where(?:'?s| is)?)\b[^.\n]{0,15}\blink\b|\bsend\s+it\b|\blink\s+(?:again|now|please|pls)\b|\b(?:don'?t|do\s+not|dont)\s+have\b[^.\n]{0,15}\blink\b/i;
+
+/**
+ * The user is actively asking KIBA to explain itself / prove its value
+ * ("how are you gonna help me?", "explain first", "what's the point?", "how
+ * does this work?"). On these turns the force-link safety-net must NOT fire —
+ * dropping a checkout link in response to a sincere question is the exact
+ * money-hungry behavior the client flagged. KIBA answers first; we reset the
+ * stall counter so the model gets a fresh runway to earn the close naturally.
+ * An EXPLICIT link request (LINK_REQUEST_RE) still overrides this — if they ask
+ * for the link, they get it.
+ */
+export const EXPLAIN_REQUEST_RE =
+  /\bexplain\b|\bhow\s+(?:are|r|u|you|would|will|do|does|can|exactly)\b[^?\n]{0,30}\bhelp\b|\bhow\s+does\s+(?:this|it)\b|\bwhat\s+(?:do|does|are|is|even)\b|\bwhat'?s\s+the\s+point\b|\bwhy\s+(?:should|would)\b|\bis\s+(?:this|it)\s+(?:worth|legit|real|gonna)\b|\bwdym\b/i;
+
+/**
+ * Intake turns with the full emotional build captured but no link sent before
+ * the system force-sends one. Gives the AI the turn it completed the build plus
+ * one grace turn to close naturally; if it still hasn't, the safety-net fires.
+ */
+export const FORCE_LINK_AFTER_STALLED_TURNS = 2;
+
+/**
+ * The emotional build is "complete" once the functional minimum (name + goal +
+ * timezone) AND the two anchors the close leans on (why it matters + their
+ * obstacle) are persisted. The micro-commitment "yes" isn't a stored field, but
+ * in the script it lands right after these — so this is the safe proxy for "the
+ * AI should be closing now" without firing the link on bare name+goal+tz.
+ */
+export function intakeBuildComplete(user: {
+  name: string | null;
+  utc_offset_minutes: number | null;
+  intake_data?: IntakeData | null;
+}): boolean {
+  const d = user.intake_data ?? {};
+  return Boolean(
+    user.name &&
+      user.utc_offset_minutes !== null &&
+      user.utc_offset_minutes !== undefined &&
+      d.goal_description &&
+      d.why_it_matters &&
+      d.avoidance_patterns,
+  );
+}
 
 @Processor('coaching')
 export class CoachingProcessor {
@@ -134,7 +194,14 @@ export class CoachingProcessor {
   }
 
   async process(data: CoachingJob): Promise<void> {
-    const { from, body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = data;
+    const { body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = data;
+    // Canonicalize to E.164 so a returning user always resolves to their existing
+    // row. Twilio/web are already E.164, but SendBlue can hand us looser formats
+    // ("7135551234", "+1 (713)...") — without this the lookup below misses and a
+    // fresh INTAKE lead is created, wiping the user's name/state (the "keeps
+    // resetting" bug). See common/phone.ts.
+    const from = normalizePhoneNumber(data.from);
+    const messageHandle = data.messageHandle ?? null;
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Carrier shortcodes (e.g. +195686 from Citi) get misrouted to our SendBlue
@@ -357,7 +424,7 @@ export class CoachingProcessor {
     }
 
     // Context reset intent
-    if (RESET_INTENTS.some((intent) => lowerBody.includes(intent))) {
+    if (RESET_INTENT_RE.test(body.trim())) {
       await this.sessionCache.invalidateSession(user.id);
       await this.messagingService.send(
         user.phone_number,
@@ -444,7 +511,7 @@ export class CoachingProcessor {
         const visionPatterns = derivePatternSignals(user);
         const { reply, tokenCount } = await this.coachingService.generateReply(
           user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaCt,
-          this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
+          this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
           visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
           visionPatterns,
         );
@@ -472,7 +539,7 @@ export class CoachingProcessor {
       latestSummary?.summary,
       undefined,
       undefined,
-      this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
+      this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
       todos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
       patterns,
     );
@@ -494,6 +561,37 @@ export class CoachingProcessor {
     imageUrl?: string,
     imageContentType?: string,
   ): Promise<string> {
+    // ── Deterministic slot capture (don't trust the model to do the math) ──
+    // The intake prompt's "STILL MISSING" gate reads PERSISTED state, but the
+    // only path that wrote the timezone from a city was the model computing the
+    // UTC offset and remembering to call save_intake_field — which it skipped,
+    // then re-asked "what city are you in?" forever (the offset stayed null so
+    // the gate never cleared). Resolve city → offset and "9am" → check-in time
+    // here so an answered question can never be re-asked. The model's tool calls
+    // still work as a fallback for cities/phrasings we don't recognise.
+    if ((user.utc_offset_minutes ?? null) === null) {
+      const cityOffset = parseCityOffset(body.toLowerCase());
+      if (cityOffset !== null) {
+        await this.userRepo.update(user.id, { utc_offset_minutes: cityOffset });
+        user = { ...user, utc_offset_minutes: cityOffset };
+        structuredLog(this.logger, 'log', {
+          service: 'onboarding', operation: 'tz_captured_from_city',
+          userId: user.id, utcOffsetMinutes: cityOffset,
+        });
+      }
+    }
+    if (!user.checkin_time) {
+      const checkinTime = parseReminderTime(body);
+      if (checkinTime) {
+        await this.userRepo.update(user.id, { checkin_time: checkinTime });
+        user = { ...user, checkin_time: checkinTime };
+        structuredLog(this.logger, 'log', {
+          service: 'onboarding', operation: 'checkin_captured_from_text',
+          userId: user.id, checkinTime,
+        });
+      }
+    }
+
     // Build the intake context snapshot used by the prompt.
     const ctx = {
       name: user.name,
@@ -513,7 +611,7 @@ export class CoachingProcessor {
     const liveUser = { ...user };
 
     const handlers = {
-      saveIntakeField: async (input: { field: string; value: string | number }) => {
+      saveIntakeField: async (input: { field: string; value: string | number | boolean | string[] }) => {
         return this.saveIntakeField(liveUser, input.field, input.value);
       },
       sendPaymentLink: async () => {
@@ -528,6 +626,52 @@ export class CoachingProcessor {
       user, recentMessages, intakeText, ctx, handlers, imageUrl, imageContentType,
     );
 
+    // ── Link delivery: explicit ask + safety-net ──────────────────────────
+    // PRIMARY path is unchanged: the intake AI runs the emotional build and
+    // fires the link itself at the close. Two deterministic backstops sit under
+    // it so a stalled/looping model can never strand a ready lead (Karibi
+    // 2026-06-05 watched it re-ask the same question instead of sending the
+    // link he kept requesting):
+    //   (1) the user EXPLICITLY asks for the link and we have the functional
+    //       minimum (name + goal + timezone) -> send it now. An explicit ask
+    //       overrides the build-first preference; looping a begging lead is the
+    //       worst outcome.
+    //   (2) the build is complete but the AI hasn't sent it -> grace, then force.
+    // Runs after the reply so the lead gets the close text then the link.
+    const askedForLink = LINK_REQUEST_RE.test(intakeText);
+    // A sincere "how does this help me / explain first" must never trigger the
+    // force-net — answering with a checkout link is the money-hungry feel we're
+    // killing. (An explicit link request still wins below.)
+    const askedToUnderstand = !askedForLink && EXPLAIN_REQUEST_RE.test(intakeText);
+    const hasMinimumForLink =
+      !!liveUser.name &&
+      !!liveUser.intake_data?.goal_description &&
+      liveUser.utc_offset_minutes !== null &&
+      liveUser.utc_offset_minutes !== undefined;
+
+    if (!liveUser.payment_link_sent_at && askedForLink && hasMinimumForLink) {
+      const sent = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
+      await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
+      structuredLog(this.logger, 'log', {
+        service: 'onboarding', operation: 'payment_link_sent_on_request',
+        userId: user.id, ok: sent.ok,
+      });
+    } else if (!liveUser.payment_link_sent_at && intakeBuildComplete(liveUser) && !askedToUnderstand) {
+      const stalledTurns = (user.intake_link_stall_turns ?? 0) + 1;
+      if (stalledTurns >= FORCE_LINK_AFTER_STALLED_TURNS) {
+        const forced = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
+        await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
+        structuredLog(this.logger, 'log', {
+          service: 'onboarding', operation: 'payment_link_force_sent',
+          userId: user.id, afterStalledTurns: stalledTurns, ok: forced.ok,
+        });
+      } else {
+        await this.userRepo.update(user.id, { intake_link_stall_turns: stalledTurns });
+      }
+    } else if ((user.intake_link_stall_turns ?? 0) !== 0) {
+      await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
+    }
+
     // If we just gave the sample-coaching reply (post-link), flip the flag so
     // the next turn falls into the PAYWALL phase.
     if (user.payment_link_sent_at && !user.sample_coaching_given && reply.trim().length > 0) {
@@ -541,7 +685,7 @@ export class CoachingProcessor {
    * Persist a single intake field. Structured fields land on the user row;
    * everything else falls into the intake_data JSONB blob.
    */
-  private async saveIntakeField(liveUser: User, field: string, value: string | number | boolean) {
+  private async saveIntakeField(liveUser: User, field: string, value: string | number | boolean | string[]) {
     const userColumnFields: Record<string, keyof User> = {
       name: 'name',
       utc_offset_minutes: 'utc_offset_minutes',
@@ -659,7 +803,10 @@ export class CoachingProcessor {
     // 7-day trial is the agreed offer; the intake AI quotes the same number from
     // STRIPE_TRIAL_DAYS so the checkout trial and the SMS copy always agree.
     const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
-    const appBaseUrl = this.config.get<string>('APP_BASE_URL', 'https://kiba.ai');
+    // Checkout return pages (/onboarding/success|cancel) are FRONTEND Next.js
+    // routes, so they must point at FRONTEND_URL — NOT APP_BASE_URL (the NestJS
+    // backend, which has no such route and would 404 the user right after they pay).
+    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://kiba.ai');
 
     // Create (or reuse) Stripe customer. We don't have a stable customer id on
     // the user row for SMS leads, so create one each time the link is sent —
@@ -675,8 +822,8 @@ export class CoachingProcessor {
         priceId,
         trialDays,
         userId: liveUser.id,
-        successUrl: `${appBaseUrl}/onboarding/success`,
-        cancelUrl: `${appBaseUrl}/onboarding/cancel`,
+        successUrl: `${frontendUrl}/onboarding/success`,
+        cancelUrl: `${frontendUrl}/onboarding/cancel`,
       });
     } catch (err) {
       structuredLog(this.logger, 'error', {
@@ -744,10 +891,16 @@ export class CoachingProcessor {
    * from AccountabilityModule — the processor (which already wires both)
    * stitches them together.
    */
-  private buildToolHandlers(user: User, sessionId: string, userMessageId: string) {
+  private buildToolHandlers(
+    user: User,
+    sessionId: string,
+    userMessageId: string,
+    channel: 'sms' | 'imessage' = 'sms',
+    messageHandle: string | null = null,
+  ) {
     const userId = user.id;
     const userOffsetMinutes = user.utc_offset_minutes;
-    return {
+    const handlers: CoachingToolHandlers = {
       scheduleReminder: async (input: {
         fire_at_iso: string;
         message: string;
@@ -852,9 +1005,27 @@ export class CoachingProcessor {
         return this.coachingService.saveProfileField(userId, input.field, input.value);
       },
     };
+
+    // Tapbacks are iMessage-only and need the message_handle to target. Attach
+    // the tool only when both hold, so the AI is never offered react_to_message
+    // on SMS (where it would degrade to a "Liked 'x'" text) or without a target.
+    if (channel === 'imessage' && messageHandle) {
+      handlers.reactToMessage = async (input: { reaction: string }) => {
+        const res = await this.messagingService.sendReaction(user.phone_number, messageHandle, input.reaction);
+        return res.ok
+          ? { ok: true as const, reaction: input.reaction }
+          : { ok: false as const, error: res.error ?? 'reaction failed' };
+      };
+    }
+
+    return handlers;
   }
 
-  private async saveAndSend(user: User, sessionId: string, reply: string) {
+  private async saveAndSend(user: User, sessionId: string, replyRaw: string) {
+    // Deterministic voice cleanup (strip em-dashes etc.) before anything else,
+    // so it applies to every AI reply — intake and coaching — regardless of how
+    // the model phrased it.
+    const reply = humanizeVoice(replyRaw);
     // The AI may split a reply into multiple texts with [pause] markers so it
     // lands as a natural burst (a thought, then another) instead of one block.
     const bubbles = splitBubbles(reply);

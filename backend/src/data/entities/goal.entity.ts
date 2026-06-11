@@ -54,6 +54,16 @@ export class Goal {
   @Column({ type: 'smallint', default: 3 })
   difficulty_level: number;
 
+  // The ANCHOR goal — the single goal the daily loop revolves around (check-in
+  // task seeding, ghost re-engagement, difficulty adjustment, plan generation).
+  // A user may now hold several goals (Karibi 2026-06-03 "allow more than one
+  // goal"); exactly one is the anchor. Secondary goals are stored and referenced
+  // but don't each drive a daily task. Resolve via findAnchorGoal() — which
+  // falls back to the most-recent goal for rows created before this flag.
+  @Index()
+  @Column({ type: 'boolean', default: false })
+  is_anchor: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

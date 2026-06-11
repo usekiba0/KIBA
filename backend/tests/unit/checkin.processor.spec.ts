@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
 import { CheckinProcessor } from '../../src/accountability/checkin.processor';
-import { User, UserStatus } from '../../src/data/entities/user.entity';
+import { User, UserStatus, OnboardingStage } from '../../src/data/entities/user.entity';
 import { DailyTask, TaskStatus } from '../../src/data/entities/daily-task.entity';
 import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
 import { Message } from '../../src/data/entities/message.entity';
@@ -13,7 +13,9 @@ import { ScheduleService } from '../../src/accountability/schedule.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
 import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
+import { RecapService } from '../../src/accountability/recap.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
+import { CoachingService } from '../../src/ai/coaching.service';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
 
@@ -68,6 +70,7 @@ const testProfile: PsychologicalProfile = {
   comparison_figure: 'college roommate',
   public_failure_scenario: 'everyone finds out',
   typical_failure_moment: 'Sunday evenings',
+  embarrassment: null,
   pressure_preference: PressurePreference.PRESSURE,
   cussing_ok: false,
   created_at: new Date(),
@@ -86,7 +89,9 @@ describe('CheckinProcessor', () => {
   let mockCheckinService: any;
   let mockTaskService: any;
   let mockSurpriseService: any;
+  let mockRecapService: any;
   let mockQueue: any;
+  let mockStripeService: any;
 
   beforeEach(async () => {
     mockUserRepo = {
@@ -110,8 +115,9 @@ describe('CheckinProcessor', () => {
     // Task now comes from TaskService.ensureTodayTask, not a repo lookup.
     mockTaskService = { ensureTodayTask: jest.fn().mockResolvedValue(testTask) };
     mockSurpriseService = { fire: jest.fn(), scheduleWeek: jest.fn() };
+    mockRecapService = { fire: jest.fn(), scheduleAllRecaps: jest.fn(), scheduleRecap: jest.fn() };
     mockQueue = { add: jest.fn().mockResolvedValue({ id: 'missed-job-1' }) };
-    const mockStripeService = { createCustomer: jest.fn(), createCheckoutSession: jest.fn() };
+    mockStripeService = { createCustomer: jest.fn(), createCheckoutSession: jest.fn() };
     const mockConfig = { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -127,8 +133,12 @@ describe('CheckinProcessor', () => {
         { provide: CheckinService, useValue: mockCheckinService },
         { provide: TaskService, useValue: mockTaskService },
         { provide: SurpriseService, useValue: mockSurpriseService },
+        { provide: RecapService, useValue: mockRecapService },
         { provide: StripeService, useValue: mockStripeService },
         { provide: ConfigService, useValue: mockConfig },
+        // Win-back nudges are now LLM-generated; return null so the deterministic
+        // template fallback runs in these tests (keeps assertions stable).
+        { provide: CoachingService, useValue: { generateWinbackNudge: jest.fn().mockResolvedValue(null) } },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
       ],
     }).compile();
@@ -211,6 +221,51 @@ describe('CheckinProcessor', () => {
     it('calls onMissedCheckin on the anti-ghost service', async () => {
       await processor.handleCheckinMissed(makeJob({ userId: 'user-1', taskId: 'task-1' }));
       expect(mockAntiGhostService.onMissedCheckin).toHaveBeenCalledWith('user-1', 'task-1');
+    });
+  });
+
+  describe('handlePaymentLinkNudge', () => {
+    const pendingUser = {
+      ...testUser,
+      onboarding_stage: OnboardingStage.PAYMENT_PENDING,
+      dunning_nudges_sent: 0,
+      intake_data: { goal_description: 'run a 5k', avoidance_patterns: 'scrolling' },
+    } as unknown as User;
+
+    beforeEach(() => {
+      mockUserRepo.findOne.mockResolvedValue(pendingUser);
+      mockUserRepo.update = jest.fn().mockResolvedValue(undefined);
+    });
+
+    it('ships a freshly regenerated checkout link (the original Stripe session has expired)', async () => {
+      mockStripeService.createCustomer.mockResolvedValue({ id: 'cus_1' });
+      mockStripeService.createCheckoutSession.mockResolvedValue({ id: 'cs_fresh', url: 'https://checkout.stripe/fresh' });
+
+      await processor.handlePaymentLinkNudge(makeJob({ userId: 'user-1', nudgeIndex: 0 }));
+
+      expect(mockStripeService.createCheckoutSession).toHaveBeenCalled();
+      expect(mockMessagingService.send).toHaveBeenCalledWith('+15551234567', 'https://checkout.stripe/fresh');
+      expect(mockUserRepo.update).toHaveBeenCalledWith('user-1', expect.objectContaining({ stripe_checkout_session_id: 'cs_fresh' }));
+      expect(mockUserRepo.update).toHaveBeenCalledWith('user-1', { dunning_nudges_sent: 1 });
+    });
+
+    it('falls back to a reply CTA when link regeneration fails, without crashing', async () => {
+      mockStripeService.createCustomer.mockResolvedValue({ id: 'cus_1' });
+      mockStripeService.createCheckoutSession.mockRejectedValue(new Error('stripe down'));
+
+      await processor.handlePaymentLinkNudge(makeJob({ userId: 'user-1', nudgeIndex: 0 }));
+
+      expect(mockMessagingService.send).toHaveBeenCalledWith('+15551234567', "reply 'go' and i'll send you a fresh link.");
+      expect(mockUserRepo.update).toHaveBeenCalledWith('user-1', { dunning_nudges_sent: 1 });
+    });
+
+    it('does nothing once the lead has paid (no longer payment_pending)', async () => {
+      mockUserRepo.findOne.mockResolvedValue({ ...pendingUser, onboarding_stage: OnboardingStage.COMPLETE });
+
+      await processor.handlePaymentLinkNudge(makeJob({ userId: 'user-1', nudgeIndex: 0 }));
+
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+      expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
     });
   });
 });

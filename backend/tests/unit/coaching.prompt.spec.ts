@@ -77,9 +77,14 @@ describe('buildSystemPrompt', () => {
     expect(prompt.toLowerCase()).toMatch(/lowercase/);
   });
 
-  it('enforces a short 1–3 sentence limit', () => {
+  it('enforces a short 1–2 sentence limit', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
-    expect(prompt).toMatch(/1.{0,5}3 sentence/i);
+    expect(prompt).toMatch(/1.{0,8}2 short sentence/i);
+  });
+
+  it('bans em-dashes in the outbound voice', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    expect(prompt.toLowerCase()).toMatch(/never use em-dash|long dashes/);
   });
 
   it('requires ending with a specific action', () => {

@@ -5,6 +5,7 @@ import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
 import { structuredLog } from '../common/logger';
+import { computeLocalDelayMs } from './schedule-time.util';
 
 @Injectable()
 export class CheckinService implements OnApplicationBootstrap {
@@ -128,23 +129,8 @@ export class CheckinService implements OnApplicationBootstrap {
   }
 
   computeDelayMs(checkinTime: string, utcOffsetMinutes = 0): number {
-    const [hours, minutes] = checkinTime.split(':').map(Number);
-
-    // Convert user's local time → UTC by subtracting their offset
-    const localTotalMins = hours * 60 + minutes;
-    const utcTotalMins = ((localTotalMins - utcOffsetMinutes) % 1440 + 1440) % 1440;
-    const utcH = Math.floor(utcTotalMins / 60);
-    const utcM = utcTotalMins % 60;
-
-    const now = new Date();
-    const target = new Date(now);
-    target.setUTCHours(utcH, utcM, 0, 0);
-
-    if (target.getTime() <= now.getTime()) {
-      target.setUTCDate(target.getUTCDate() + 1);
-    }
-
-    return target.getTime() - now.getTime();
+    // Single source of truth shared with the night-recap scheduler.
+    return computeLocalDelayMs(checkinTime, utcOffsetMinutes);
   }
 
   async scheduleCheckin(user: User): Promise<any> {

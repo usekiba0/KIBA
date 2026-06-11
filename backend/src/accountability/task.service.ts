@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { Goal } from '../data/entities/goal.entity';
+import { findAnchorGoal } from '../data/goal-selection';
 import { structuredLog } from '../common/logger';
 
 /**
@@ -47,10 +48,9 @@ export class TaskService {
       return existing.status === TaskStatus.PENDING ? existing : null;
     }
 
-    const goal = await this.goalRepo.findOne({
-      where: { user_id: userId },
-      order: { created_at: 'DESC' },
-    });
+    // Daily tasks seed from the ANCHOR goal only — the one-thing-a-day rhythm.
+    // Secondary goals are tracked but don't each generate a daily task.
+    const goal = await findAnchorGoal(this.goalRepo, userId);
     if (!goal) return null;
 
     const dailyTasks = goal.action_plan?.daily_tasks;

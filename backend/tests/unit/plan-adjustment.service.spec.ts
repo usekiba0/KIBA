@@ -29,6 +29,7 @@ const testGoal: Goal = {
   action_plan: { milestones: [], weekly_breakdown: [], daily_tasks: [] },
   goal_type: GoalType.OUTCOME,
   difficulty_level: 3,
+  is_anchor: true,
   created_at: new Date(),
   updated_at: new Date(),
 };

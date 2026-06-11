@@ -32,6 +32,15 @@ export class PsychologicalProfile {
   @Column({ type: 'text' })
   typical_failure_moment: string;
 
+  /**
+   * The private outcome the user would be most ashamed for people to see if they
+   * keep failing. V5 spec collects this ~week 2 via natural elicitation (not at
+   * intake), so it's nullable and stays empty until the coaching AI surfaces it
+   * with save_profile_field. Read back by the coaching prompt for sharper pushes.
+   */
+  @Column({ type: 'text', nullable: true })
+  embarrassment: string | null;
+
   @Column({ type: 'enum', enum: PressurePreference })
   pressure_preference: PressurePreference;
 

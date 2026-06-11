@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { User } from './entities/user.entity';
 import { Subscription } from './entities/subscription.entity';
 import { Message } from './entities/message.entity';
@@ -24,6 +24,7 @@ export class DataRightsService {
     @InjectRepository(CrisisAlert) private readonly alertRepo: Repository<CrisisAlert>,
     @InjectRepository(ConversationSession)
     private readonly sessionRepo: Repository<ConversationSession>,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly stripeService: StripeService,
   ) {}
 
@@ -60,12 +61,23 @@ export class DataRightsService {
       }
     }
 
-    await this.alertRepo.delete({ user_id: userId });
-    await this.nutritionRepo.delete({ user_id: userId });
-    await this.summaryRepo.delete({ user_id: userId });
-    await this.messageRepo.delete({ user_id: userId });
-    await this.sessionRepo.delete({ user_id: userId });
-    await this.subRepo.delete({ user_id: userId });
-    await this.userRepo.delete({ id: userId });
+    // Wipe every row scoped to this user across all tables that carry a
+    // `user_id` column, then the user row itself — in one transaction so a
+    // failure mid-way leaves nothing half-deleted. Driven off entity metadata
+    // (not a hand-maintained list) so any new user-scoped table is covered
+    // automatically; the DB has no ON DELETE CASCADE constraints, so without
+    // this an admin/GDPR delete would leave orphaned messages, goals, proofs,
+    // scores, strikes, etc. behind.
+    const userScopedTables = this.dataSource.entityMetadatas
+      .filter((meta) => meta.tableName !== 'users')
+      .filter((meta) => meta.columns.some((col) => col.databaseName === 'user_id'))
+      .map((meta) => meta.tableName);
+
+    await this.dataSource.transaction(async (manager) => {
+      for (const tableName of userScopedTables) {
+        await manager.query(`DELETE FROM "${tableName}" WHERE user_id = $1`, [userId]);
+      }
+      await manager.query(`DELETE FROM "users" WHERE id = $1`, [userId]);
+    });
   }
 }

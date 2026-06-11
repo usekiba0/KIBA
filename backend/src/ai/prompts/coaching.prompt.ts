@@ -10,6 +10,12 @@ export function buildPressureContext(
   profile: PsychologicalProfile,
   executionScore: number,
   recentStrikes: number,
+  /**
+   * Whole weeks since the user registered. Gates the `embarrassment` field —
+   * V5 says collect it ~week 2, so we don't surface it for elicitation until
+   * the relationship has had time to build. Defaults to 0 (week 1).
+   */
+  weeksIn = 0,
 ): string {
   const preferenceLabel =
     profile.pressure_preference === PressurePreference.ENCOURAGEMENT
@@ -30,6 +36,13 @@ export function buildPressureContext(
   field('Comparison figure', profile.comparison_figure, 'comparison_figure');
   field('Public failure scenario', profile.public_failure_scenario, 'public_failure_scenario');
   field('Typical failure moment', profile.typical_failure_moment, 'typical_failure_moment');
+  // Embarrassment is a WEEK-2 elicitation (V5): always show it once we have it,
+  // but only ask for it once the user is into their second week — never in week 1.
+  if (profile.embarrassment && profile.embarrassment.trim()) {
+    known.push(`- Embarrassment (what they'd hate people seeing if they keep failing): ${profile.embarrassment.trim()}`);
+  } else if (weeksIn >= 2) {
+    missing.push('embarrassment');
+  }
   known.push(`- Tone preference: ${preferenceLabel}`);
   known.push(`- Cussing consent: ${profile.cussing_ok ? 'YES — user opted in; cuss naturally when it fits the moment, never as filler' : 'NO — keep it PG; absolutely no profanity in any message'}`);
 
@@ -50,6 +63,9 @@ export function buildPressureContext(
       '- One elicitation max per turn. Never stack with another question.',
       '- The moment the user reveals one of these in plain language (e.g. "i keep comparing myself to my brother" → comparison_figure="my brother"), call save_profile_field IMMEDIATELY with the value. Do not wait for a confirmation.',
       '- If the user dodges or ignores an elicitation, drop that field for the rest of this session and just coach.',
+      ...(missing.includes('embarrassment')
+        ? ['- "embarrassment" is the private outcome they\'d be most ashamed for people to see if they keep failing (the quiet fear under the goal). Only ask in a genuinely reflective moment, gently, never as a gotcha — e.g. "real question — what\'s the version of this you\'d hate for anyone to actually see?"']
+        : []),
     );
   }
 
@@ -196,8 +212,10 @@ export function buildSystemPrompt(
   timeContext?: TimeContext,
   todos?: TodoForPrompt[],
   patterns?: PatternSignals,
+  /** Whole weeks since registration — gates the week-2 embarrassment elicitation. */
+  weeksIn = 0,
 ): string {
-  const pressureCtx = buildPressureContext(profile, executionScore, recentStrikes);
+  const pressureCtx = buildPressureContext(profile, executionScore, recentStrikes, weeksIn);
   const summarySection = sessionSummary ? `\nPREVIOUS SESSION:\n${sessionSummary}\n` : '';
   const knowledgeSection = curatedKnowledge && curatedKnowledge.length > 0
     ? `\nCURATED KNOWLEDGE (admin-approved corrections from past users — follow these):\n${curatedKnowledge.map((k) => `- ${k}`).join('\n')}\n`
@@ -215,7 +233,8 @@ ${user.name} should wake up expecting your message. feel weird ignoring you. wan
 
 TONE — NEVER BREAK:
 - lowercase by default. real texting, not corporate. contractions, casual punctuation, trailing off is fine.
-- 1-3 sentences per message. short bursts. if you need more, send it as separate texts with line breaks — not one wall.
+- NEVER use em-dashes or long dashes (— or –). real people don't text those. end the sentence with a period and start a new short one instead.
+- 1-2 short sentences per message. 3 only when it truly earns it. short bursts. NO walls of text, NO paragraphs, NO parenthetical lists like "(gym, god, business)". if there's genuinely more to say, send it as separate short texts with line breaks, never one block.
 - mirror their language. if they cuss, you can. if they're short, be short. if they're warm, be warm.
 - one question per reply, max. never stack questions.
 - react to what they said BEFORE moving forward. feel like a real conversation, not a script.

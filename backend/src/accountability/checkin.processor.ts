@@ -1,5 +1,5 @@
 import { Process, Processor } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -19,7 +19,9 @@ import { ScheduleService } from './schedule.service';
 import { CheckinService } from './checkin.service';
 import { TaskService } from './task.service';
 import { SurpriseService } from './surprise.service';
+import { RecapService } from './recap.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
+import { CoachingService } from '../ai/coaching.service';
 import { structuredLog } from '../common/logger';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
@@ -96,8 +98,11 @@ export class CheckinProcessor {
     private readonly checkinService: CheckinService,
     private readonly taskService: TaskService,
     private readonly surpriseService: SurpriseService,
+    private readonly recapService: RecapService,
     private readonly stripeService: StripeService,
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => CoachingService))
+    private readonly coachingService: CoachingService,
     @InjectQueue('accountability') private readonly queue: Queue,
   ) {}
 
@@ -246,6 +251,18 @@ export class CheckinProcessor {
   @Process('safety-reschedule-checkins')
   async handleSafetyReschedule(): Promise<void> {
     await this.checkinService.scheduleAllCheckins();
+    // Re-arm night recaps on the same hourly heartbeat so a Redis flap can't
+    // permanently kill recap cadence either. Idempotent via deterministic jobId.
+    await this.recapService.scheduleAllRecaps();
+  }
+
+  /**
+   * Worker for a single user's night recap. Aggregates the day, sends, and
+   * self-reschedules tomorrow's recap. Re-checks eligibility at fire time.
+   */
+  @Process('send-recap')
+  async handleSendRecap(job: Job<{ userId: string }>): Promise<void> {
+    await this.recapService.fire(job.data.userId);
   }
 
   @Process('send-scheduled-reminder')
@@ -269,12 +286,24 @@ export class CheckinProcessor {
     if (user.dunning_nudges_sent >= MAX_DUNNING_NUDGES) return;
     if (user.crisis_hold) return;
 
-    const text = buildDunningNudge(nudgeIndex, {
+    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
+    const goal = user.intake_data?.goal_description ?? null;
+    const obstacle = user.intake_data?.avoidance_patterns ?? null;
+    // Auto-generate a personalised win-back per the client's ask (the old fixed
+    // template read identically to every lead). Fall back to the deterministic
+    // template if the LLM call fails or returns empty — a nudge must never crash
+    // or send a blank.
+    const generated = await this.coachingService.generateWinbackNudge({
       name: user.name,
-      goal: user.intake_data?.goal_description ?? null,
-      obstacle: user.intake_data?.avoidance_patterns ?? null,
-      trialDays: this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
+      goal,
+      obstacle,
+      whyItMatters: user.intake_data?.why_it_matters ?? null,
+      nudgeIndex,
+      trialDays,
+      priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month'),
+      cussingOk: user.intake_data?.cussing_ok === true,
     });
+    const text = generated ?? buildDunningNudge(nudgeIndex, { name: user.name, goal, obstacle, trialDays });
     await this.messagingService.send(user.phone_number, text);
 
     // Ship a fresh link on its own line so it's always live and clickable. If
@@ -290,7 +319,7 @@ export class CheckinProcessor {
 
     structuredLog(this.logger, 'log', {
       service: 'onboarding', operation: 'dunning_nudge_sent',
-      userId, nudgeIndex, linkRegenerated: !!freshUrl,
+      userId, nudgeIndex, linkRegenerated: !!freshUrl, aiGenerated: !!generated,
     });
 
     // Schedule the next nudge in the sequence, if any remain.
@@ -315,15 +344,17 @@ export class CheckinProcessor {
     try {
       const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
       const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
-      const appBaseUrl = this.config.get<string>('APP_BASE_URL', 'https://kiba.ai');
+      // Return pages are FRONTEND routes — use FRONTEND_URL, not APP_BASE_URL
+      // (the backend has no /onboarding/success route and would 404 after pay).
+      const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://kiba.ai');
       const customer = await this.stripeService.createCustomer(user.name, user.phone_number);
       const session = await this.stripeService.createCheckoutSession({
         customerId: customer.id,
         priceId,
         trialDays,
         userId: user.id,
-        successUrl: `${appBaseUrl}/onboarding/success`,
-        cancelUrl: `${appBaseUrl}/onboarding/cancel`,
+        successUrl: `${frontendUrl}/onboarding/success`,
+        cancelUrl: `${frontendUrl}/onboarding/cancel`,
       });
       if (!session.url) return null;
       await this.userRepo.update(user.id, {

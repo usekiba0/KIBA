@@ -3,6 +3,7 @@ import {
   HttpCode, BadRequestException, Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, QueryFailedError } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
@@ -14,6 +15,7 @@ import { Subscription, SubscriptionStatus, SubscriptionPlan } from '../data/enti
 import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
 import { ProcessedStripeEvent } from '../data/entities/processed-stripe-event.entity';
 import { PsychologicalProfile, PressurePreference } from '../data/entities/psychological-profile.entity';
+import { Goal } from '../data/entities/goal.entity';
 import { structuredLog } from '../common/logger';
 import Stripe from 'stripe';
 
@@ -27,9 +29,11 @@ export class StripeWebhookController {
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(ProcessedStripeEvent) private readonly eventRepo: Repository<ProcessedStripeEvent>,
     @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
+    @InjectRepository(Goal) private readonly goalRepo: Repository<Goal>,
     @InjectQueue('messaging') private readonly messagingQueue: Queue,
     private readonly messagingService: MessagingService,
     private readonly checkinService: CheckinService,
+    private readonly config: ConfigService,
   ) {}
 
   @Post('stripe')
@@ -132,6 +136,14 @@ export class StripeWebhookController {
           );
         }
 
+        // Bridge the SMS intake goals into Goal entity rows. The intake AI only
+        // ever stored goals as text on intake_data — no Goal row was created and
+        // plan-generation was never enqueued, so SMS users got check-ins
+        // scheduled but never a goal-anchored daily task or action plan. This
+        // creates one Goal row per captured goal, flags the anchor, and kicks off
+        // plan generation for it. Idempotent — skips if goals already exist.
+        await this.bridgeGoalsFromIntake(user);
+
         // Bypass Bull/Upstash — the activation SMS is the demo's moment of truth,
         // so deliver directly through SendBlue/Twilio rather than risk a queue
         // worker outage swallowing it silently. Lifecycle notifications elsewhere
@@ -146,6 +158,26 @@ export class StripeWebhookController {
           this.logger.error(
             `[StripeWebhook] activation SMS failed for ${user.id}: ${(err as Error).message}`,
           );
+        }
+
+        // Retention nudge: a one-time "pin our chat" image so KIBA stays at the
+        // top of their messages. Static asset — same image for everyone — sent
+        // only if PIN_CHAT_IMAGE_URL is configured (a public HTTPS URL SendBlue/
+        // Twilio can fetch), so this is a safe no-op until the image is hosted.
+        // Best-effort: a media-send failure must never block activation.
+        const pinImageUrl = this.config.get<string>('PIN_CHAT_IMAGE_URL');
+        if (pinImageUrl) {
+          try {
+            await this.messagingService.send(
+              user.phone_number,
+              'one more thing — pin our chat so i stay at the top and you never lose track of your day 📌 here\'s how:',
+              pinImageUrl,
+            );
+          } catch (err) {
+            this.logger.warn(
+              `[StripeWebhook] pin-chat image send failed for ${user.id}: ${(err as Error).message}`,
+            );
+          }
         }
 
         // Kick off the daily check-in cadence. The intake AI promised this
@@ -286,5 +318,62 @@ export class StripeWebhookController {
     }
 
     structuredLog(this.logger, 'log', { service: 'stripe-webhook', operation: event.type });
+  }
+
+  /**
+   * Create Goal entity rows from the SMS intake's captured goals and enqueue
+   * plan generation for the anchor. Closes the long-standing gap where SMS users
+   * never got a Goal row (so no action plan, no daily task content).
+   *
+   * Idempotent: no-ops if the user already has goals (re-delivered webhook, or a
+   * web-form user who got their Goal at signup). One row per captured goal; the
+   * goal matching intake_data.goal_description is flagged the anchor (else the
+   * first). Per-goal timeline/current_status only exist for the anchor in intake,
+   * so secondary goals are stored lightweight and can be promoted later.
+   */
+  private async bridgeGoalsFromIntake(user: User): Promise<void> {
+    try {
+      const existing = await this.goalRepo.count({ where: { user_id: user.id } });
+      if (existing > 0) return;
+
+      const intake = user.intake_data ?? {};
+      const anchorText = intake.goal_description?.trim() || null;
+      const list = (intake.goals && intake.goals.length ? intake.goals : anchorText ? [anchorText] : [])
+        .map((g) => g.trim())
+        .filter((g) => g.length > 0);
+      const unique = Array.from(new Set(list));
+      if (unique.length === 0) return; // nothing captured — leave as-is
+
+      // Anchor = the goal matching goal_description, else the first one.
+      const anchorIdx = anchorText && unique.includes(anchorText) ? unique.indexOf(anchorText) : 0;
+
+      const rows = unique.map((description, i) =>
+        this.goalRepo.create({
+          user_id: user.id,
+          description,
+          timeline: i === anchorIdx ? intake.goal_timeline?.trim() || '' : '',
+          current_status: i === anchorIdx ? intake.current_status?.trim() || '' : '',
+          difficulty_level: 3,
+          is_anchor: i === anchorIdx,
+        }),
+      );
+      await this.goalRepo.save(rows);
+
+      // Plan generation targets the anchor (handler resolves via findAnchorGoal).
+      await this.messagingQueue.add('plan-generation', { userId: user.id });
+
+      structuredLog(this.logger, 'log', {
+        service: 'stripe-webhook',
+        operation: 'goals_bridged_from_intake',
+        userId: user.id,
+        goalCount: rows.length,
+      });
+    } catch (err) {
+      // Non-fatal — activation must still complete. Worst case there's no action
+      // plan yet; a later inbound or backfill can recreate goals.
+      this.logger.error(
+        `[StripeWebhook] bridgeGoalsFromIntake failed for ${user.id}: ${(err as Error).message}`,
+      );
+    }
   }
 }

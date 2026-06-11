@@ -25,6 +25,7 @@ const testProfile: PsychologicalProfile = {
   fears: 'Staying stuck', avoidance_patterns: 'Scrolling phone',
   comparison_figure: 'College roommate', public_failure_scenario: 'Friends find out',
   typical_failure_moment: 'Sunday evenings',
+  embarrassment: null,
   pressure_preference: PressurePreference.PRESSURE,
   cussing_ok: false,
   created_at: new Date(), updated_at: new Date(),

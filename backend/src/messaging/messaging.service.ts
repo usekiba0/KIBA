@@ -12,6 +12,9 @@ export class MessagingService implements OnModuleInit {
   private readonly twilioClient: twilio.Twilio;
   private sendBlueReady = false;
 
+  /** The six iMessage tapbacks SendBlue accepts. */
+  static readonly VALID_REACTIONS = ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question'] as const;
+
   constructor(
     private readonly config: ConfigService,
     @InjectQueue('messaging') private readonly messagingQueue: Queue,
@@ -47,26 +50,34 @@ export class MessagingService implements OnModuleInit {
     this.logger.log(`[Queue] Job added for ${to}`);
   }
 
-  async send(to: string, body: string): Promise<void> {
+  /**
+   * Send a message, optionally with a media attachment (photo / GIF / video).
+   * `mediaUrl` must be a publicly-fetchable HTTPS URL — both SendBlue and Twilio
+   * pull the file from the URL, neither accepts a raw upload. Full media works
+   * over iMessage (SendBlue); SMS falls back to Twilio MMS where GIFs render as a
+   * static image and video is unreliable.
+   */
+  async send(to: string, body: string, mediaUrl?: string): Promise<void> {
     const sendBlueKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const sendBlueSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
 
     if (this.sendBlueReady && sendBlueKeyId && sendBlueSecret) {
       try {
-        await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret);
+        await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret, mediaUrl);
         return;
       } catch (err) {
         this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
       }
     }
 
-    await this.sendViaTwilio(to, body);
+    await this.sendViaTwilio(to, body, mediaUrl);
   }
 
-  async sendViaSendBlue(to: string, body: string, keyId: string, secret: string): Promise<void> {
+  async sendViaSendBlue(to: string, body: string, keyId: string, secret: string, mediaUrl?: string): Promise<void> {
     const fromNumber = this.config.get<string>('SENDBLUE_FROM_NUMBER');
     const payload: Record<string, string> = { number: to, content: body };
     if (fromNumber) payload.from_number = fromNumber;
+    if (mediaUrl) payload.media_url = mediaUrl;
     try {
       const response = await axios.post(
         'https://api.sendblue.co/api/send-message',
@@ -159,11 +170,63 @@ export class MessagingService implements OnModuleInit {
     }
   }
 
-  async sendViaTwilio(to: string, body: string): Promise<void> {
+  /**
+   * Send an iMessage tapback (heart / thumbs / laugh / etc.) onto a message the
+   * user sent us. iMessage-only — SMS/RCS have no tapback concept, so this no-ops
+   * with ok:false off-iMessage rather than sending the ugly "Liked 'x'" text.
+   * `messageHandle` is the Apple GUID from the inbound SendBlue webhook.
+   *
+   * Endpoint mirrors the proven send-message host (api.sendblue.co). Best-effort:
+   * returns a result instead of throwing so a failed reaction never breaks a turn.
+   */
+  async sendReaction(
+    to: string,
+    messageHandle: string | null,
+    reaction: string,
+    partIndex = 0,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!this.sendBlueReady) return { ok: false, error: 'reactions require iMessage (SendBlue not configured)' };
+    if (!MessagingService.VALID_REACTIONS.includes(reaction as never)) {
+      return { ok: false, error: `invalid reaction: ${reaction}` };
+    }
+    const keyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
+    const secret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
+    const fromNumber = this.config.get<string>('SENDBLUE_FROM_NUMBER');
+    if (!keyId || !secret) return { ok: false, error: 'SendBlue not configured' };
+    if (!fromNumber) return { ok: false, error: 'SENDBLUE_FROM_NUMBER missing' };
+    if (!messageHandle) return { ok: false, error: 'no message_handle to react to' };
+
+    try {
+      const response = await axios.post(
+        'https://api.sendblue.co/api/send-reaction',
+        { from_number: fromNumber, message_handle: messageHandle, reaction, part_index: partIndex },
+        { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret, 'Content-Type': 'application/json' }, timeout: 5_000 },
+      );
+      const status = response.data?.status;
+      if (status && String(status).toUpperCase() === 'ERROR') {
+        return { ok: false, error: `SendBlue rejected reaction: ${response.data?.error_message ?? status}` };
+      }
+      structuredLog(this.logger, 'log', {
+        service: 'messaging', operation: 'send_reaction', to, reaction,
+      });
+      return { ok: true };
+    } catch (err) {
+      const detail = (err as any)?.response?.data ? JSON.stringify((err as any).response.data) : '';
+      this.logger.warn(`[SendBlue] Reaction failed for ${to}: ${(err as Error).message} | body: ${detail}`);
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
+  async sendViaTwilio(to: string, body: string, mediaUrl?: string): Promise<void> {
     const from = this.config.getOrThrow('TWILIO_PHONE_NUMBER');
     this.logger.log(`[Twilio] Sending from ${from} to ${to}`);
     try {
-      const message = await this.twilioClient.messages.create({ from, to, body });
+      const message = await this.twilioClient.messages.create({
+        from,
+        to,
+        body,
+        ...(mediaUrl ? { mediaUrl: [mediaUrl] } : {}),
+      });
       structuredLog(this.logger, 'log', {
         service: 'messaging',
         operation: 'send_sms',
