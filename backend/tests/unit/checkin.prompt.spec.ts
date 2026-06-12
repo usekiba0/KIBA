@@ -48,6 +48,18 @@ describe('buildCheckinMessage', () => {
     const msg = buildCheckinMessage('Alex', testProfile, null);
     expect(msg.length).toBeGreaterThan(0);
   });
+
+  it('renders a combined multi-goal check-in covering every goal (newline-separated)', () => {
+    // TaskService stores one DailyTask whose description is each goal's action,
+    // newline-separated. The check-in must surface ALL of them, not just one.
+    const combined = 'Day 1 Monday: 30 min workout\nDay 1 Monday: cold-call 5 leads';
+    for (let i = 0; i < 30; i++) {
+      const msg = buildCheckinMessage('Alex', testProfile, combined, { localDow: 1 });
+      expect(msg).toContain('30 min workout');
+      expect(msg).toContain('cold-call 5 leads');
+      expect(msg).not.toContain('Day 1 Monday');   // prefix stripped per goal
+    }
+  });
 });
 
 describe('humanizeTask', () => {

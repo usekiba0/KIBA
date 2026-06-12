@@ -7,7 +7,7 @@ import { MessagingService } from './messaging.service';
 import { PlanService } from '../ai/plan.service';
 import { User } from '../data/entities/user.entity';
 import { Goal } from '../data/entities/goal.entity';
-import { findAnchorGoal } from '../data/goal-selection';
+import { findAllGoals } from '../data/goal-selection';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { CheckinService } from '../accountability/checkin.service';
 import { classifyGoalType } from '../ai/goal-classifier';
@@ -52,37 +52,24 @@ export class MessagingProcessor {
   async handlePlanGeneration(job: Job<{ userId: string }>) {
     const { userId } = job.data;
 
-    // Plan generation targets the ANCHOR goal — the one that drives the daily
-    // loop. Secondary goals are stored without a generated plan (promotable
-    // later) so signup stays a single LLM call.
-    const [user, goal, profile] = await Promise.all([
+    // Multi-goal (Karibi 2026-06-12 "it focused on gym only"): EVERY goal the
+    // user holds gets its own classified action plan, so the daily loop can
+    // coach all of them, not just the anchor. Secondary goals used to be stored
+    // plan-less and were never coached again.
+    const [user, goals, profile] = await Promise.all([
       this.userRepo.findOne({ where: { id: userId } }),
-      findAnchorGoal(this.goalRepo, userId),
+      findAllGoals(this.goalRepo, userId),
       this.profileRepo.findOne({ where: { user_id: userId } }),
     ]);
 
-    if (!user || !goal || !profile) {
+    if (!user || !goals.length || !profile) {
       this.logger.warn(`[Plan] Missing data for userId=${userId} — skipping`);
       return;
     }
 
-    // Classify the goal type up front (deterministic, no LLM) so proactive copy
-    // can branch — only TASK goals get "did it happen?", everything else gets
-    // "what's the move today?". Persisted independently of the plan LLM below so
-    // an Anthropic hiccup never leaves the goal unclassified. Karibi 2026-06-01.
-    try {
-      const goalType = classifyGoalType(goal.description, goal.timeline);
-      if (goalType !== goal.goal_type) {
-        await this.goalRepo.update(goal.id, { goal_type: goalType });
-      }
-    } catch (err) {
-      this.logger.warn(`[Plan] goal classification failed for userId=${userId}: ${(err as Error).message}`);
-    }
-
-    // Plan generation calls Anthropic and can fail (timeout, malformed JSON, etc.).
-    // The daily check-in cadence is independent — schedule it OUTSIDE this try
-    // block so an LLM hiccup at signup never silences the user permanently.
-    // Idempotent + timezone-aware via CheckinService.scheduleCheckin.
+    // Check-in cadence is independent of plan generation — schedule it OUTSIDE
+    // the LLM calls so an Anthropic hiccup at signup never silences the user
+    // permanently. Idempotent + timezone-aware via CheckinService.scheduleCheckin.
     try {
       await this.checkinService.scheduleCheckin(user);
     } catch (err) {
@@ -93,22 +80,49 @@ export class MessagingProcessor {
       // Non-fatal — boot-time scheduleAllCheckins will re-enqueue next deploy.
     }
 
-    try {
-      const plan = await this.planService.generatePlan(
-        { description: goal.description, timeline: goal.timeline, current_status: goal.current_status },
-        profile,
-      );
-
-      await this.goalRepo.update(goal.id, { action_plan: plan });
-
-      structuredLog(this.logger, 'log', {
-        service: 'plan',
-        operation: 'plan_generated',
-        userId,
-      });
-    } catch (err) {
-      this.logger.error(`[Plan] Generation failed for userId=${userId}: ${(err as Error).message}`, (err as Error).stack);
-      throw err;
+    // Classify + plan each goal independently. One goal's failure must not block
+    // the others, so each is best-effort; we re-throw (letting Bull retry) ONLY
+    // when every goal failed — a wholesale Anthropic outage — not for a single
+    // malformed plan.
+    const results = await Promise.allSettled(
+      goals.map((goal) => this.generateGoalPlan(goal, profile, userId)),
+    );
+    const anyOk = results.some((r) => r.status === 'fulfilled');
+    if (!anyOk) {
+      throw new Error(`[Plan] generation failed for all ${goals.length} goals (userId=${userId})`);
     }
+  }
+
+  /**
+   * Classify + generate the action plan for a single goal and persist both.
+   * Classification is deterministic (no LLM) and persisted separately so an
+   * Anthropic hiccup on the plan never leaves the goal unclassified.
+   */
+  private async generateGoalPlan(
+    goal: Goal,
+    profile: PsychologicalProfile,
+    userId: string,
+  ): Promise<void> {
+    try {
+      const goalType = classifyGoalType(goal.description, goal.timeline);
+      if (goalType !== goal.goal_type) {
+        await this.goalRepo.update(goal.id, { goal_type: goalType });
+      }
+    } catch (err) {
+      this.logger.warn(`[Plan] goal classification failed for goalId=${goal.id}: ${(err as Error).message}`);
+    }
+
+    const plan = await this.planService.generatePlan(
+      { description: goal.description, timeline: goal.timeline, current_status: goal.current_status },
+      profile,
+    );
+    await this.goalRepo.update(goal.id, { action_plan: plan });
+
+    structuredLog(this.logger, 'log', {
+      service: 'plan',
+      operation: 'plan_generated',
+      userId,
+      goalId: goal.id,
+    });
   }
 }

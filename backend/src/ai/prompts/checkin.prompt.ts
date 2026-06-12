@@ -22,6 +22,20 @@ export function buildCheckinMessage(
   ctx: CheckinContext = {},
 ): string {
   const isThuFri = ctx.localDow === 4 || ctx.localDow === 5;
+
+  // Multi-goal: TaskService stores one combined DailyTask whose description is
+  // each goal's action for today, newline-separated. Render those as a single
+  // combined check-in listing every goal (Karibi 2026-06-12). Single-goal
+  // descriptions have no newline and fall through to the original path.
+  const lines = (taskDescription ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length > 1) {
+    const actions = lines.map(humanizeTask).filter((a) => a.length > 0);
+    if (actions.length > 1) return pickMultiTaskVariant(userName, actions, ctx.localDow ?? null);
+  }
+
   const task = taskDescription ? humanizeTask(taskDescription) : null;
   if (task) {
     if (isThuFri) return pickEndOfWeekTaskVariant(userName, task, ctx.localDow as 4 | 5);
@@ -49,6 +63,26 @@ export function humanizeTask(task: string): string {
     .replace(/[.!?]+$/, '')
     .trim();
   return firstClause.length >= 3 ? firstClause : stripped;
+}
+
+/**
+ * Combined morning check-in for a user with multiple goals. Lists each goal's
+ * action for today and asks them to lock in a time for all of them — one
+ * message, not one per goal (the "one combined check-in" decision).
+ */
+function pickMultiTaskVariant(userName: string, actions: string[], dow: number | null): string {
+  const list = actions.map((a) => `• ${a}`).join('\n');
+  const isThuFri = dow === 4 || dow === 5;
+  if (isThuFri) {
+    const daysLeft = dow === 4 ? 'two days' : 'last day';
+    return `${daysLeft} left in the week.\ntoday:\n${list}\nwhat time for each? don't coast into the weekend.`;
+  }
+  const variants = [
+    `morning. today's moves:\n${list}\nwhat time you hitting each?`,
+    `up ${userName}. on the board today:\n${list}\nwhen's each happening?`,
+    `morning ${userName}.\n${list}\nlock in a time for all of these.`,
+  ];
+  return variants[Math.floor(Math.random() * variants.length)];
 }
 
 function pickEndOfWeekTaskVariant(userName: string, task: string, dow: 4 | 5): string {

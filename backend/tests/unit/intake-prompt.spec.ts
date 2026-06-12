@@ -73,16 +73,17 @@ describe('buildIntakeSystemPrompt', () => {
     expect(p).toContain('save_intake_field("goals"');
     // ...and explicitly forbid the oppositional "you'll end up locked in on nothing" line.
     expect(p).toMatch(/NEVER tell them they have too many goals/i);
-    // The anchor is framed as a daily focus, not a cut.
-    expect(p).toMatch(/ANCHOR/);
+    // All goals are coached daily — no forcing them down to one.
+    expect(p).toMatch(/ALL GOALS ARE COACHED DAILY/i);
   });
 
-  it('recaps every goal with the daily anchor marked when there are several', () => {
+  it('recaps every goal as coached daily when there are several', () => {
     const p = buildIntakeSystemPrompt(ctx({
       name: 'Sam',
       intakeData: { goal_description: 'scale the business', goals: ['scale the business', 'gym every morning', 'read the bible'] },
     }));
-    expect(p).toContain('scale the business (daily anchor)');
+    expect(p).toMatch(/ALL coached daily/i);
+    expect(p).toContain('scale the business');
     expect(p).toContain('gym every morning');
     expect(p).toContain('read the bible');
   });

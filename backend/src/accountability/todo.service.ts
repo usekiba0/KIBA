@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DailyTodo, DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { Goal } from '../data/entities/goal.entity';
-import { findAnchorGoal } from '../data/goal-selection';
+import { findAllGoals } from '../data/goal-selection';
 import { structuredLog } from '../common/logger';
 
 /**
@@ -95,16 +95,19 @@ export class TodoService {
       return existing;
     }
 
-    // Seed today's plan todos from the ANCHOR goal's action plan.
-    const goal = await findAnchorGoal(this.goalRepo, userId);
-    const dailyTasks = goal?.action_plan?.daily_tasks;
-    if (!goal || !dailyTasks || dailyTasks.length === 0) {
+    // Seed today's plan todos from EVERY goal's action plan — multi-goal
+    // coaching (Karibi 2026-06-12). Each goal contributes its day-N items so the
+    // coaching AI sees what's on the plate across all goals, not just the anchor.
+    const goals = await findAllGoals(this.goalRepo, userId);
+    const planned = goals.filter((g) => (g.action_plan?.daily_tasks?.length ?? 0) > 0);
+    if (planned.length === 0) {
       return existing;
     }
 
     // Use the count of distinct plan-sourced *days* this user has had as the
     // day-index — counts unique scheduled_date values to avoid drift if a day
     // was skipped or rescheduled. Falls back to row count if the query fails.
+    // Shared across goals (it's a day counter); each goal cycles on its own length.
     const priorPlanRows = await this.todoRepo
       .createQueryBuilder('t')
       .select('DISTINCT t.scheduled_date', 'd')
@@ -113,22 +116,24 @@ export class TodoService {
       .getRawMany()
       .catch(() => null);
     const dayIndex = priorPlanRows ? priorPlanRows.length : 0;
-    const dayEntry = dailyTasks[dayIndex % dailyTasks.length];
 
-    const items = splitPlanDayIntoItems(dayEntry);
     const created: DailyTodo[] = [];
-    for (const item of items) {
-      created.push(await this.todoRepo.save({
-        user_id: userId,
-        scheduled_date: today,
-        content: item,
-        status: DailyTodoStatus.OPEN,
-        source: DailyTodoSource.PLAN,
-      }));
+    for (const goal of planned) {
+      const dailyTasks = goal.action_plan.daily_tasks;
+      const dayEntry = dailyTasks[dayIndex % dailyTasks.length];
+      for (const item of splitPlanDayIntoItems(dayEntry)) {
+        created.push(await this.todoRepo.save({
+          user_id: userId,
+          scheduled_date: today,
+          content: item,
+          status: DailyTodoStatus.OPEN,
+          source: DailyTodoSource.PLAN,
+        }));
+      }
     }
     structuredLog(this.logger, 'log', {
       service: 'accountability', operation: 'todos_seeded_from_plan',
-      userId, dayIndex, itemCount: created.length,
+      userId, dayIndex, goalCount: planned.length, itemCount: created.length,
     });
     return [...existing, ...created];
   }

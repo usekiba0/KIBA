@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { Goal } from '../data/entities/goal.entity';
-import { findAnchorGoal } from '../data/goal-selection';
+import { findAllGoals } from '../data/goal-selection';
 import { structuredLog } from '../common/logger';
 
 /**
@@ -48,21 +48,32 @@ export class TaskService {
       return existing.status === TaskStatus.PENDING ? existing : null;
     }
 
-    // Daily tasks seed from the ANCHOR goal only — the one-thing-a-day rhythm.
-    // Secondary goals are tracked but don't each generate a daily task.
-    const goal = await findAnchorGoal(this.goalRepo, userId);
-    if (!goal) return null;
-
-    const dailyTasks = goal.action_plan?.daily_tasks;
-    if (!dailyTasks || dailyTasks.length === 0) return null;
+    // Daily task seeds from ALL goals that have a generated plan — multi-goal
+    // coaching (Karibi 2026-06-12 "it focused on gym only"). We still create
+    // exactly ONE DailyTask row per day: a single combined task keeps scoring,
+    // photo-proof and anti-ghost single-track. Its description carries each
+    // goal's action for today, newline-separated; the check-in renderer turns
+    // that into one combined message. findAllGoals returns anchor-first, so a
+    // single-goal user's description is unchanged (just that one task).
+    const goals = await findAllGoals(this.goalRepo, userId);
+    const planned = goals.filter((g) => (g.action_plan?.daily_tasks?.length ?? 0) > 0);
+    if (planned.length === 0) return null;
 
     // Day-index = how many tasks this user has had before today. Cycles when
-    // we run past the end of the action plan.
+    // we run past the end of a goal's action plan. Each goal cycles on its own
+    // length so plans of different sizes stay in sync with the day count.
     const priorCount = await this.taskRepo.count({ where: { user_id: userId } });
-    const description = dailyTasks[priorCount % dailyTasks.length];
+    const description = planned
+      .map((g) => {
+        const tasks = g.action_plan.daily_tasks;
+        return tasks[priorCount % tasks.length];
+      })
+      .join('\n');
 
     const task = this.taskRepo.create({
-      goal_id: goal.id,
+      // The combined task is anchored to the primary goal's id (findAllGoals is
+      // anchor-first) for the proof/anti-ghost FK; it represents the whole day.
+      goal_id: planned[0].id,
       user_id: userId,
       task_description: description,
       scheduled_date: today,
