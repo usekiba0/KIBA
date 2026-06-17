@@ -98,6 +98,25 @@ describe('buildIntakeSystemPrompt', () => {
     expect(paywall).toMatch(/GIVE THE FULL THING right now/i);
   });
 
+  it('never takes a verbal payment claim as proof — payment is system-verified', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' } }));
+    expect(p).toMatch(/PAYMENT IS SYSTEM-VERIFIED/i);
+    expect(p).toMatch(/NEVER TAKE THEIR WORD/i);
+    expect(p).toMatch(/not seeing it active on my end yet/i);
+  });
+
+  it('forbids referencing a downloadable app (KIBA is SMS-only)', () => {
+    const p = buildIntakeSystemPrompt(ctx());
+    expect(p).toMatch(/THERE IS NO APP/i);
+    expect(p).toMatch(/never ask if they "have the app"/i);
+  });
+
+  it('frames reminders as a yes (its whole thing), never a denial', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' } }));
+    expect(p).toMatch(/REMINDERS ARE LITERALLY YOUR THING/i);
+    expect(p).toMatch(/NEVER say "i can't do reminders"/i);
+  });
+
   it('forbids generic fortune-cookie reflections in the I-SEE-YOU moment', () => {
     const p = buildIntakeSystemPrompt(ctx());
     expect(p).toMatch(/short on time, you're short on structure/i);

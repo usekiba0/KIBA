@@ -353,8 +353,23 @@ export class CoachingProcessor {
     // Correction triggers, score queries, reminders, etc. are all coach-mode
     // features and are gated behind onboarding_stage === COMPLETE.
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) {
+      // RESUME, DON'T RESTART. `dbMessages` is scoped to the CURRENT session, but
+      // the 4h session boundary opens a fresh empty session whenever a lead comes
+      // back hours/days later (or just texts "yo"). Coaching users survive that
+      // because they carry a cross-session summary; intake users have none, so a
+      // session-scoped fetch hands the intake AI an empty history and it falls back
+      // to its cold opener ("what's your name tho?") — wiping the whole pre-pay
+      // conversation (Karibi 2026-06-16). Load the lead's recent messages ACROSS
+      // sessions so the build picks up exactly where it left off and everything
+      // they told us before paying stays in context.
+      const intakeHistory = await this.messageRepo.find({
+        where: { user_id: user.id },
+        order: { created_at: 'DESC' },
+        take: 20,
+      });
+      intakeHistory.reverse();
       const reply = await this.handleIntakeMessage(
-        user, dbMessages, body, boundary.sessionId, inboundMsg.id,
+        user, intakeHistory, body, boundary.sessionId, inboundMsg.id,
         inboundIsImage ? (firstMediaUrl ?? undefined) : undefined,
         inboundIsImage ? resolvedMediaCt : undefined,
       );
