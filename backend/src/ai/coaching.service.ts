@@ -14,6 +14,7 @@ import { Strike } from '../data/entities/strike.entity';
 import { buildSystemPrompt } from './prompts/coaching.prompt';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
+import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
 import { CorrectionService } from '../data/correction.service';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
@@ -630,6 +631,42 @@ export class CoachingService {
       return text.length > 0 ? text : null;
     } catch (err) {
       this.logger.warn(`generateWinbackNudge failed (falling back to template): ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Generate ONE payment-not-active reply for the deterministic payment-claim
+   * backstop: a lead claims they paid but no active sub exists. The DECISION to
+   * distrust the claim is made in the caller; this only varies the WORDING so a
+   * repeat claimant doesn't get the identical canned line. Single short, tool-less
+   * call. Returns trimmed text or null on failure/empty so the caller falls back
+   * to its static string — the refusal must never crash or send blank.
+   */
+  async generatePaymentNotActiveReply(ctx: PaymentClaimContext): Promise<string | null> {
+    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    try {
+      const response = await this.client.messages.create({
+        model,
+        max_tokens: 160,
+        system: buildPaymentNotActivePrompt(ctx),
+        messages: [{ role: 'user', content: 'Write the reply now.' }],
+      });
+      const text = response.content
+        .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n')
+        .trim();
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'payment_not_active_reply',
+        model,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+      });
+      return text.length > 0 ? text : null;
+    } catch (err) {
+      this.logger.warn(`generatePaymentNotActiveReply failed (falling back to static): ${(err as Error).message}`);
       return null;
     }
   }

@@ -387,9 +387,20 @@ export class CoachingProcessor {
             "got it — your payment's processing on my end. give it a sec and i'll have your plan ready 🔥",
           );
         } else {
+          // Deterministic decision (distrust the claim) but LLM-varied wording so a
+          // repeat claimant doesn't get the identical canned line. Falls back to a
+          // static string if the generation fails/empties.
+          const generated = await this.coachingService.generatePaymentNotActiveReply({
+            name: user.name,
+            goal: user.intake_data?.goal_description ?? null,
+            cussingOk: user.intake_data?.cussing_ok ?? false,
+            trialDays: this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
+            priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month'),
+          });
           await this.saveAndSend(
             user, boundary.sessionId,
-            "hmm not seeing it active on my end yet 🤔 tap the link i sent and it kicks in the second it goes through. lmk if the link's giving you trouble.",
+            generated ??
+              "hmm not seeing it active on my end yet 🤔 tap the link i sent and it kicks in the second it goes through. lmk if the link's giving you trouble.",
           );
         }
         structuredLog(this.logger, 'log', {
