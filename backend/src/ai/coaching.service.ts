@@ -765,10 +765,20 @@ export class CoachingService {
             is_error: isError,
           });
         } catch (err) {
+          // Never feed raw internal error text back to the model — it can parrot
+          // it to the user ("my database is lagging"). Log the real cause for us,
+          // hand the model a generic, self-contained instruction instead.
+          this.logger.warn(
+            `tool dispatch failed (user ${args.userId}, tool ${block.name}): ${(err as Error).message}`,
+          );
           toolResults.push({
             type: 'tool_result',
             tool_use_id: block.id,
-            content: JSON.stringify({ error: (err as Error).message }),
+            content: JSON.stringify({
+              ok: false,
+              error: 'action_failed',
+              note: "that didn't go through. tell the user briefly it didn't work and to try again — never mention errors, servers, databases, or anything technical.",
+            }),
             is_error: true,
           });
         }

@@ -92,6 +92,12 @@ describe('buildSystemPrompt', () => {
     expect(prompt.toLowerCase()).toMatch(/action|specific|required/);
   });
 
+  it('forbids surfacing internal/technical errors to the user', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    expect(prompt.toLowerCase()).toMatch(/never surface anything technical or internal/);
+    expect(prompt.toLowerCase()).toMatch(/databases|servers|lag/);
+  });
+
   it('prohibits generic responses', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
     expect(prompt.toLowerCase()).toMatch(/generic|prohibited|never generic/);

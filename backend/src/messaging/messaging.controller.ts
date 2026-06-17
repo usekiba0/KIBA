@@ -8,6 +8,7 @@ import { TwilioWebhookDto } from './dto/twilio-webhook.dto';
 import { SendBlueWebhookDto } from './dto/sendblue-webhook.dto';
 import { MessageDebouncerService } from './message-debouncer.service';
 import { MessagingService } from './messaging.service';
+import { isInboundReaction } from './inbound-reaction';
 import { Message } from '../data/entities/message.entity';
 import { ConversationSession } from '../data/entities/conversation-session.entity';
 import { User } from '../data/entities/user.entity';
@@ -41,6 +42,18 @@ export class MessagingController {
     }
 
     const mediaUrls = this.extractMediaUrls(body);
+
+    // Drop iMessage tapbacks that fell back to SMS/RCS as literal `Liked "..."`
+    // text. They carry no new intent and would otherwise trigger a real AI turn.
+    if (mediaUrls.length === 0 && isInboundReaction(body.Body)) {
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'inbound_reaction_ignored',
+        from: body.From,
+      });
+      return;
+    }
+
     this.debouncer.push({
       from: body.From,
       text: body.Body ?? '',
@@ -89,6 +102,19 @@ export class MessagingController {
         this.logger.warn(`[SendBlue] Read receipt error for ${from}: ${(err as Error).message}`);
       });
     });
+
+    // Drop iMessage tapbacks (Liked "...", Loved "...", Removed a heart from "...").
+    // SendBlue forwards them as normal inbound text with no structured flag, so we
+    // detect the reaction wording. Reactions never carry media, so gate on its
+    // absence to avoid ever dropping a real photo + caption.
+    if (!mediaUrl && isInboundReaction(content)) {
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'inbound_reaction_ignored',
+        from,
+      });
+      return { received: true };
+    }
 
     const mediaUrls = mediaUrl ? [mediaUrl] : [];
     const mediaContentTypes = mediaUrl ? [this.guessContentType(mediaUrl)] : [];
