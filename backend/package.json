@@ -19,7 +19,7 @@
     "migration:revert": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:revert -d src/data/data-source.ts",
     "migration:generate": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:generate -d src/data/data-source.ts",
     "job:reset-unpaid": "node scripts/reset-all-to-unpaid.js",
-    "job:reset-unpaid:apply": "APPLY=1 node scripts/reset-all-to-unpaid.js",
+    "job:reset-unpaid:apply": "APPLY=1 CONFIRM=YES node scripts/reset-all-to-unpaid.js",
     "health:check": "node -e \"fetch('http://localhost:'+(process.env.PORT||3000)+'/health').then(r=>r.json()).then(j=>{console.log(JSON.stringify(j,null,2));process.exit(j.status==='ok'?0:1);}).catch(e=>{console.error('health check failed:',e.message);process.exit(2);})\""
   },
   "dependencies": {

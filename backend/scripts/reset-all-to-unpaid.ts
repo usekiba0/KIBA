@@ -60,6 +60,17 @@ async function main() {
   const MESSAGE = process.env.MESSAGE || DEFAULT_MESSAGE;
 
   const log = new Logger('reset-all-to-unpaid');
+
+  // Belt-and-suspenders: a real run needs BOTH APPLY=1 and CONFIRM=YES. Checked
+  // before we even boot Nest / touch the DB so a stray APPLY=1 can't fire.
+  if (APPLY && process.env.CONFIRM !== 'YES') {
+    log.error(
+      'APPLY=1 also requires CONFIRM=YES to actually mutate + send. Refusing. ' +
+        'Run without APPLY for a dry run, or re-run with CONFIRM=YES when you mean it.',
+    );
+    process.exit(2);
+  }
+
   const app = await NestFactory.createApplicationContext(AppModule, { bufferLogs: false });
 
   const stats = { users: 0, stripeCancelled: 0, stripeErrors: 0, localCancelled: 0, messaged: 0, messageErrors: 0, userErrors: 0 };

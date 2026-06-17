@@ -15,6 +15,10 @@ Cancels each complete user's live Stripe sub, marks local sub rows cancelled,
 resets them to `payment_pending` (name + goals kept), and texts a one-time
 "we're updating the subscription plans" announcement. **DRY RUN unless `APPLY=1`.**
 
+> **Double safety:** a real run needs BOTH `APPLY=1` **and** `CONFIRM=YES`. The
+> `job:reset-unpaid:apply` npm script already sets both; if you run `node` directly
+> with `APPLY=1` but no `CONFIRM=YES`, it refuses and exits before touching the DB.
+
 Dashboard → backend service → **Jobs** → New Job → set the command:
 
 ```
