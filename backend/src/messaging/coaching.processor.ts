@@ -91,6 +91,16 @@ function derivePatternSignals(user: User) {
 // a paying customer) burned us in production, so the regex stays broad.
 const BILLING_INTENT_RE = /\b(subscri(be|ption|bed|bing)|stripe|checkout|billing|membership)\b|\b(payment|pay)\s+(link|me|the|for|to|via|by)|\b(sign\s*up|signup)\b/i;
 
+// A pre-pay lead CLAIMING they already paid ("i paid", "just subscribed", "card
+// went through", "bought the plan"). Payment is system-verified — only the Stripe
+// webhook flips a user to COMPLETE — so a claim from someone still in intake is
+// either false or a lagged webhook; either way the LLM must NOT be talked into
+// acting like they're in (Karibi 2026-06-16: "i lied and it fell for it").
+// Deliberately does NOT match the build-phase micro-commitment "i'm in" / "i'm
+// ready" — that's the emotional yes before the close, not a payment claim.
+export const PAYMENT_CLAIM_RE =
+  /\bi\s+(?:already\s+|just\s+)?paid\b|\b(?:already|just)\s+paid\b|\bpaid\s+(?:you|already|it|for\s+(?:it|the|this))\b|\bpayment\s+(?:went|done|sent|made|through|cleared)|\b(?:just\s+)?(?:subscribed|purchased)\b|\bbought\s+(?:the\s+)?(?:plan|subscription|it)\b|\bcard\s+(?:went\s+through|charged|worked|cleared)|\b(?:charged|billed)\s+me\b|\b(?:i'?m|im)\s+(?:a\s+)?(?:member|subscriber)\b/i;
+
 // An intake lead explicitly asking us to send the payment link. Used to deliver
 // the link deterministically the moment they ask (once we have name+goal+tz),
 // instead of letting the model loop re-asking build questions (Karibi 2026-06-05).
@@ -353,6 +363,42 @@ export class CoachingProcessor {
     // Correction triggers, score queries, reminders, etc. are all coach-mode
     // features and are gated behind onboarding_stage === COMPLETE.
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) {
+      // PAYMENT-CLAIM BACKSTOP (deterministic — don't trust the LLM here).
+      // A lead who's been sent the link but still isn't COMPLETE telling us they
+      // "already paid" is either lying or hit a webhook lag. Never let the model
+      // congratulate/activate them on their word. Scoped to payment_link_sent so a
+      // stray "paid" during the build can't derail it before there's a link.
+      if (user.payment_link_sent_at && PAYMENT_CLAIM_RE.test(lowerBody)) {
+        const activeSub = await this.subscriptionRepo.findOne({
+          where: [
+            { user_id: user.id, status: SubscriptionStatus.ACTIVE },
+            { user_id: user.id, status: SubscriptionStatus.TRIALING },
+          ],
+        });
+        if (activeSub) {
+          // Rare: payment cleared but the stage flip lagged/failed. Do NOT send
+          // another checkout link (double-charge risk) or restart the build —
+          // reassure and let the webhook promote them. Logged as it signals a bug.
+          this.logger.warn(
+            `[IntakePaymentClaim] active sub but stage=${user.onboarding_stage} for ${user.id}`,
+          );
+          await this.saveAndSend(
+            user, boundary.sessionId,
+            "got it — your payment's processing on my end. give it a sec and i'll have your plan ready 🔥",
+          );
+        } else {
+          await this.saveAndSend(
+            user, boundary.sessionId,
+            "hmm not seeing it active on my end yet 🤔 tap the link i sent and it kicks in the second it goes through. lmk if the link's giving you trouble.",
+          );
+        }
+        structuredLog(this.logger, 'log', {
+          service: 'messaging', operation: 'intake_payment_claim_backstop',
+          userId: user.id, hasActiveSub: !!activeSub,
+        });
+        return;
+      }
+
       // RESUME, DON'T RESTART. `dbMessages` is scoped to the CURRENT session, but
       // the 4h session boundary opens a fresh empty session whenever a lead comes
       // back hours/days later (or just texts "yo"). Coaching users survive that
@@ -401,19 +447,53 @@ export class CoachingProcessor {
       return;
     }
 
-    // Billing-intent guard: a COMPLETE user with no active/trialing subscription
-    // is the broken backfill case (or a churned user) — bypass the LLM entirely
-    // and send a fresh Stripe checkout link. Active subscribers fall through so
-    // the LLM can use the send_payment_link tool with full context (or refuse
-    // gracefully when the tool reports they're already in).
-    if (BILLING_INTENT_RE.test(lowerBody)) {
-      const activeSub = await this.subscriptionRepo.findOne({
-        where: [
-          { user_id: user.id, status: SubscriptionStatus.ACTIVE },
-          { user_id: user.id, status: SubscriptionStatus.TRIALING },
-        ],
+    // === Entitlement gate (COMPLETE users) ===
+    // Routing trusts onboarding_stage, but migration 1779300000000 backfilled
+    // legacy users to COMPLETE without ever paying, and churned users keep COMPLETE
+    // after cancellation. Neither is entitled to free coaching. The billing-intent
+    // guard below only catches billing *asks* ("send me the link"); this closes the
+    // gap for every OTHER message so a never-paid/churned user can't just chat their
+    // way into unlimited coaching. Entitled = any non-cancelled sub
+    // (ACTIVE/TRIALING/PAST_DUE) — a paying customer in dunning grace still gets
+    // coached; only "no sub at all" or a cancelled-only sub gets diverted.
+    const entitledSub = await this.subscriptionRepo.findOne({
+      where: [
+        { user_id: user.id, status: SubscriptionStatus.ACTIVE },
+        { user_id: user.id, status: SubscriptionStatus.TRIALING },
+        { user_id: user.id, status: SubscriptionStatus.PAST_DUE },
+      ],
+    });
+    if (!entitledSub) {
+      await this.saveAndSend(
+        user, boundary.sessionId,
+        "looks like your coaching isn't active right now — here's the link to start it back up:",
+      );
+      const linkResult = await this.sendPaymentLink(user, inboundMsg.id, { requireFullIntake: false });
+      if (!linkResult.ok) {
+        this.logger.warn(`[EntitlementGate] sendPaymentLink failed for ${user.id}: ${linkResult.error}`);
+        await this.saveAndSend(
+          user, boundary.sessionId,
+          "i'm having trouble generating that — an admin will reach out shortly.",
+        );
+      }
+      structuredLog(this.logger, 'log', {
+        service: 'messaging', operation: 'entitlement_gate_diverted',
+        userId: user.id, ok: linkResult.ok,
       });
-      if (!activeSub) {
+      return;
+    }
+
+    // Billing-intent guard: a COMPLETE user whose only sub is PAST_DUE (made it
+    // past the entitlement gate on dunning grace) asking about billing gets a
+    // fresh checkout link instead of the LLM. ACTIVE/TRIALING subscribers fall
+    // through so the LLM can use the send_payment_link tool with full context (or
+    // refuse gracefully when the tool reports they're already in). Reuses
+    // entitledSub from the gate above — no second query.
+    if (BILLING_INTENT_RE.test(lowerBody)) {
+      const isActiveOrTrial =
+        entitledSub.status === SubscriptionStatus.ACTIVE ||
+        entitledSub.status === SubscriptionStatus.TRIALING;
+      if (!isActiveOrTrial) {
         await this.saveAndSend(user, boundary.sessionId, "got you — here's the link to lock this in:");
         const linkResult = await this.sendPaymentLink(user, inboundMsg.id, { requireFullIntake: false });
         if (!linkResult.ok) {
