@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { VisionService, ProofValidationResult } from '../../src/ai/vision.service';
+import { VisionService } from '../../src/ai/vision.service';
 
 jest.mock('axios');
 

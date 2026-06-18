@@ -1,5 +1,5 @@
 import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsPhoneNumber, IsString, MaxLength, Min, Max, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, Max, MinLength } from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
 import { CorrectionService } from './correction.service';

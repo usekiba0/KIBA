@@ -1,4 +1,3 @@
-import { validate } from 'class-validator';
 import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
 
 describe('PsychologicalProfile entity', () => {

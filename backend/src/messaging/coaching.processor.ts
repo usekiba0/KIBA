@@ -25,7 +25,7 @@ import { ScoreIntentService } from '../accountability/score-intent.service';
 import { ScheduleService } from '../accountability/schedule.service';
 import { ReminderRecurrence } from '../data/entities/scheduled-reminder.entity';
 import { TodoService } from '../accountability/todo.service';
-import { DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.entity';
+import { DailyTodoSource } from '../data/entities/daily-todo.entity';
 import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
 import { normalizePhoneNumber } from '../common/phone';

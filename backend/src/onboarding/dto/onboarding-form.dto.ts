@@ -6,7 +6,6 @@ import {
   IsArray,
   IsBoolean,
   Matches,
-  MinLength,
   MaxLength,
   IsNumber,
   Min,

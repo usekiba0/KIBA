@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository } from 'typeorm';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { Proof, ProofValidationStatus } from '../data/entities/proof.entity';
