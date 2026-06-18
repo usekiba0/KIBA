@@ -206,7 +206,8 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
     'Persist a single fact about the user that they just shared. Call this every time the user gives you a new fact, ' +
     'even mid-sentence. Field MUST be one of: name, goal_description, goals, goal_timeline, current_status, why_it_matters, ' +
     'fears, avoidance_patterns, comparison_figure, public_failure_scenario, typical_failure_moment, pressure_preference, ' +
-    'cussing_ok, utc_offset_minutes, checkin_time. For utc_offset_minutes pass an integer (minutes ahead/behind UTC, ' +
+    'cussing_ok, city, utc_offset_minutes, checkin_time. city = the user\'s home city as a plain string (e.g. "Houston"); ' +
+    'save it whenever they name where they live, alongside utc_offset_minutes. For utc_offset_minutes pass an integer (minutes ahead/behind UTC, ' +
     'e.g. 300 for PKT). For pressure_preference pass "pressure" or "encouragement". For checkin_time pass HH:MM 24h. ' +
     'For cussing_ok pass a boolean (true if the user explicitly said cussing is fine, false if they said keep it pg). ' +
     'goals = an ARRAY of strings, the user\'s full list when they name more than one goal — save all of them, never drop any. ' +
@@ -528,6 +529,17 @@ export class CoachingService {
     const weeksIn = Math.floor(
       (Date.now() - new Date(user.registered_at).getTime()) / (7 * 24 * 60 * 60 * 1000),
     );
+    // Core facts from intake so the coaching prompt can use memory actively and
+    // catch contradictions. Goals: full list if present, else the anchor.
+    const intake = user.intake_data ?? {};
+    const goalsText = intake.goals && intake.goals.length
+      ? intake.goals.join(', ')
+      : (intake.goal_description ?? null);
+    const knownFacts = {
+      goals: goalsText,
+      city: intake.city ?? null,
+      why: intake.why_it_matters ?? null,
+    };
     const systemPrompt = buildSystemPrompt(
       { id: user.id, name: userName, phone_number: user.phone_number },
       profile,
@@ -539,6 +551,7 @@ export class CoachingService {
       todos,
       patterns,
       weeksIn,
+      knownFacts,
     );
 
     const tools = toolHandlers

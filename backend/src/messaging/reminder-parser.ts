@@ -208,6 +208,21 @@ export function parseCityOffset(text: string, now: Date = new Date()): number | 
   return null;
 }
 
+/**
+ * Return the known city name matched in free text (Title Case), or null. Pairs
+ * with parseCityOffset so we can persist the city the user actually named
+ * (intake_data.city) for the coaching prompt, not just its derived offset.
+ */
+export function parseCity(text: string): string | null {
+  const t = text.toLowerCase();
+  for (const [city] of CITY_ENTRIES) {
+    if (new RegExp(`\\b${city}\\b`).test(t)) {
+      return city.replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+  }
+  return null;
+}
+
 export function formatDisplayTime(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number);
   const period = h >= 12 ? 'pm' : 'am';

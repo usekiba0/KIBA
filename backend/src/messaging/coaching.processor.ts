@@ -29,7 +29,7 @@ import { DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.en
 import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
 import { normalizePhoneNumber } from '../common/phone';
-import { parseTimezoneOffset, parseCityOffset, parseReminderTime } from './reminder-parser';
+import { parseTimezoneOffset, parseCityOffset, parseCity, parseReminderTime } from './reminder-parser';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
 import { humanizeVoice } from './voice';
@@ -678,11 +678,19 @@ export class CoachingProcessor {
     if ((user.utc_offset_minutes ?? null) === null) {
       const cityOffset = parseCityOffset(body.toLowerCase());
       if (cityOffset !== null) {
-        await this.userRepo.update(user.id, { utc_offset_minutes: cityOffset });
-        user = { ...user, utc_offset_minutes: cityOffset };
+        // Persist the city NAME too (not just the derived offset) so the coaching
+        // prompt can use it and catch contradictions ("since when are you in X?").
+        const cityName = parseCity(body);
+        const intakeWithCity: IntakeData = { ...(user.intake_data ?? {}) };
+        if (cityName && !intakeWithCity.city) intakeWithCity.city = cityName;
+        await this.userRepo.update(user.id, {
+          utc_offset_minutes: cityOffset,
+          intake_data: intakeWithCity,
+        });
+        user = { ...user, utc_offset_minutes: cityOffset, intake_data: intakeWithCity };
         structuredLog(this.logger, 'log', {
           service: 'onboarding', operation: 'tz_captured_from_city',
-          userId: user.id, utcOffsetMinutes: cityOffset,
+          userId: user.id, utcOffsetMinutes: cityOffset, city: cityName ?? undefined,
         });
       }
     }
@@ -827,7 +835,7 @@ export class CoachingProcessor {
     const allowed = new Set([
       'goal_description', 'goals', 'goal_timeline', 'current_status', 'why_it_matters', 'fears', 'avoidance_patterns',
       'comparison_figure', 'public_failure_scenario', 'typical_failure_moment', 'pressure_preference',
-      'cussing_ok',
+      'cussing_ok', 'city',
     ]);
     if (!allowed.has(field)) {
       return { ok: false as const, error: `unknown field: ${field}` };

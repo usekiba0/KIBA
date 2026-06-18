@@ -56,6 +56,10 @@ export interface IntakeData {
   goals?: string[];
   goal_timeline?: string;
   current_status?: string;
+  // The user's home city (e.g. "Houston", "Chicago"). Captured at intake; the
+  // UTC offset is derived from it. Surfaced to the coaching prompt so KIBA can
+  // use it and catch contradictions ("since when are you in Houston?").
+  city?: string;
   // Why the main goal actually matters to them — the emotional driver captured
   // during the conversion-optimized intake build (Text 4/5 of the sales flow).
   // Read back by the coaching prompt to keep KIBA's pushes personal.

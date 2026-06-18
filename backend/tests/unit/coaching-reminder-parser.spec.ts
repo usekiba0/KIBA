@@ -3,8 +3,23 @@ import {
   parseRelativeDelayMs,
   parseReminderTime,
   parseCityOffset,
+  parseCity,
 } from '../../src/messaging/reminder-parser';
 import { RESET_INTENT_RE } from '../../src/messaging/coaching.processor';
+
+describe('parseCity', () => {
+  it.each([
+    ['houston', 'Houston'],
+    ["i'm in chicago", 'Chicago'],
+    ['from new york', 'New York'],
+  ])('resolves "%s" -> %s', (input, expected) => {
+    expect(parseCity(input)).toBe(expected);
+  });
+
+  it('returns null when no known city is present', () => {
+    expect(parseCity('i workout in the morning')).toBeNull();
+  });
+});
 
 describe('REMINDER_REGEX', () => {
   it.each([
