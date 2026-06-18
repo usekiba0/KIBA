@@ -69,7 +69,10 @@ export async function sniffRemoteMediaType(url: string): Promise<string | null> 
   try {
     const resp = await axios.get<ArrayBuffer>(url, {
       responseType: 'arraybuffer',
-      timeout: 10_000,
+      // Bounded tight: this sniff sits on the live reply path (a 64-byte range
+      // fetch should take well under a second). A slow/unresponsive CDN must not
+      // stall the whole reply — on timeout we fall through to the extension guess.
+      timeout: 4_000,
       headers: { Range: 'bytes=0-63' },
       validateStatus: (s) => s >= 200 && s < 300,
     });
