@@ -107,15 +107,14 @@ function formatTimeContext(ctx: TimeContext): string {
   return [
     'CURRENT TIME:',
     `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
-    `- USER LOCAL CLOCK (for display only, NOT for tool input): ${localPretty} — user offset is UTC${sign}${h}:${m}`,
-    '- when the user asks what time it is for them (or you reference their local time), READ the USER LOCAL CLOCK line above word-for-word. NEVER compute, estimate, or do timezone math in your head for the current time — you get it wrong. just read it.',
+    `- USER LOCAL CLOCK: ${localPretty} — user offset is UTC${sign}${h}:${m}`,
+    '- when the user asks what time it is for them (or you reference their local time), READ the USER LOCAL CLOCK line above word-for-word. NEVER compute, estimate, or do timezone math in your head — you get it wrong. just read it.',
     '',
-    'SCHEDULING MATH RULES (read carefully — getting this wrong wastes user trust):',
-    '- For RELATIVE phrases ("in 30 min", "in an hour"): fire_at_iso = NOW IN UTC + the relative amount. Ignore the user local clock entirely.',
-    '  Example: now is 16:14 UTC, user says "in 5 min" → fire_at_iso = "2026-05-18T16:19:00Z".',
-    '- For ABSOLUTE local phrases ("at 9pm", "tomorrow at 7am"): take the local target time and SUBTRACT the user offset to get UTC.',
-    `  Example: now ${utcIso}, user at UTC${sign}${h}:${m} says "remind me at 9pm tonight" → 21:00 local minus (${sign}${h}h${m}) → fire_at_iso accordingly.`,
-    '- If you are unsure whether the user meant local or UTC, ask them. Never guess.',
+    'SCHEDULING — DO NOT DO TIME MATH. let the schedule_reminder tool do it:',
+    '- RELATIVE ("in 30 min", "in 2 hours", "in 5 hours"): pass delay_minutes (convert hours→minutes only: 5 hours = 300). nothing else.',
+    '- SPECIFIC CLOCK TIME ("at 9pm", "7am tomorrow", "5:02pm"): pass local_clock as "HH:MM" 24h (9pm="21:00", 5:02pm="17:02"). the tool converts to UTC and picks today/tomorrow itself.',
+    '- after it returns, your confirmation uses the tool\'s "fires_in" value — never your own estimate of how long away it is.',
+    '- minimum is 2 minutes; if they ask for sooner, say so instead of scheduling. if you truly can\'t tell what time they mean, ask.',
     '',
   ].join('\n');
 }

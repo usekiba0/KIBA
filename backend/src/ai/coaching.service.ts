@@ -21,16 +21,20 @@ import { structuredLog, warnTokenBudget } from '../common/logger';
 /** Coaching-mode tools (post-payment). */
 export interface CoachingToolHandlers {
   scheduleReminder: (input: {
-    fire_at_iso: string;
+    // The server resolves the fire time from whichever of these the model sends
+    // (it no longer does timezone/relative-time math itself).
+    delay_minutes?: number;
+    local_clock?: string;
+    fire_at_iso?: string;
     message: string;
     /** Optional "daily at HH:MM" recurrence. Local time + offset snapshotted at create time. */
     recurrence?: { rule: 'daily'; local_time: string } | null;
   }) =>
-    Promise<{ ok: true; reminder_id: string; fire_at_iso: string } | { ok: false; error: string }>;
+    Promise<{ ok: true; reminder_id: string; fire_at_iso: string; fires_in: string } | { ok: false; error: string }>;
   cancelReminder: (input: { reminder_id: string }) =>
     Promise<{ ok: true; cancelled: number } | { ok: false; error: string }>;
   listMyReminders: () =>
-    Promise<{ ok: true; reminders: Array<{ reminder_id: string; fire_at_iso: string; message: string; recurrence: string | null }> }>;
+    Promise<{ ok: true; reminders: Array<{ reminder_id: string; fire_at_iso: string; fires_in: string; message: string; recurrence: string | null }> }>;
   addTodo: (input: { content: string }) =>
     Promise<{ ok: true; todo_id: string; content: string } | { ok: false; error: string }>;
   listTodayTodos: () =>
@@ -70,25 +74,37 @@ type Tool = Anthropic.Messages.Tool;
 const SCHEDULE_REMINDER_TOOL: Tool = {
   name: 'schedule_reminder',
   description:
-    'Schedule a text to fire at a future UTC time. Use whenever the user asks to be reminded, nudged, pinged, ' +
-    'texted, or messaged later — "in 30 min", "tomorrow morning", "tonight at 9", "next Thursday at 6pm". ' +
-    'Follow the SCHEDULING MATH RULES in the system prompt EXACTLY — relative phrases use NOW IN UTC directly ' +
-    '(do NOT add the user offset); absolute local phrases convert local→UTC by subtracting the user offset. ' +
-    'MINIMUM DELAY: 2 minutes from now. If the user asks for sooner (e.g. "in 30 seconds", "in 1 min"), ' +
-    'DO NOT call the tool — instead reply that the minimum is 2 minutes and ask them to pick a longer delay. ' +
-    'If the user\'s timezone is unknown, ask before calling this tool — never guess. ' +
-    'RECURRENCE: if the user asks for a DAILY repeating reminder ("every day at 8am", "every morning", ' +
-    '"each day at X", "daily wake-up", "remind me every day to ..."), pass the optional `recurrence` object ' +
-    'with rule="daily" and local_time="HH:MM" 24h in the user\'s local clock. The system will fire at ' +
-    'fire_at_iso first and then re-enqueue every 24h at the same local clock automatically — DO NOT schedule ' +
-    'multiple one-off reminders for "every day". For one-off requests, omit `recurrence`. ' +
-    'After a successful call, write ONE short confirmation line.',
+    'Schedule a text to fire later. Use whenever the user asks to be reminded, nudged, pinged, texted, or ' +
+    'messaged later. DO NOT DO TIMEZONE OR CLOCK MATH YOURSELF — the system computes the exact time. Just pass ' +
+    'ONE of these:\n' +
+    '- delay_minutes: for RELATIVE requests ("in 30 min" -> 30, "in 2 hours" -> 120, "in 5 hours" -> 300). ' +
+    'Convert hours to minutes only; nothing else.\n' +
+    '- local_clock: for a SPECIFIC clock time ("at 9am" -> "09:00", "tonight at 9" -> "21:00", "5:02pm" -> ' +
+    '"17:02"). Pass the user\'s local wall-clock as "HH:MM" 24h; the system converts to UTC and picks today if ' +
+    'it hasn\'t passed, else tomorrow.\n' +
+    'Only fall back to fire_at_iso if neither fits. ' +
+    'MINIMUM DELAY: 2 minutes. If the user asks for sooner ("in 1 min", "in 30 sec"), DO NOT call the tool — ' +
+    'reply that the minimum is 2 minutes. For local_clock requests the user\'s timezone must be known; if it ' +
+    'is not, ask first — never guess. ' +
+    'RECURRENCE: for a DAILY repeating reminder ("every day at 8am", "every morning", "daily wake-up"), pass ' +
+    'local_clock for the first fire AND the `recurrence` object with rule="daily" and the same local_time. The ' +
+    'system re-fires every 24h automatically — DO NOT schedule multiple one-offs. ' +
+    'The tool result includes "fires_in" — echo THAT in your confirmation, never your own time estimate. ' +
+    'Write ONE short confirmation line.',
   input_schema: {
     type: 'object' as const,
     properties: {
+      delay_minutes: {
+        type: 'integer',
+        description: 'For relative requests: total minutes from now (e.g. "in 5 hours" -> 300). Server fires at now + this. Omit if using local_clock.',
+      },
+      local_clock: {
+        type: 'string',
+        description: 'For a specific clock time: the user\'s local wall-clock as "HH:MM" 24h (e.g. "09:00", "17:02"). Server converts to UTC. Omit if using delay_minutes.',
+      },
       fire_at_iso: {
         type: 'string',
-        description: 'Absolute UTC time in ISO 8601 format with the Z suffix (e.g. "2026-05-19T14:30:00Z"). Must be at least 2 minutes in the future. For daily recurring reminders this is the FIRST fire — usually tomorrow at the requested local time (or today if it hasn\'t passed yet).',
+        description: 'LAST RESORT only (use delay_minutes or local_clock instead). Absolute UTC ISO-8601 with Z suffix.',
       },
       message: {
         type: 'string',
@@ -99,12 +115,12 @@ const SCHEDULE_REMINDER_TOOL: Tool = {
         description: 'Optional. Set ONLY when the user explicitly asks for a daily-repeating reminder. Leave unset for one-off reminders.',
         properties: {
           rule: { type: 'string', enum: ['daily'], description: 'Currently only "daily" is supported.' },
-          local_time: { type: 'string', description: 'The user\'s local clock time the reminder should fire at every day, "HH:MM" 24h (e.g. "08:00", "22:30"). Must match the local time of fire_at_iso.' },
+          local_time: { type: 'string', description: 'The user\'s local clock time to fire every day, "HH:MM" 24h (e.g. "08:00", "22:30"). Should match local_clock.' },
         },
         required: ['rule', 'local_time'],
       },
     },
-    required: ['fire_at_iso', 'message'],
+    required: ['message'],
   },
 };
 

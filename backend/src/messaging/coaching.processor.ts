@@ -30,6 +30,7 @@ import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
 import { normalizePhoneNumber } from '../common/phone';
 import { parseTimezoneOffset, parseCityOffset, parseCity, parseReminderTime } from './reminder-parser';
+import { resolveReminderFireAt, humanizeFireDelta } from './reminder-time';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
 import { humanizeVoice } from './voice';
@@ -1016,11 +1017,18 @@ export class CoachingProcessor {
     const userOffsetMinutes = user.utc_offset_minutes;
     const handlers: CoachingToolHandlers = {
       scheduleReminder: async (input: {
-        fire_at_iso: string;
+        fire_at_iso?: string;
+        delay_minutes?: number;
+        local_clock?: string;
         message: string;
         recurrence?: { rule: 'daily'; local_time: string } | null;
       }) => {
-        const fireAt = new Date(input.fire_at_iso);
+        // Resolve the fire time DETERMINISTICALLY in code — never trust the
+        // model's timezone/relative-time arithmetic (it gets it wrong).
+        const now = Date.now();
+        const resolved = resolveReminderFireAt(input, userOffsetMinutes, now);
+        if (!resolved.ok) return { ok: false as const, error: resolved.error };
+        const fireAt = resolved.fireAt;
         // Recurrence needs the user's TZ snapshotted at create time. If we
         // don't know it, refuse rather than silently dropping recurrence —
         // the AI should ask for the timezone first.
@@ -1042,7 +1050,14 @@ export class CoachingProcessor {
             : null,
         });
         if (result.ok) {
-          return { ok: true as const, reminder_id: result.reminderId, fire_at_iso: result.fireAtIso };
+          // Hand back the system-computed "fires in X" so the AI echoes our
+          // number instead of computing its own (the source of the time bug).
+          return {
+            ok: true as const,
+            reminder_id: result.reminderId,
+            fire_at_iso: result.fireAtIso,
+            fires_in: humanizeFireDelta(new Date(result.fireAtIso).getTime() - now),
+          };
         }
         return { ok: false as const, error: result.reason };
       },
@@ -1061,11 +1076,15 @@ export class CoachingProcessor {
       },
       listMyReminders: async () => {
         const reminders = await this.scheduleService.listPendingForUser(userId);
+        const now = Date.now();
         return {
           ok: true as const,
           reminders: reminders.map((r) => ({
             reminder_id: r.id,
             fire_at_iso: r.fire_at.toISOString(),
+            // System-computed countdown so "how long until that?" never depends
+            // on the model doing the math (which it gets wrong).
+            fires_in: humanizeFireDelta(r.fire_at.getTime() - now),
             message: r.message,
             recurrence: r.recurrence_rule,
           })),
