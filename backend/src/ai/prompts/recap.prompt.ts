@@ -93,3 +93,55 @@ function closingLine(data: NightRecapData): string {
   // Mixed day — most common. Name the win, set tomorrow's first move.
   return `decent${tail}, not dominant. "${shorten(done[0])}" got done — but "${shorten(missed[0])}" is the one that actually moves you. tomorrow that goes first.`;
 }
+
+export interface WeeklyReviewData {
+  userName: string;
+  /** Tasks completed across the last 7 local days. */
+  doneCount: number;
+  /** Tasks left undone (missed) across the week. */
+  missedCount: number;
+  /** Accepted proofs across the week. */
+  proofCount: number;
+  /** Current execution score /100, or null if not computable. */
+  score: number | null;
+  /** Recurring weak-excuse phrase — surfaced as the week's "biggest leak". */
+  excusePhrase?: string | null;
+  excuseCount?: number;
+}
+
+/**
+ * Weekly review (the 7-day mock's "Day 7" one-week review). Sent once a week
+ * (Sunday evening, user-local), it sums the week and points at week ahead.
+ * Scripted like the night recap — pure aggregation, no LLM call. Returns null
+ * when the user had no activity all week (don't send a "you did nothing" text).
+ */
+export function buildWeeklyReviewMessage(data: WeeklyReviewData): string | null {
+  const { doneCount, missedCount, proofCount, score } = data;
+  if (doneCount === 0 && missedCount === 0 && proofCount === 0) return null;
+  const name = data.userName?.trim();
+  const tail = name ? ` ${name}` : '';
+
+  const lines: string[] = ['week in review:', ''];
+  lines.push(`✅ ${doneCount} done`);
+  if (missedCount > 0) lines.push(`❌ ${missedCount} missed`);
+  if (proofCount > 0) lines.push(`📸 ${proofCount} proofs`);
+  if (score !== null) lines.push(`score: ${score}/100`);
+
+  if ((data.excuseCount ?? 0) >= 2 && data.excusePhrase?.trim()) {
+    lines.push('', `biggest leak: "${data.excusePhrase.trim()}" — ${data.excuseCount}x this week. that's the one we kill next week.`);
+  }
+
+  lines.push('', weeklyClose(doneCount, missedCount, tail));
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function weeklyClose(doneCount: number, missedCount: number, tail: string): string {
+  if (doneCount === 0) {
+    return `straight up${tail} — you didn't really show up this week. next week we fix that. one thing, day one. you in?`;
+  }
+  const ratio = doneCount / Math.max(1, doneCount + missedCount);
+  if (ratio >= 0.8) {
+    return `strong week${tail}. you showed up and it shows. still not at the goal — but this is the pace that gets you there. week 2 we go again.`;
+  }
+  return `not a bad week${tail}, not your best — you showed up more than you folded. nowhere near the goal yet, but you proved you can. tighten it up next week.`;
+}

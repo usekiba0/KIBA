@@ -210,4 +210,11 @@ export class User {
   // 2026-06-05 with the Night Recap flow).
   @Column({ type: 'varchar', length: 10, nullable: true })
   last_recap_date: string | null;
+
+  // User-LOCAL calendar day (YYYY-MM-DD) of the last weekly review actually sent.
+  // Claimed atomically by WeeklyReviewService before each send so the weekly
+  // review fires at most once per week regardless of racing schedulers (added
+  // 2026-06-18 with the weekly-review flow).
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  last_weekly_review_date: string | null;
 }

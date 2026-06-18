@@ -30,6 +30,7 @@ import { TaskService } from './task.service';
 import { TodoService } from './todo.service';
 import { SurpriseService } from './surprise.service';
 import { RecapService } from './recap.service';
+import { WeeklyReviewService } from './weekly-review.service';
 import { MessagingModule } from '../messaging/messaging.module';
 import { DataModule } from '../data/data.module';
 import { AiModule } from '../ai/ai.module';
@@ -46,7 +47,7 @@ import { AiModule } from '../ai/ai.module';
     forwardRef(() => DataModule),
     forwardRef(() => AiModule),
   ],
-  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService, RecapService],
-  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService, RecapService],
+  providers: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService, RecapService, WeeklyReviewService],
+  exports: [ScoreService, StrikeService, AntiGhostService, CheckinService, CheckinProcessor, MessageRouterService, ProofService, PlanAdjustmentService, ScheduleService, TaskService, TodoService, SurpriseService, RecapService, WeeklyReviewService],
 })
 export class AccountabilityModule {}

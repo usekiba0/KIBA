@@ -20,6 +20,7 @@ import { CheckinService } from './checkin.service';
 import { TaskService } from './task.service';
 import { SurpriseService } from './surprise.service';
 import { RecapService } from './recap.service';
+import { WeeklyReviewService } from './weekly-review.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { CoachingService } from '../ai/coaching.service';
 import { structuredLog } from '../common/logger';
@@ -99,6 +100,7 @@ export class CheckinProcessor {
     private readonly taskService: TaskService,
     private readonly surpriseService: SurpriseService,
     private readonly recapService: RecapService,
+    private readonly weeklyReviewService: WeeklyReviewService,
     private readonly stripeService: StripeService,
     private readonly config: ConfigService,
     @Inject(forwardRef(() => CoachingService))
@@ -254,6 +256,8 @@ export class CheckinProcessor {
     // Re-arm night recaps on the same hourly heartbeat so a Redis flap can't
     // permanently kill recap cadence either. Idempotent via deterministic jobId.
     await this.recapService.scheduleAllRecaps();
+    // Same re-arm for the weekly review.
+    await this.weeklyReviewService.scheduleAllReviews();
   }
 
   /**
@@ -263,6 +267,12 @@ export class CheckinProcessor {
   @Process('send-recap')
   async handleSendRecap(job: Job<{ userId: string }>): Promise<void> {
     await this.recapService.fire(job.data.userId);
+  }
+
+  /** Worker for a single user's weekly review. Aggregates the week, sends, self-reschedules. */
+  @Process('send-weekly-review')
+  async handleSendWeeklyReview(job: Job<{ userId: string }>): Promise<void> {
+    await this.weeklyReviewService.fire(job.data.userId);
   }
 
   @Process('send-scheduled-reminder')
