@@ -85,7 +85,7 @@ function formatTimeContext(ctx: TimeContext): string {
     return [
       'CURRENT TIME:',
       `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
-      '- USER TIMEZONE: unknown — ask the user before scheduling anything time-specific.',
+      '- USER TIMEZONE: unknown — ask the user before scheduling anything time-specific. NEVER guess or compute what time it is for them; ask.',
       '',
     ].join('\n');
   }
@@ -108,6 +108,7 @@ function formatTimeContext(ctx: TimeContext): string {
     'CURRENT TIME:',
     `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
     `- USER LOCAL CLOCK (for display only, NOT for tool input): ${localPretty} — user offset is UTC${sign}${h}:${m}`,
+    '- when the user asks what time it is for them (or you reference their local time), READ the USER LOCAL CLOCK line above word-for-word. NEVER compute, estimate, or do timezone math in your head for the current time — you get it wrong. just read it.',
     '',
     'SCHEDULING MATH RULES (read carefully — getting this wrong wastes user trust):',
     '- For RELATIVE phrases ("in 30 min", "in an hour"): fire_at_iso = NOW IN UTC + the relative amount. Ignore the user local clock entirely.',
