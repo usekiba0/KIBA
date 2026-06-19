@@ -69,6 +69,16 @@ export interface IntakeToolHandlers {
     Promise<{ ok: true; field: string } | { ok: false; error: string }>;
   sendPaymentLink: () =>
     Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
+  // Trial users can set reminders too (Tomo/Poke set them up freely pre-pay).
+  // Server resolves the fire time from delay_minutes / local_clock / fire_at_iso.
+  scheduleReminder: (input: {
+    delay_minutes?: number;
+    local_clock?: string;
+    fire_at_iso?: string;
+    message: string;
+    recurrence?: { rule: 'daily'; local_time: string } | null;
+  }) =>
+    Promise<{ ok: true; reminder_id: string; fire_at_iso: string; fires_in: string } | { ok: false; error: string }>;
 }
 
 type Tool = Anthropic.Messages.Tool;
@@ -612,7 +622,7 @@ export class CoachingService {
     imageContentType?: string,
   ): Promise<{ reply: string; tokenCount: number }> {
     const systemPrompt = buildIntakeSystemPrompt(ctx);
-    const tools = [SAVE_INTAKE_FIELD_TOOL, SEND_PAYMENT_LINK_TOOL];
+    const tools = [SAVE_INTAKE_FIELD_TOOL, SEND_PAYMENT_LINK_TOOL, SCHEDULE_REMINDER_TOOL];
     const dispatch = (block: Anthropic.Messages.ToolUseBlock) =>
       this.dispatchIntakeTool(block, toolHandlers, user.id);
 
@@ -1013,6 +1023,27 @@ export class CoachingService {
       const result = await toolHandlers.sendPaymentLink();
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_send_payment_link',
+        userId, ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'schedule_reminder') {
+      const input = block.input as {
+        delay_minutes?: number; local_clock?: string; fire_at_iso?: string;
+        message?: unknown; recurrence?: { rule: 'daily'; local_time: string } | null;
+      };
+      if (typeof input.message !== 'string' || !input.message.trim()) {
+        return { ok: false, error: 'message must be a non-empty string' };
+      }
+      const result = await toolHandlers.scheduleReminder({
+        delay_minutes: input.delay_minutes,
+        local_clock: input.local_clock,
+        fire_at_iso: input.fire_at_iso,
+        message: input.message,
+        recurrence: input.recurrence ?? null,
+      });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_schedule_reminder_intake',
         userId, ok: result.ok,
       });
       return result;

@@ -732,6 +732,39 @@ export class CoachingProcessor {
       sendPaymentLink: async () => {
         return this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
       },
+      // Trial users can set reminders too. Same deterministic resolution as the
+      // coaching path — the server computes the fire time, never the model.
+      scheduleReminder: async (input: {
+        delay_minutes?: number; local_clock?: string; fire_at_iso?: string;
+        message: string; recurrence?: { rule: 'daily'; local_time: string } | null;
+      }) => {
+        const offset = liveUser.utc_offset_minutes ?? null;
+        const now = Date.now();
+        const resolved = resolveReminderFireAt(input, offset, now);
+        if (!resolved.ok) return { ok: false as const, error: resolved.error };
+        if (input.recurrence && (offset === null || offset === undefined)) {
+          return { ok: false as const, error: 'cannot schedule a daily reminder without the user\'s timezone — ask them first' };
+        }
+        const result = await this.scheduleService.enqueue({
+          userId: liveUser.id,
+          sessionId,
+          createdByMessageId: userMessageId,
+          fireAt: resolved.fireAt,
+          message: input.message,
+          recurrence: input.recurrence
+            ? { rule: ReminderRecurrence.DAILY, localTime: input.recurrence.local_time, offsetMinutes: offset as number }
+            : null,
+        });
+        if (result.ok) {
+          return {
+            ok: true as const,
+            reminder_id: result.reminderId,
+            fire_at_iso: result.fireAtIso,
+            fires_in: humanizeFireDelta(new Date(result.fireAtIso).getTime() - now),
+          };
+        }
+        return { ok: false as const, error: result.reason };
+      },
     };
 
     // Strip the "[image]" placeholder so the AI sees a real caption (or empty)
