@@ -1,13 +1,15 @@
 import Stripe from 'stripe';
 
-describe('Stripe Contract Tests', () => {
+// These hit the real Stripe API (or its SDK), so they can only run with a key.
+// Without one — e.g. in CI, which has no Stripe secret — skip the whole suite
+// instead of constructing `new Stripe('')`, which throws and fails the suite.
+const describeStripe = process.env.STRIPE_SECRET_KEY ? describe : describe.skip;
+
+describeStripe('Stripe Contract Tests', () => {
   let stripe: Stripe;
 
   beforeAll(() => {
-    if (!process.env.STRIPE_SECRET_KEY) {
-      console.warn('STRIPE_SECRET_KEY not set — skipping Stripe contract tests');
-    }
-    stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? 'sk_test_placeholder', {
+    stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
       apiVersion: '2025-02-24.acacia',
     });
   });
