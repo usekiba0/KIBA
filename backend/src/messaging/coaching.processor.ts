@@ -826,7 +826,15 @@ export class CoachingProcessor {
       await this.userRepo.update(user.id, { sample_coaching_given: true });
     }
 
-    return reply.trim().length > 0 ? reply : "got it — tell me your goal in one sentence to get started.";
+    if (reply.trim().length > 0) return reply;
+    // Non-destructive fallback for the rare empty model reply. NEVER ask them to
+    // restate a goal we already have — that "tell me your goal in one sentence"
+    // mid-conversation reset (it forgets everything) was the #1 flow complaint
+    // (Karibi 2026-06-20). Re-anchor on what we already know instead of resetting.
+    const knownGoal = liveUser.intake_data?.goal_description?.trim();
+    if (knownGoal) return `still with you on ${knownGoal}. what's on your mind?`;
+    if (liveUser.name) return `still here, ${liveUser.name}. what's on your mind?`;
+    return "still here. what are you trying to lock in?";
   }
 
   /**

@@ -33,4 +33,42 @@ describe('humanizeVoice', () => {
   it('is a no-op for empty input', () => {
     expect(humanizeVoice('')).toBe('');
   });
+
+  // --- markdown stripping (renders as literal junk on a phone) ---
+
+  it('strips single-asterisk emphasis', () => {
+    expect(humanizeVoice('here you go: *lock in*')).toBe('here you go: lock in');
+  });
+
+  it('strips double-asterisk bold', () => {
+    expect(humanizeVoice('**do this** now')).toBe('do this now');
+  });
+
+  it('strips inline code backticks', () => {
+    expect(humanizeVoice('run `npm test` first')).toBe('run npm test first');
+  });
+
+  it('strips markdown headings at line start', () => {
+    expect(humanizeVoice('## Plan\ngo')).toBe('Plan\ngo');
+  });
+
+  it('normalises asterisk bullets to dash bullets', () => {
+    expect(humanizeVoice('* eggs\n* rice')).toBe('- eggs\n- rice');
+  });
+
+  it('leaves real dash bullets untouched', () => {
+    expect(humanizeVoice('- eggs\n- rice')).toBe('- eggs\n- rice');
+  });
+
+  it('drops a stray unpaired asterisk', () => {
+    expect(humanizeVoice('5 stars *')).toBe('5 stars');
+  });
+
+  it('preserves the [pause] burst marker while stripping markdown', () => {
+    expect(humanizeVoice('nice 🔥[pause]what next *bro*')).toBe('nice 🔥[pause]what next bro');
+  });
+
+  it('strips markdown and converts em-dashes together', () => {
+    expect(humanizeVoice('**lock in** — proof when done')).toBe('lock in. proof when done');
+  });
 });
