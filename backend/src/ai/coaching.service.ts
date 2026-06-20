@@ -827,13 +827,38 @@ export class CoachingService {
       history.push({ role: 'user', content: toolResults });
     }
 
-    const finalReply = response && Array.isArray(response.content)
-      ? response.content
-          .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
-          .map((b) => b.text)
-          .join('\n')
-          .trim()
-      : '';
+    const extractText = (msg: Anthropic.Messages.Message | undefined): string =>
+      msg && Array.isArray(msg.content)
+        ? msg.content
+            .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+            .map((b) => b.text)
+            .join('\n')
+            .trim()
+        : '';
+
+    let finalReply = extractText(response);
+
+    // The model can spend its whole turn (or hit the tool-iteration cap) calling
+    // tools without ever emitting user-facing text — intake especially, since it's
+    // told to call save_intake_field aggressively. That left `finalReply` empty and
+    // tripped the destructive "tell me your goal in one sentence" fallback (Karibi
+    // 2026-06-20). The history already carries the tool calls + their results, so
+    // force ONE final completion WITHOUT tools to get the human-facing reply.
+    if (!finalReply && args.dispatch) {
+      try {
+        const forced = await this.client.messages.create({
+          model,
+          max_tokens: 512,
+          system: args.systemPrompt,
+          messages: history,
+        });
+        totalInputTokens += forced.usage.input_tokens;
+        totalOutputTokens += forced.usage.output_tokens;
+        finalReply = extractText(forced);
+      } catch (err) {
+        this.logger.warn(`forced text completion failed (user ${args.userId}): ${(err as Error).message}`);
+      }
+    }
 
     structuredLog(this.logger, 'log', {
       service: 'ai',

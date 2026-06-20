@@ -135,6 +135,40 @@ describe('CoachingService', () => {
     await expect(service.generateReply(testUser, [], 'Hello')).resolves.toBeDefined();
   });
 
+  it('forces a no-tools completion when the tool loop yields no text', async () => {
+    // The model spends all 3 tool iterations calling tools without emitting text
+    // (exhausts MAX_TOOL_ITERATIONS). runChat must then make ONE more call with
+    // tools omitted to get a real reply, instead of returning empty.
+    const toolResp = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 't1', name: 'noop', input: {} }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    };
+    mockCreate
+      .mockResolvedValueOnce(toolResp)
+      .mockResolvedValueOnce(toolResp)
+      .mockResolvedValueOnce(toolResp)
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'still with you. what did you do today?' }],
+        usage: { input_tokens: 20, output_tokens: 8 },
+      });
+
+    const result = await (service as any).runChat({
+      systemPrompt: 'sys',
+      recentMessages: [],
+      incomingText: 'hey',
+      tools: [{ name: 'noop' }],
+      dispatch: async () => ({ ok: true }),
+      userId: 'user-1',
+      operationLabel: 'test',
+    });
+
+    expect(mockCreate).toHaveBeenCalledTimes(4);
+    // The forced 4th call must omit tools so the model is made to produce text.
+    expect(mockCreate.mock.calls[3][0].tools).toBeUndefined();
+    expect(result.reply).toBe('still with you. what did you do today?');
+  });
+
   it('includes conversation history in the messages array', async () => {
     const history: Message[] = [{
       id: 'm1', session_id: 's1', user_id: 'user-1',
