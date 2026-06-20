@@ -36,6 +36,6 @@ Read-only audit (4 parallel Explore agents) mapped Rewrite-doc items to live cod
 - ALREADY DONE (doc transcript partly stale): multi-bubble bursts (splitBubbles/[pause]), execution score + strikes + proof + Night Recap + Weekly Review (prompt AND code), ask-first/one-question/reflect-words/never-question-commitment, pressure+cussing tone adaptation, cross-session intake continuity.
 - PHASE 2 (parked): Money Mode + Recovery Task (confirmed absent from codebase), real-time calorie tracking from photos, custom app building, GPS/health proof, deep URL business advice.
 
-Batch A shipped: markdown stripping (+9 tests), no-markdown prompt rules, payment block rewrite (no proactive selling), non-destructive intake fallback.
+Batch A shipped (commit 91666b7): markdown stripping (+9 tests), no-markdown prompt rules, payment block rewrite (no proactive selling), non-destructive intake fallback.
 
-Batch B (not yet done): dry/short-responder length-mirroring (Tyler), zero-day redirect + recovery-task, and root-cause of WHY intake replies come back empty (the fallback only masks the symptom).
+Batch B shipped: ROOT CAUSE of empty intake replies = runChat could spend all MAX_TOOL_ITERATIONS (3) calling tools without emitting text → finalReply empty → fallback fired. Fix: forced no-tools completion in coaching.service.ts runChat (history already carries tool calls+results), gated on args.dispatch; +regression test. Plus coaching.prompt additions: SHORT/DRY TEXTERS mirroring (Tyler), STRIKES & RECOVERY (recovery task at 2nd strike), NO ZERO DAYS redirect. Prompt size budget 24k→25k.
