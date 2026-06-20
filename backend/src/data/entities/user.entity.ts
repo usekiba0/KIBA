@@ -56,6 +56,10 @@ export interface IntakeData {
   goals?: string[];
   goal_timeline?: string;
   current_status?: string;
+  // The user's home city (e.g. "Houston", "Chicago"). Captured at intake; the
+  // UTC offset is derived from it. Surfaced to the coaching prompt so KIBA can
+  // use it and catch contradictions ("since when are you in Houston?").
+  city?: string;
   // Why the main goal actually matters to them — the emotional driver captured
   // during the conversion-optimized intake build (Text 4/5 of the sales flow).
   // Read back by the coaching prompt to keep KIBA's pushes personal.
@@ -206,4 +210,11 @@ export class User {
   // 2026-06-05 with the Night Recap flow).
   @Column({ type: 'varchar', length: 10, nullable: true })
   last_recap_date: string | null;
+
+  // User-LOCAL calendar day (YYYY-MM-DD) of the last weekly review actually sent.
+  // Claimed atomically by WeeklyReviewService before each send so the weekly
+  // review fires at most once per week regardless of racing schedulers (added
+  // 2026-06-18 with the weekly-review flow).
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  last_weekly_review_date: string | null;
 }

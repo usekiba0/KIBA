@@ -92,6 +92,34 @@ describe('buildSystemPrompt', () => {
     expect(prompt.toLowerCase()).toMatch(/action|specific|required/);
   });
 
+  it('forbids surfacing internal/technical errors to the user', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    expect(prompt.toLowerCase()).toMatch(/never surface anything technical or internal/);
+    expect(prompt.toLowerCase()).toMatch(/databases|servers|lag/);
+  });
+
+  it('surfaces known facts (goals, city) when provided', () => {
+    const prompt = buildSystemPrompt(
+      mockUser as any, mockProfile as any, 72, 0, undefined, undefined, undefined,
+      undefined, undefined, 0,
+      { goals: 'gym, sports betting business', city: 'Chicago', why: 'freedom' },
+    );
+    expect(prompt).toMatch(/WHAT YOU KNOW ABOUT THEM/i);
+    expect(prompt).toContain('gym, sports betting business');
+    expect(prompt).toContain('Chicago');
+  });
+
+  it('omits the known-facts block when no facts are provided', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    expect(prompt).not.toMatch(/WHAT YOU KNOW ABOUT THEM/i);
+  });
+
+  it('instructs answering general questions and forbids deflection', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    expect(prompt.toLowerCase()).toMatch(/answer any question/);
+    expect(prompt.toLowerCase()).toMatch(/not my lane/); // listed as banned
+  });
+
   it('prohibits generic responses', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
     expect(prompt.toLowerCase()).toMatch(/generic|prohibited|never generic/);
@@ -111,13 +139,14 @@ describe('buildSystemPrompt', () => {
     expect(() => buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0)).not.toThrow();
   });
 
-  it('stays within a sane size budget (char count < 22000)', () => {
-    // The prompt has grown well past the original 2800 guard (tools, examples,
-    // state-aware tone, goal-translation rules) — it's ~18k chars / ~4.5k tokens
-    // now. This guard just prevents unbounded ballooning; still tiny vs the
-    // 200K/1M context window.
+  it('stays within a sane size budget (char count < 24000)', () => {
+    // The prompt has grown with deliberate capability expansion (tools, examples,
+    // state-aware tone, answer-anything, vision engagement, memory/contradiction)
+    // — ~22k chars / ~5.5k tokens now. This guard just prevents unbounded
+    // ballooning; still tiny vs the 200K/1M context window (and ~$0.005 of Haiku
+    // input per message). Raised 22k→24k for the 2026-06-18 feedback batch.
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(22000);
+    expect(prompt.length).toBeLessThan(24000);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {

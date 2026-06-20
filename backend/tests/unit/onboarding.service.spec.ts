@@ -6,7 +6,7 @@ import { ConflictException } from '@nestjs/common';
 import { OnboardingService } from '../../src/onboarding/onboarding.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
-import { User, UserStatus } from '../../src/data/entities/user.entity';
+import { User } from '../../src/data/entities/user.entity';
 import { Subscription } from '../../src/data/entities/subscription.entity';
 import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
 import { Goal } from '../../src/data/entities/goal.entity';
@@ -34,13 +34,6 @@ describe('OnboardingService — psychological profile + goal creation', () => {
   let messagingQueue: any;
 
   beforeEach(async () => {
-    const savedUser: Partial<User> = {
-      id: 'user-1',
-      phone_number: mockDto.phone_number,
-      name: mockDto.name,
-      status: UserStatus.TRIAL,
-    };
-
     mockManager = {
       create: jest.fn((Entity: any, data: any) => ({ ...data })),
       save: jest.fn(async (_Entity: any, entity: any) => {

@@ -30,13 +30,11 @@ export function buildGhostMessage(
   daysSinceLastResponse: number,
   goalType: GoalType = GoalType.OUTCOME,
 ): string {
-  const goal = (goalText ?? '').trim() || 'your goal';
   const goalShort = shortGoalReference(goalText);
   const name = userName || 'bro';
   const avoidance = profile?.avoidance_patterns?.trim() ?? '';
   const comparison = profile?.comparison_figure?.trim() ?? '';
   const goalsFromProfile = profile?.fears?.trim() ?? '';
-  const excuse = '';  // user.last_excuse_phrase is read by caller, not used here
   // Tough-love / cussing variants only fire if the user opted in at intake.
   // Default is clean — never cuss at someone who asked for pg.
   const cussingOk = profile?.cussing_ok === true;

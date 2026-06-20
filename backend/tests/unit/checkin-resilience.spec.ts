@@ -13,6 +13,7 @@ import { CheckinService } from '../../src/accountability/checkin.service';
 import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
 import { RecapService } from '../../src/accountability/recap.service';
+import { WeeklyReviewService } from '../../src/accountability/weekly-review.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
 import { CoachingService } from '../../src/ai/coaching.service';
 import { ConfigService } from '@nestjs/config';
@@ -97,6 +98,7 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
         { provide: TaskService, useValue: taskService },
         { provide: SurpriseService, useValue: { fire: jest.fn(), scheduleWeek: jest.fn() } },
         { provide: RecapService, useValue: { fire: jest.fn(), scheduleAllRecaps: jest.fn(), scheduleRecap: jest.fn() } },
+        { provide: WeeklyReviewService, useValue: { fire: jest.fn(), scheduleAllReviews: jest.fn(), scheduleReview: jest.fn() } },
         { provide: StripeService, useValue: { createCustomer: jest.fn(), createCheckoutSession: jest.fn() } },
         { provide: ConfigService, useValue: { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') } },
         { provide: CoachingService, useValue: { generateWinbackNudge: jest.fn().mockResolvedValue(null) } },
@@ -175,13 +177,15 @@ describe('CheckinProcessor.handleSafetyReschedule', () => {
   it('delegates to scheduleAllCheckins so the hourly cron can self-heal cadence', async () => {
     const checkinService = { scheduleAllCheckins: jest.fn().mockResolvedValue(undefined) } as unknown as CheckinService;
     const recapService = { scheduleAllRecaps: jest.fn().mockResolvedValue(undefined) };
+    const weeklyReviewService = { scheduleAllReviews: jest.fn().mockResolvedValue(undefined) };
     // Positional args mirror the constructor: …, checkinService(8), taskService(9),
-    // surpriseService(10), recapService(11).
+    // surpriseService(10), recapService(11), weeklyReviewService(12).
     const processor = new (CheckinProcessor as any)(
-      {}, {}, {}, {}, {}, {}, {}, checkinService, {}, {}, recapService,
+      {}, {}, {}, {}, {}, {}, {}, checkinService, {}, {}, recapService, weeklyReviewService,
     );
     await processor.handleSafetyReschedule();
     expect(checkinService.scheduleAllCheckins).toHaveBeenCalledTimes(1);
     expect(recapService.scheduleAllRecaps).toHaveBeenCalledTimes(1);
+    expect(weeklyReviewService.scheduleAllReviews).toHaveBeenCalledTimes(1);
   });
 });

@@ -27,8 +27,7 @@ export interface SurpriseInput {
 }
 
 export function buildSurpriseMessage(input: SurpriseInput): string {
-  const { flavor, userName, daysIn, showedUpCount, profile } = input;
-  const name = userName || 'bro';
+  const { flavor, daysIn, showedUpCount, profile } = input;
   const avoidance = profile?.avoidance_patterns?.trim();
 
   switch (flavor) {

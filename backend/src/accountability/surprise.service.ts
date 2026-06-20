@@ -11,7 +11,6 @@ import { MessagingService } from '../messaging/messaging.service';
 import {
   buildSurpriseMessage,
   pickSurpriseFlavor,
-  SurpriseFlavor,
 } from '../ai/prompts/surprise.prompt';
 import { structuredLog } from '../common/logger';
 

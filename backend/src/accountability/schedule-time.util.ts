@@ -29,3 +29,38 @@ export function computeLocalDelayMs(
 
   return target.getTime() - nowDate.getTime();
 }
+
+/**
+ * Delay in ms from `now` until the next occurrence of a given weekday at a
+ * "HH:mm" local wall-clock time, in the user's timezone (UTC offset in minutes).
+ * `weekday` is 0=Sunday..6=Saturday in the user's LOCAL time. If that weekday +
+ * time hasn't passed this week it fires this week, otherwise next week.
+ *
+ * Used by the weekly review (mirrors computeLocalDelayMs for the nightly recap).
+ */
+export function computeWeeklyDelayMs(
+  weekday: number,
+  localTime: string,
+  utcOffsetMinutes = 0,
+  now: number = Date.now(),
+): number {
+  const [hours, minutes] = localTime.split(':').map(Number);
+
+  // Work in "local-shifted" ms (UTC fields represent the user's local clock).
+  const localNowMs = now + utcOffsetMinutes * 60_000;
+  const target = new Date(localNowMs);
+  target.setUTCHours(hours, minutes, 0, 0);
+
+  // Advance to the desired local weekday.
+  const dayDiff = (((weekday - target.getUTCDay()) % 7) + 7) % 7;
+  target.setUTCDate(target.getUTCDate() + dayDiff);
+
+  // If that instant is already past (same weekday, time gone), roll a week.
+  if (target.getTime() <= localNowMs) {
+    target.setUTCDate(target.getUTCDate() + 7);
+  }
+
+  // Convert the local-shifted target back to real UTC.
+  const targetUtcMs = target.getTime() - utcOffsetMinutes * 60_000;
+  return targetUtcMs - now;
+}

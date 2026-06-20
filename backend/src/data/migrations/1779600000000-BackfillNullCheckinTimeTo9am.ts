@@ -14,7 +14,7 @@ export class BackfillNullCheckinTimeTo9am1779600000000 implements MigrationInter
     );
   }
 
-  public async down(queryRunner: QueryRunner): Promise<void> {
+  public async down(): Promise<void> {
     // Intentional no-op: reverting would require knowing which rows we touched,
     // and setting everyone back to NULL would silently disable check-ins for
     // any user who'd subsequently chosen 09:00 deliberately.

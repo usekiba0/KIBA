@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { PlanService } from '../../src/ai/plan.service';
 import { buildPlanPrompt } from '../../src/ai/prompts/plan.prompt';
 import { PressurePreference } from '../../src/data/entities/psychological-profile.entity';
-import { Goal } from '../../src/data/entities/goal.entity';
 
 const mockPsychProfile = {
   id: 'profile-1',

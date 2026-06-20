@@ -14,6 +14,7 @@ import { CheckinService } from '../../src/accountability/checkin.service';
 import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
 import { RecapService } from '../../src/accountability/recap.service';
+import { WeeklyReviewService } from '../../src/accountability/weekly-review.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
 import { CoachingService } from '../../src/ai/coaching.service';
 import { ConfigService } from '@nestjs/config';
@@ -90,6 +91,7 @@ describe('CheckinProcessor', () => {
   let mockTaskService: any;
   let mockSurpriseService: any;
   let mockRecapService: any;
+  let mockWeeklyReviewService: any;
   let mockQueue: any;
   let mockStripeService: any;
 
@@ -116,6 +118,7 @@ describe('CheckinProcessor', () => {
     mockTaskService = { ensureTodayTask: jest.fn().mockResolvedValue(testTask) };
     mockSurpriseService = { fire: jest.fn(), scheduleWeek: jest.fn() };
     mockRecapService = { fire: jest.fn(), scheduleAllRecaps: jest.fn(), scheduleRecap: jest.fn() };
+    mockWeeklyReviewService = { fire: jest.fn(), scheduleAllReviews: jest.fn(), scheduleReview: jest.fn() };
     mockQueue = { add: jest.fn().mockResolvedValue({ id: 'missed-job-1' }) };
     mockStripeService = { createCustomer: jest.fn(), createCheckoutSession: jest.fn() };
     const mockConfig = { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') };
@@ -134,6 +137,7 @@ describe('CheckinProcessor', () => {
         { provide: TaskService, useValue: mockTaskService },
         { provide: SurpriseService, useValue: mockSurpriseService },
         { provide: RecapService, useValue: mockRecapService },
+        { provide: WeeklyReviewService, useValue: mockWeeklyReviewService },
         { provide: StripeService, useValue: mockStripeService },
         { provide: ConfigService, useValue: mockConfig },
         // Win-back nudges are now LLM-generated; return null so the deterministic

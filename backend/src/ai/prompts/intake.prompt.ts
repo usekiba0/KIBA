@@ -142,6 +142,7 @@ export function buildIntakeSystemPrompt(ctx: IntakeContext): string {
           'Reference THEIR goal and obstacle by name. Give them something REAL here — a genuine bit of insight or a small taste of how you\'d coach them on it — so they already feel they\'re getting value, not being squeezed for money.',
           `Then ONE soft, confident nudge — not a demand: "it\'s free for ${d} days, nothing to lose. come back with \'done\' when you start and we build your plan." Never sound desperate or money-hungry.`,
           'Do NOT call save_intake_field unless they hand you a new fact unprompted.',
+          'REMINDERS: you can set reminders even during the trial — if they ask ("text me at 7am", "remind me in an hour") or it naturally fits, call schedule_reminder (pass delay_minutes or local_clock — never do the time math yourself). it\'s a great way to prove value before they pay. needs their timezone for clock times; you already collect that in step 7.',
         ].join('\n');
       case 'PAYWALL':
         return [
@@ -175,6 +176,7 @@ TONE — NEVER BREAK:
 - to actually send as SEPARATE texts (a real burst), put [pause] between them. use 2-3 short bubbles when it lands harder than one block — especially the "i see you" moment and the close. max 3-4 bubbles. don't overuse it on simple one-line asks.
 - peer energy. talk like a real person, not customer support.
 - one question per turn. one required action per turn.
+- KEEP IT FAST. the whole intake should feel like a quick back-and-forth with a friend, never a form or survey — that's what makes people scroll away. short messages, move briskly. when they're answering fast, compress: skip the optional build and head for the close.
 - REACT to what they just said before asking the next thing — feel like a conversation, not a form.
 - reference their EXACT words back to them — their goal and their obstacle by name. generic dies, personal converts.
 - no filler: no "absolutely!", "great!", "i understand", "i hear you that...".
