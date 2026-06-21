@@ -35,6 +35,7 @@ import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
 import { humanizeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
+import { isTimeQuery, formatLocalClock12h } from './local-time';
 
 interface CoachingJob {
   from: string;
@@ -358,6 +359,24 @@ export class CoachingProcessor {
       }
     }
     const inboundIsImage = numMedia > 0 && resolvedMediaCt.startsWith('image/');
+
+    // "what time is it" — answer deterministically, for EVERY stage (intake and
+    // coaching both route through here, and the recurring "wrong time" report was
+    // an intake-stage user). The model can't be trusted to read the wall clock
+    // even when handed a fresh UTC snapshot + offset — it estimates and lands
+    // minutes off. Compute it here at send time so it's always correct. Gate on
+    // no media so a photo + "what time is it" caption still routes to vision, and
+    // on a known offset so we never guess a timezone — without one, fall through
+    // and the AI asks the user for their city.
+    if (numMedia === 0 && isTimeQuery(body) && user.utc_offset_minutes != null) {
+      const clock = formatLocalClock12h(new Date(), user.utc_offset_minutes);
+      structuredLog(this.logger, 'log', {
+        service: 'messaging', operation: 'time_query_answered',
+        userId: user.id, channel,
+      });
+      await this.saveAndSend(user, boundary.sessionId, `it's ${clock} your time.`);
+      return;
+    }
 
     // === Stage routing: SMS-first onboarding ===
     // Pre-payment users go through the intake AI flow, not the coaching flow.
@@ -712,6 +731,7 @@ export class CoachingProcessor {
       name: user.name,
       intakeData: (user.intake_data ?? {}) as IntakeData,
       utcOffsetMinutes: user.utc_offset_minutes ?? null,
+      nowUtc: new Date(),
       paymentLinkSent: !!user.payment_link_sent_at,
       sampleCoachingGiven: !!user.sample_coaching_given,
       variant: user.onboarding_variant ?? OnboardingVariant.STANDARD,

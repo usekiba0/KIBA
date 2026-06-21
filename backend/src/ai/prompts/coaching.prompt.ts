@@ -1,4 +1,5 @@
 import { PsychologicalProfile, PressurePreference } from '../../data/entities/psychological-profile.entity';
+import { formatLocalClockPretty } from '../../messaging/local-time';
 
 interface UserContext {
   id: string;
@@ -90,16 +91,10 @@ function formatTimeContext(ctx: TimeContext): string {
     ].join('\n');
   }
   // Build a human-friendly local clock string so the AI can talk to the user
-  // about their day naturally, but NEVER mistake it for a UTC timestamp.
-  const localMs = ctx.nowUtc.getTime() + ctx.userOffsetMinutes * 60_000;
-  const local = new Date(localMs);
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const hh = local.getUTCHours();
-  const mm = local.getUTCMinutes().toString().padStart(2, '0');
-  const period = hh >= 12 ? 'PM' : 'AM';
-  const hh12 = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
-  const localPretty = `${hh12}:${mm} ${period}, ${days[local.getUTCDay()]} ${months[local.getUTCMonth()]} ${local.getUTCDate()}`;
+  // about their day naturally, but NEVER mistake it for a UTC timestamp. Uses
+  // the SAME formatter as the deterministic "what time is it" short-circuit
+  // (messaging/local-time.ts) so any time the model echoes matches exactly.
+  const localPretty = formatLocalClockPretty(ctx.nowUtc, ctx.userOffsetMinutes);
   const sign = ctx.userOffsetMinutes >= 0 ? '+' : '-';
   const absMin = Math.abs(ctx.userOffsetMinutes);
   const h = Math.floor(absMin / 60).toString().padStart(2, '0');
@@ -108,7 +103,7 @@ function formatTimeContext(ctx: TimeContext): string {
     'CURRENT TIME:',
     `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
     `- USER LOCAL CLOCK: ${localPretty} — user offset is UTC${sign}${h}:${m}`,
-    '- when the user asks what time it is for them (or you reference their local time), READ the USER LOCAL CLOCK line above word-for-word. NEVER compute, estimate, or do timezone math in your head — you get it wrong. just read it.',
+    '- when the user asks what time it is for them (or you reference their local time), COPY the time from the USER LOCAL CLOCK line above EXACTLY — digit for digit. Do NOT add "around"/"about", do NOT round, do NOT subtract for "how long this took", do NOT compute or do timezone math in your head — you get it wrong every time. The value on that line is already their current local time. Just copy it.',
     '',
     'SCHEDULING — DO NOT DO TIME MATH. let the schedule_reminder tool do it:',
     '- RELATIVE ("in 30 min", "in 2 hours", "in 5 hours"): pass delay_minutes (convert hours→minutes only: 5 hours = 300). nothing else.',

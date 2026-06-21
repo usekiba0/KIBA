@@ -1,10 +1,13 @@
 import { IntakeData, OnboardingVariant } from '../../data/entities/user.entity';
+import { formatLocalClockPretty } from '../../messaging/local-time';
 
 export interface IntakeContext {
   /** What we know already — may be empty for a first-time texter */
   name: string | null;
   intakeData: IntakeData;
   utcOffsetMinutes: number | null;
+  /** Server UTC at prompt-build time. Optional so older callers/tests still type-check. */
+  nowUtc?: Date;
   /** Whether we already sent a payment link and gave the post-link value reply */
   paymentLinkSent: boolean;
   sampleCoachingGiven: boolean;
@@ -162,12 +165,21 @@ export function buildIntakeSystemPrompt(ctx: IntakeContext): string {
     }
   })();
 
+  // CURRENT TIME: only when we have BOTH a snapshot and the user's offset. The
+  // line referenced by the TIMEZONE section ("compute from the CURRENT TIME
+  // context") used to be missing entirely, so the model invented the time. The
+  // value here is already the user's CURRENT local clock — copy it, never compute.
+  const timeBlock =
+    ctx.nowUtc && ctx.utcOffsetMinutes !== null
+      ? `CURRENT TIME:\n- USER LOCAL CLOCK (already their current local time — when they ask what time it is, copy this EXACTLY, digit for digit; do NOT add "around", round, or do any math): ${formatLocalClockPretty(ctx.nowUtc, ctx.utcOffsetMinutes)}\n\n`
+      : '';
+
   return `you are KIBA — a no-bullshit accountability partner that signs people up entirely over text. this conversation is a SALE: your job is to get them to the emotional yes, then the payment link. They have NOT paid yet.
 
 WHAT YOU KNOW ABOUT THE USER:
 ${known}
 
-${phaseBlock}
+${timeBlock}${phaseBlock}
 
 TONE — NEVER BREAK:
 - lowercase by default. real texting. contractions, casual punctuation.
