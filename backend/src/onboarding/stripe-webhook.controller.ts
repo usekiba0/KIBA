@@ -88,24 +88,48 @@ export class StripeWebhookController {
           break;
         }
 
-        // Find or create the subscription row. The customer.subscription.created
-        // event may have already created one — if so, just promote the user.
+        // Find-or-create / REACTIVATE the subscription row from the Stripe sub on
+        // this session. For a brand-new customer this creates it. For a RETURNING
+        // customer who previously cancelled and is re-paying, we MUST relink the
+        // existing row to the new Stripe subscription and reset its status — Stripe
+        // issues a new subscription id (the customer id is reused). The old code
+        // ran only `if (!sub …)`, so the stale `cancelled` row survived: the user
+        // got the "you're in" acknowledgement, then the paywall gate (which checks
+        // sub.status) saw `cancelled` and asked them to repay — a double charge
+        // with no coaching. The sub=cancelled / user=trial mismatch was the tell.
         let sub = await this.subRepo.findOne({ where: { user_id: user.id } });
-        if (!sub && session.subscription) {
+        if (session.subscription) {
           // Pull the Stripe subscription so we know the trial_end + status.
           const stripeSub = await this.stripeService.getSubscription(
             typeof session.subscription === 'string' ? session.subscription : session.subscription.id,
           );
           const now = new Date();
-          sub = this.subRepo.create({
-            user_id: user.id,
-            stripe_customer_id: typeof session.customer === 'string' ? session.customer : session.customer?.id ?? '',
-            stripe_subscription_id: stripeSub.id,
-            plan: SubscriptionPlan.INDIVIDUAL,
-            status: (stripeSub.status as SubscriptionStatus) ?? SubscriptionStatus.TRIALING,
-            trial_start: stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : now,
-            trial_end: stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : now,
-          });
+          const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id ?? '';
+          const status = (stripeSub.status as SubscriptionStatus) ?? SubscriptionStatus.TRIALING;
+          const trialStart = stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : now;
+          const trialEnd = stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : now;
+          const periodEnd = stripeSub.current_period_end ? new Date(stripeSub.current_period_end * 1000) : null;
+          if (!sub) {
+            sub = this.subRepo.create({
+              user_id: user.id,
+              stripe_customer_id: customerId,
+              stripe_subscription_id: stripeSub.id,
+              plan: SubscriptionPlan.INDIVIDUAL,
+              status,
+              trial_start: trialStart,
+              trial_end: trialEnd,
+              current_period_end: periodEnd,
+            });
+          } else {
+            // Returning customer re-paying: relink + reactivate the existing row.
+            sub.stripe_customer_id = customerId || sub.stripe_customer_id;
+            sub.stripe_subscription_id = stripeSub.id;
+            sub.plan = SubscriptionPlan.INDIVIDUAL;
+            sub.status = status;
+            sub.trial_start = trialStart;
+            sub.trial_end = trialEnd;
+            sub.current_period_end = periodEnd;
+          }
           await this.subRepo.save(sub);
         }
 
