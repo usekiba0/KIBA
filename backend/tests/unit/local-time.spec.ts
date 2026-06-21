@@ -46,6 +46,13 @@ describe('local-time', () => {
       'time?',
       'so what time is it',
       'what time is it right now',
+      // typo tolerance — the variants people actually send over SMS
+      'What tme os it',
+      'Whts the time',
+      'wat tym is it',
+      'whts the time?',
+      'what time is it now??',
+      'wht time is it',
     ])('detects "%s"', (msg) => {
       expect(isTimeQuery(msg)).toBe(true);
     });

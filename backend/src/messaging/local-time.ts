@@ -39,33 +39,40 @@ export function formatLocalClockPretty(nowUtc: Date, offsetMinutes: number): str
   return `${hh12}:${mm} ${period}, ${DAYS[local.getUTCDay()]} ${MONTHS[local.getUTCMonth()]} ${local.getUTCDate()}`;
 }
 
-// Whole-message intent for "what time is it" and its common phrasings. Anchored
-// to the entire message (optional leading filler + optional politeness) so a
-// mention of "time" inside a larger sentence can't trigger it — e.g.
-// "what time should i wake up", "what time works for you", "set a reminder at
-// some time" must NOT match, while "what time is it", "what's the time",
-// "do you know the time", "time?" do.
-const TIME_QUERY_RE = new RegExp(
-  '^\\s*' +
-    '(?:hey|yo|ok|okay|so|lol|haha|wait|but|and|um|hmm|yoo+)?[\\s,]*' +
-    '(?:can you tell me|could you tell me|do you know|do you even know|u know|you know|tell me|got|have|whats|what\'?s)?\\s*' +
-    '(?:' +
-      'what\\s+time\\s+is\\s+it' + // what time is it
-      '|what\\s+time\\s+it\\s+is' + // (do you know) what time it is
-      '|what(?:\'?s| is)\\s+the\\s+time' + // what's the time / what is the time
-      '|the\\s+time' + // (do you know) the time / got the time
-      '|current\\s+time' + // current time
-      '|time' + // bare "time?"
-    ')' +
-    '(?:\\s+(?:now|there|rn|right\\s+now|currently|today|for\\s+me|where\\s+i\\s+am))?' +
-    '\\s*[?.!]*\\s*$',
-  'i',
-);
+// Whole-message intent for "what time is it" and its common phrasings, built to
+// tolerate the typos people actually send over SMS ("what tme os it",
+// "whts the time", "wat tym is it"). Anchored to the ENTIRE message (optional
+// leading filler + optional politeness) so a mention of "time" inside a larger
+// sentence can't trigger it — e.g. "what time should i wake up", "what time
+// works for you", "set a reminder at some time", "time to go" must NOT match,
+// while "what time is it", "what's the time", "do you know the time", "time?" do.
+const WHAT = '(?:what|whats|wht|whts|wat|wats|wut)';
+const TIME_W = '(?:time|tyme|tym|tme|tiem|tim)';
+const IS_W = '(?:is|iz|os|s)';
+const IT_W = '(?:it|i)';
+const LEAD = '(?:(?:hey|yo|ok|okay|so|lol|haha|um|hmm|bro|aye|ayo|yoo+)\\s+)*';
+const POLITE =
+  '(?:(?:can|could)\\s+(?:you|u)\\s+tell\\s+(?:me\\s+)?|do\\s+(?:you|u)\\s+(?:even\\s+)?know\\s+|(?:you|u)\\s+know\\s+|tell\\s+me\\s+|got\\s+|have\\s+)?';
+const CORE =
+  '(?:' +
+    WHAT + '\\s+' + TIME_W + '\\s+' + IS_W + '\\s+' + IT_W + // what time is it
+    '|' + WHAT + '\\s+' + TIME_W + '\\s+' + IT_W + '\\s+' + IS_W + // what time it is
+    '|' + WHAT + 's?\\s+the\\s+' + TIME_W + // whats the time
+    '|' + WHAT + '\\s+' + IS_W + '\\s+the\\s+' + TIME_W + // what is the time
+    '|' + WHAT + '\\s+' + TIME_W + // what time
+    '|the\\s+' + TIME_W + // the time
+    '|current\\s+' + TIME_W + // current time
+    '|' + TIME_W + // bare "time"
+  ')';
+const TAIL = '(?:\\s+(?:now|rn|right\\s+now|there|currently|today|for\\s+me|where\\s+i\\s+am))?';
+const TIME_QUERY_RE = new RegExp('^' + LEAD + POLITE + CORE + TAIL + '$', 'i');
 
 /** True when the whole message is a plain request for the current time. */
 export function isTimeQuery(text: string | null | undefined): boolean {
   if (!text) return false;
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  return TIME_QUERY_RE.test(trimmed);
+  // Normalise: drop punctuation/emoji, collapse whitespace, so a trailing "?"
+  // or stray characters never break detection.
+  const norm = text.toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!norm) return false;
+  return TIME_QUERY_RE.test(norm);
 }
