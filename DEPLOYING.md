@@ -7,6 +7,13 @@
 | `master` | Production | Render (backend) + Vercel (frontend) |
 | `001-sms-ai-coaching` | Legacy — do not use for new work | — |
 
+**Live production URLs** (verify/admin tooling targets these):
+- Backend: `https://kiba-1.onrender.com` (API base `…/v1`)
+- Frontend: `https://kiba-blond.vercel.app`
+
+> ⚠️ `rykeai-backend.onrender.com` / `ryke-ai.vercel.app` are an OLD, separate
+> deployment with their own database — do **not** point checks or admin calls there.
+
 **Rule:** All commits go to `master`. Never push fixes directly to feature branches.
 
 ---
@@ -75,8 +82,8 @@ Common build failure causes:
 NODE_ENV=production
 BETA_MODE=false
 PORT=3000
-APP_BASE_URL=https://rykeai-backend.onrender.com
-FRONTEND_URL=https://ryke-ai.vercel.app
+APP_BASE_URL=https://kiba-1.onrender.com
+FRONTEND_URL=https://kiba-blond.vercel.app
 SESSION_TIMEOUT_HOURS=4
 INTERNAL_API_KEY=<32+ char secret>
 
@@ -111,7 +118,7 @@ SMTP_FROM=RYKE AI Alerts <alerts@ryke.ai>
 
 ### Vercel (frontend) — full list
 ```
-NEXT_PUBLIC_API_URL=https://rykeai-backend.onrender.com/v1
+NEXT_PUBLIC_API_URL=https://kiba-1.onrender.com/v1
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=<pk_test_... or pk_live_...>
 ```
 

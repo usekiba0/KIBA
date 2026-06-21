@@ -36,6 +36,7 @@ import { splitBubbles } from './bubbles';
 import { humanizeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
+import { isOffsetPlausibleForPhone } from './phone-timezone';
 
 interface CoachingJob {
   from: string;
@@ -495,21 +496,28 @@ export class CoachingProcessor {
       ],
     });
     if (!entitledSub) {
-      await this.saveAndSend(
-        user, boundary.sessionId,
-        "looks like your coaching isn't active right now — here's the link to start it back up:",
-      );
-      const linkResult = await this.sendPaymentLink(user, inboundMsg.id, { requireFullIntake: false });
+      const linkResult = await this.sendPaymentLink(user, inboundMsg.id, {
+        requireFullIntake: false,
+        leadIn: "looks like your coaching isn't active right now. here's the link to start it back up:",
+      });
       if (!linkResult.ok) {
-        this.logger.warn(`[EntitlementGate] sendPaymentLink failed for ${user.id}: ${linkResult.error}`);
-        await this.saveAndSend(
-          user, boundary.sessionId,
-          "i'm having trouble generating that — an admin will reach out shortly.",
-        );
+        if (linkResult.reason === 'rate_limited') {
+          // Link already sent moments ago — reassure, never alarm.
+          await this.saveAndSend(
+            user, boundary.sessionId,
+            "i just sent you that link a sec ago. tap it above to start back up 👆",
+          );
+        } else {
+          this.logger.warn(`[EntitlementGate] sendPaymentLink failed for ${user.id}: ${linkResult.error}`);
+          await this.saveAndSend(
+            user, boundary.sessionId,
+            "i'm having trouble generating that — an admin will reach out shortly.",
+          );
+        }
       }
       structuredLog(this.logger, 'log', {
         service: 'messaging', operation: 'entitlement_gate_diverted',
-        userId: user.id, ok: linkResult.ok,
+        userId: user.id, ok: linkResult.ok, reason: linkResult.ok ? undefined : linkResult.reason,
       });
       return;
     }
@@ -525,18 +533,27 @@ export class CoachingProcessor {
         entitledSub.status === SubscriptionStatus.ACTIVE ||
         entitledSub.status === SubscriptionStatus.TRIALING;
       if (!isActiveOrTrial) {
-        await this.saveAndSend(user, boundary.sessionId, "got you — here's the link to lock this in:");
-        const linkResult = await this.sendPaymentLink(user, inboundMsg.id, { requireFullIntake: false });
+        const linkResult = await this.sendPaymentLink(user, inboundMsg.id, {
+          requireFullIntake: false,
+          leadIn: "got you. here's the link to lock this in:",
+        });
         if (!linkResult.ok) {
-          this.logger.warn(`[BillingGuard] sendPaymentLink failed for ${user.id}: ${linkResult.error}`);
-          await this.saveAndSend(
-            user, boundary.sessionId,
-            "i'm having trouble generating that — an admin will reach out shortly.",
-          );
+          if (linkResult.reason === 'rate_limited') {
+            await this.saveAndSend(
+              user, boundary.sessionId,
+              "already sent you that link a sec ago. tap it above 👆",
+            );
+          } else {
+            this.logger.warn(`[BillingGuard] sendPaymentLink failed for ${user.id}: ${linkResult.error}`);
+            await this.saveAndSend(
+              user, boundary.sessionId,
+              "i'm having trouble generating that — an admin will reach out shortly.",
+            );
+          }
         }
         structuredLog(this.logger, 'log', {
           service: 'messaging', operation: 'billing_intent_guard',
-          userId: user.id, ok: linkResult.ok,
+          userId: user.id, ok: linkResult.ok, reason: linkResult.ok ? undefined : linkResult.reason,
         });
         return;
       }
@@ -712,6 +729,7 @@ export class CoachingProcessor {
           service: 'onboarding', operation: 'tz_captured_from_city',
           userId: user.id, utcOffsetMinutes: cityOffset, city: cityName ?? undefined,
         });
+        this.flagOffsetPhoneMismatch(user.id, user.phone_number, cityOffset, 'city');
       }
     }
     if (!user.checkin_time) {
@@ -877,6 +895,7 @@ export class CoachingProcessor {
         }
         await this.userRepo.update(liveUser.id, { utc_offset_minutes: n });
         liveUser.utc_offset_minutes = n;
+        this.flagOffsetPhoneMismatch(liveUser.id, liveUser.phone_number, n, 'model');
       } else if (col === 'checkin_time') {
         const s = String(value);
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(s)) {
@@ -945,6 +964,32 @@ export class CoachingProcessor {
   }
 
   /**
+   * Sanity-check a freshly-saved UTC offset against the phone's country code and
+   * WARN (don't block) on a gross mismatch — e.g. a +92 (Pakistan, UTC+5) number
+   * stored as UTC-5 from a role-played US city (the "Ali" wrong-time case). The
+   * typed value can be legitimate (travel / VoIP number), so this only surfaces a
+   * likely-wrong timezone in logs/admin instead of letting KIBA confidently give
+   * the wrong local clock. null = unknown country code → no judgement, no flag.
+   */
+  private flagOffsetPhoneMismatch(
+    userId: string,
+    phone: string | null | undefined,
+    offsetMinutes: number,
+    source: 'city' | 'model',
+  ): void {
+    if (isOffsetPlausibleForPhone(phone, offsetMinutes) === false) {
+      structuredLog(this.logger, 'warn', {
+        service: 'onboarding',
+        operation: 'tz_phone_mismatch',
+        userId,
+        utcOffsetMinutes: offsetMinutes,
+        phone: phone ?? undefined,
+        source,
+      });
+    }
+  }
+
+  /**
    * Create a Stripe checkout session, SMS the URL, mark the user payment_pending,
    * and schedule the dunning auto-nudges. Refuses if a recent link still exists.
    *
@@ -955,23 +1000,30 @@ export class CoachingProcessor {
   private async sendPaymentLink(
     liveUser: User,
     userMessageId: string,
-    opts: { requireFullIntake: boolean } = { requireFullIntake: true },
-  ) {
+    opts: { requireFullIntake: boolean; leadIn?: string } = { requireFullIntake: true },
+  ): Promise<
+    | { ok: true; checkout_url: string }
+    | { ok: false; reason: 'incomplete' | 'rate_limited' | 'error'; error: string }
+  > {
     // Name is required either way — Stripe customer creation uses it.
     if (!liveUser.name) {
-      return { ok: false as const, error: 'user has no name yet' };
+      return { ok: false as const, reason: 'incomplete' as const, error: 'user has no name yet' };
     }
     if (opts.requireFullIntake) {
       if (!liveUser.intake_data?.goal_description || liveUser.utc_offset_minutes === null) {
-        return { ok: false as const, error: 'minimum intake not yet captured (need name, goal_description, utc_offset_minutes)' };
+        return { ok: false as const, reason: 'incomplete' as const, error: 'minimum intake not yet captured (need name, goal_description, utc_offset_minutes)' };
       }
     }
 
-    // Refuse if a payment link was sent in the last 5 minutes (avoid spam).
+    // Refuse if a payment link was sent in the last 5 minutes (avoid spam). This
+    // is NOT a failure — the user already has a fresh link — so callers must say
+    // "already sent it" rather than the alarming "having trouble / admin will
+    // reach out" line (the bug Ali hit: re-asked 90s after a link and got told
+    // it was broken).
     if (liveUser.payment_link_sent_at) {
       const ageMs = Date.now() - new Date(liveUser.payment_link_sent_at).getTime();
       if (ageMs < 5 * 60_000) {
-        return { ok: false as const, error: 'a payment link was already sent within the last 5 minutes' };
+        return { ok: false as const, reason: 'rate_limited' as const, error: 'a payment link was already sent within the last 5 minutes' };
       }
     }
 
@@ -1008,7 +1060,7 @@ export class CoachingProcessor {
         userId: liveUser.id,
         error: (err as Error).message,
       });
-      return { ok: false as const, error: 'stripe checkout creation failed' };
+      return { ok: false as const, reason: 'error' as const, error: 'stripe checkout creation failed' };
     }
 
     if (!session.url) {
@@ -1017,7 +1069,7 @@ export class CoachingProcessor {
         operation: 'payment_link_no_url',
         userId: liveUser.id,
       });
-      return { ok: false as const, error: 'stripe did not return a checkout url' };
+      return { ok: false as const, reason: 'error' as const, error: 'stripe did not return a checkout url' };
     }
 
     // SMS the link directly (rather than letting the AI include it in its reply
@@ -1026,12 +1078,17 @@ export class CoachingProcessor {
     // Twilio double-failure leaves the user stuck (5-min resend lockout active
     // but no link in their inbox).
     try {
+      // Optional lead-in (e.g. "here's the link to start back up:") goes out ONLY
+      // once we know a real link follows — sent here, not by the caller upfront,
+      // so a rate-limit/failure never leaves a dangling "here's the link" with no
+      // link after it.
+      if (opts.leadIn) await this.messagingService.send(liveUser.phone_number, opts.leadIn);
       await this.messagingService.send(liveUser.phone_number, session.url);
     } catch (err) {
       this.logger.error(
         `[sendPaymentLink] SMS delivery failed for ${liveUser.id} — not persisting PAYMENT_PENDING so user can retry: ${(err as Error).message}`,
       );
-      return { ok: false as const, error: 'failed to deliver payment link sms' };
+      return { ok: false as const, reason: 'error' as const, error: 'failed to deliver payment link sms' };
     }
 
     const now = new Date();
