@@ -1,7 +1,4 @@
-import {
-  buildPressureContext,
-  buildSystemPrompt,
-} from '../../src/ai/prompts/coaching.prompt';
+import { buildPressureContext, buildSystemPrompt } from '../../src/ai/prompts/coaching.prompt';
 import { PressurePreference } from '../../src/data/entities/psychological-profile.entity';
 
 const mockProfile = {
@@ -55,7 +52,10 @@ describe('buildPressureContext', () => {
   });
 
   it('handles encouragement preference', () => {
-    const encouragementProfile = { ...mockProfile, pressure_preference: PressurePreference.ENCOURAGEMENT };
+    const encouragementProfile = {
+      ...mockProfile,
+      pressure_preference: PressurePreference.ENCOURAGEMENT,
+    };
     const ctx = buildPressureContext(encouragementProfile as any, 50, 0);
     expect(ctx.toLowerCase()).toContain('encouragement');
   });
@@ -100,8 +100,16 @@ describe('buildSystemPrompt', () => {
 
   it('surfaces known facts (goals, city) when provided', () => {
     const prompt = buildSystemPrompt(
-      mockUser as any, mockProfile as any, 72, 0, undefined, undefined, undefined,
-      undefined, undefined, 0,
+      mockUser as any,
+      mockProfile as any,
+      72,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
       { goals: 'gym, sports betting business', city: 'Chicago', why: 'freedom' },
     );
     expect(prompt).toMatch(/WHAT YOU KNOW ABOUT THEM/i);
@@ -131,7 +139,13 @@ describe('buildSystemPrompt', () => {
   });
 
   it('includes optional session summary when provided', () => {
-    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0, 'Previous: user ran 2K last Tuesday');
+    const prompt = buildSystemPrompt(
+      mockUser as any,
+      mockProfile as any,
+      72,
+      0,
+      'Previous: user ran 2K last Tuesday',
+    );
     expect(prompt).toContain('Previous: user ran 2K last Tuesday');
   });
 
@@ -197,16 +211,65 @@ describe('buildSystemPrompt', () => {
     it('tells KIBA to commit and move on instead of gathering forever', () => {
       const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
       expect(prompt.toLowerCase()).toMatch(/don'?t loop/);
-      expect(prompt.toLowerCase()).toMatch(/the second you have enough to act, act|good-enough-and-moving/);
+      expect(prompt.toLowerCase()).toMatch(
+        /the second you have enough to act, act|good-enough-and-moving/,
+      );
+    });
+
+    it('renders a LOOP ALERT steer when the looping signal is set', () => {
+      const patterns = {
+        weakestDow: null,
+        weakestDowMisses: 0,
+        recurringExcuse: null,
+        recurringExcuseCount: 0,
+        lastMilestoneHit: 0,
+        loopingOnQuestion: true,
+      };
+      const prompt = buildSystemPrompt(
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        patterns,
+      );
+      expect(prompt).toContain('LOOP ALERT');
+      expect(prompt.toLowerCase()).toMatch(/stop\b/);
+    });
+
+    it('omits the LOOP ALERT when not looping', () => {
+      const patterns = {
+        weakestDow: null,
+        weakestDowMisses: 0,
+        recurringExcuse: null,
+        recurringExcuseCount: 0,
+        lastMilestoneHit: 0,
+        loopingOnQuestion: false,
+      };
+      const prompt = buildSystemPrompt(
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        patterns,
+      );
+      expect(prompt).not.toContain('LOOP ALERT');
     });
   });
 
   describe('curated knowledge injection', () => {
     it('injects each entry as a bullet under a labeled section', () => {
-      const prompt = buildSystemPrompt(
-        mockUser as any, mockProfile as any, 72, 0, undefined,
-        ['Always use metric units when asked about distance', 'Never recommend skipping rest days'],
-      );
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0, undefined, [
+        'Always use metric units when asked about distance',
+        'Never recommend skipping rest days',
+      ]);
       expect(prompt).toContain('CURATED KNOWLEDGE');
       expect(prompt).toContain('- Always use metric units when asked about distance');
       expect(prompt).toContain('- Never recommend skipping rest days');
@@ -227,7 +290,12 @@ describe('buildSystemPrompt', () => {
     it('includes server UTC and computed local clock when offset is known', () => {
       const nowUtc = new Date('2026-05-18T10:00:00Z');
       const prompt = buildSystemPrompt(
-        mockUser as any, mockProfile as any, 72, 0, undefined, undefined,
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
         { nowUtc, userOffsetMinutes: 300 }, // PKT, UTC+5
       );
       expect(prompt).toContain('CURRENT TIME');
@@ -239,7 +307,12 @@ describe('buildSystemPrompt', () => {
 
     it('includes a fallback message when offset is unknown so the AI asks before scheduling', () => {
       const prompt = buildSystemPrompt(
-        mockUser as any, mockProfile as any, 72, 0, undefined, undefined,
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
         { nowUtc: new Date('2026-05-18T10:00:00Z'), userOffsetMinutes: null },
       );
       expect(prompt).toContain('USER TIMEZONE: unknown');
@@ -249,7 +322,12 @@ describe('buildSystemPrompt', () => {
     it('formats negative offsets correctly', () => {
       const nowUtc = new Date('2026-05-18T20:00:00Z');
       const prompt = buildSystemPrompt(
-        mockUser as any, mockProfile as any, 72, 0, undefined, undefined,
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
         { nowUtc, userOffsetMinutes: -480 }, // PST, UTC-8
       );
       expect(prompt).toContain('UTC-08:00');

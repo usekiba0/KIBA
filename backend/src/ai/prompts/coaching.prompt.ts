@@ -1,4 +1,7 @@
-import { PsychologicalProfile, PressurePreference } from '../../data/entities/psychological-profile.entity';
+import {
+  PsychologicalProfile,
+  PressurePreference,
+} from '../../data/entities/psychological-profile.entity';
 import { formatLocalClockPretty } from '../../messaging/local-time';
 
 interface UserContext {
@@ -40,12 +43,16 @@ export function buildPressureContext(
   // Embarrassment is a WEEK-2 elicitation (V5): always show it once we have it,
   // but only ask for it once the user is into their second week — never in week 1.
   if (profile.embarrassment && profile.embarrassment.trim()) {
-    known.push(`- Embarrassment (what they'd hate people seeing if they keep failing): ${profile.embarrassment.trim()}`);
+    known.push(
+      `- Embarrassment (what they'd hate people seeing if they keep failing): ${profile.embarrassment.trim()}`,
+    );
   } else if (weeksIn >= 2) {
     missing.push('embarrassment');
   }
   known.push(`- Tone preference: ${preferenceLabel}`);
-  known.push(`- Cussing consent: ${profile.cussing_ok ? 'YES — user opted in; cuss naturally when it fits the moment, never as filler' : 'NO — keep it PG; absolutely no profanity in any message'}`);
+  known.push(
+    `- Cussing consent: ${profile.cussing_ok ? 'YES — user opted in; cuss naturally when it fits the moment, never as filler' : 'NO — keep it PG; absolutely no profanity in any message'}`,
+  );
 
   const sections: string[] = [
     known.join('\n'),
@@ -65,7 +72,9 @@ export function buildPressureContext(
       '- The moment the user reveals one of these in plain language (e.g. "i keep comparing myself to my brother" → comparison_figure="my brother"), call save_profile_field IMMEDIATELY with the value. Do not wait for a confirmation.',
       '- If the user dodges or ignores an elicitation, drop that field for the rest of this session and just coach.',
       ...(missing.includes('embarrassment')
-        ? ['- "embarrassment" is the private outcome they\'d be most ashamed for people to see if they keep failing (the quiet fear under the goal). Only ask in a genuinely reflective moment, gently, never as a gotcha — e.g. "real question — what\'s the version of this you\'d hate for anyone to actually see?"']
+        ? [
+            '- "embarrassment" is the private outcome they\'d be most ashamed for people to see if they keep failing (the quiet fear under the goal). Only ask in a genuinely reflective moment, gently, never as a gotcha — e.g. "real question — what\'s the version of this you\'d hate for anyone to actually see?"',
+          ]
         : []),
     );
   }
@@ -97,7 +106,9 @@ function formatTimeContext(ctx: TimeContext): string {
   const localPretty = formatLocalClockPretty(ctx.nowUtc, ctx.userOffsetMinutes);
   const sign = ctx.userOffsetMinutes >= 0 ? '+' : '-';
   const absMin = Math.abs(ctx.userOffsetMinutes);
-  const h = Math.floor(absMin / 60).toString().padStart(2, '0');
+  const h = Math.floor(absMin / 60)
+    .toString()
+    .padStart(2, '0');
   const m = (absMin % 60).toString().padStart(2, '0');
   return [
     'CURRENT TIME:',
@@ -109,7 +120,7 @@ function formatTimeContext(ctx: TimeContext): string {
     '- RELATIVE ("in 30 min", "in 2 hours", "in 5 hours"): pass delay_minutes (convert hours→minutes only: 5 hours = 300). nothing else.',
     '- SPECIFIC CLOCK TIME ("at 9pm", "7am tomorrow", "5:02pm"): pass local_clock as "HH:MM" 24h (9pm="21:00", 5:02pm="17:02"). the tool converts to UTC and picks today/tomorrow itself.',
     '- after it returns, your confirmation uses the tool\'s "fires_in" value — never your own estimate of how long away it is.',
-    '- 2-minute floor: ONLY mention it if they ask for UNDER 2 min (then say so instead of scheduling). for 2 min or more (3 min, 5 min, an hour) just schedule it and NEVER bring up a minimum — volunteering it when they asked for 3 min reads broken. if you truly can\'t tell what time they mean, ask.',
+    "- 2-minute floor: ONLY mention it if they ask for UNDER 2 min (then say so instead of scheduling). for 2 min or more (3 min, 5 min, an hour) just schedule it and NEVER bring up a minimum — volunteering it when they asked for 3 min reads broken. if you truly can't tell what time they mean, ask.",
     '',
   ].join('\n');
 }
@@ -132,24 +143,49 @@ export interface PatternSignals {
   recurringExcuseCount: number;
   /** Highest streak milestone already celebrated (0 if none). */
   lastMilestoneHit: number;
+  /**
+   * Derived in the processor: KIBA has been asking near-identical questions turn
+   * after turn (or the user explicitly called out the loop). Surfaces a hard
+   * "stop asking, lock it in" steer so a model mid-circle breaks out.
+   */
+  loopingOnQuestion?: boolean;
 }
 
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function formatPatternSignals(p: PatternSignals): string {
+  // LOOP ALERT is rendered ABOVE (and outside) the soft "use only when the
+  // moment calls for it" behavioral signals — when it fires it's not optional.
+  const urgent: string[] = [];
+  if (p.loopingOnQuestion) {
+    urgent.push(
+      '',
+      'LOOP ALERT — you have asked nearly the same question several turns in a row and the user has ALREADY answered. STOP. do NOT end this message with another question about it, and do NOT rephrase the same ask. acknowledge what they gave you ("aight, got it"), commit it right now (add_todo if it\'s a task or a time), confirm it plainly ("locked. that\'s your day."), and move the conversation forward. re-asking what they already told you is the single fastest way to lose them.',
+    );
+  }
+
   const lines: string[] = [];
   if (p.weakestDow !== null && p.weakestDowMisses >= 2) {
-    lines.push(`- Weakest day: ${DOW_NAMES[p.weakestDow]} (${p.weakestDowMisses} misses tracked). If today is the night before that day, OR today IS that day and they haven't committed yet, naturally call it out: "tomorrow's ${DOW_NAMES[p.weakestDow]}, historically your weakest day — not this time."`);
+    lines.push(
+      `- Weakest day: ${DOW_NAMES[p.weakestDow]} (${p.weakestDowMisses} misses tracked). If today is the night before that day, OR today IS that day and they haven't committed yet, naturally call it out: "tomorrow's ${DOW_NAMES[p.weakestDow]}, historically your weakest day — not this time."`,
+    );
   }
   if (p.recurringExcuse && p.recurringExcuseCount >= 2) {
     const escaped = p.recurringExcuse.replace(/"/g, '\\"');
-    lines.push(`- Recurring excuse: user has said "${escaped}" ${p.recurringExcuseCount} times. Next time they slip toward that phrasing, name the pattern: "that's the ${ordinal(p.recurringExcuseCount + 1)} time with that one." Do NOT proactively bring it up if the conversation isn't there yet.`);
+    lines.push(
+      `- Recurring excuse: user has said "${escaped}" ${p.recurringExcuseCount} times. Next time they slip toward that phrasing, name the pattern: "that's the ${ordinal(p.recurringExcuseCount + 1)} time with that one." Do NOT proactively bring it up if the conversation isn't there yet.`,
+    );
   }
   if (p.lastMilestoneHit >= 3) {
-    lines.push(`- They've already crossed the ${p.lastMilestoneHit}-day milestone — celebration was sent. Don't re-celebrate the same milestone. Next benchmark is ${nextMilestoneAfter(p.lastMilestoneHit)} days.`);
+    lines.push(
+      `- They've already crossed the ${p.lastMilestoneHit}-day milestone — celebration was sent. Don't re-celebrate the same milestone. Next benchmark is ${nextMilestoneAfter(p.lastMilestoneHit)} days.`,
+    );
   }
-  if (lines.length === 0) return '';
-  return ['', 'BEHAVIORAL SIGNALS (derived — use only when the moment calls for it):', ...lines].join('\n');
+  const behavioral = lines.length
+    ? ['', 'BEHAVIORAL SIGNALS (derived — use only when the moment calls for it):', ...lines]
+    : [];
+  if (urgent.length === 0 && behavioral.length === 0) return '';
+  return [...urgent, ...behavioral].join('\n');
 }
 
 function ordinal(n: number): string {
@@ -172,12 +208,12 @@ function formatTodoSection(todos: TodoForPrompt[]): string {
       "TODAY'S LIST:",
       '- (empty — nothing seeded or added yet)',
       '',
-      "TODO RULES:",
+      'TODO RULES:',
       '- The user has no list yet today. If they name something they want to get done, call add_todo immediately.',
       '- Do NOT ask "what\'s your workout/task today?" — just offer to add one based on what you know about their goal and let them confirm.',
       '- BUILDING THE PLAN — CONVERGE, DON\'T INTERROGATE: the SECOND they give you a real task or time ("9:20 workout at home, 20 min", "eggs and coffee at 8am"), call add_todo with it right then. do NOT keep asking for more detail before you lock it in.',
       '- you do NOT need a perfect schedule to start. once you have a thing or two, STOP gathering — add them and confirm ("locked. that\'s your day, i\'ll be on you for it."). a 5-question plan-building survey is exactly what makes people circle and bail.',
-      '- NEVER re-ask a piece they already gave you. if you have their workout, don\'t ask the workout again. if you have breakfast, don\'t re-ask breakfast. if you\'re circling the same 1-2 questions, that\'s your cue to add what they said and move on.',
+      "- NEVER re-ask a piece they already gave you. if you have their workout, don't ask the workout again. if you have breakfast, don't re-ask breakfast. if you're circling the same 1-2 questions, that's your cue to add what they said and move on.",
     ].join('\n');
   }
   const open = todos.filter((t) => t.status === 'open');
@@ -193,10 +229,16 @@ function formatTodoSection(todos: TodoForPrompt[]): string {
   }
   lines.push('');
   lines.push('TODO RULES:');
-  lines.push('- This list IS the answer to "what do i have to do today" / "what\'s my workout" / "what was i supposed to do" — do NOT ask the user, read it.');
-  lines.push('- When they report finishing something, ask for proof FIRST (see PROOF SYSTEM). Only call mark_todo_done once they actually send it — never on a bare "done".');
-  lines.push('- When they want to add something, call add_todo. When they want it off the list, call remove_todo.');
-  lines.push('- Never quote the id brackets back to the user — they\'re for your tool calls only.');
+  lines.push(
+    '- This list IS the answer to "what do i have to do today" / "what\'s my workout" / "what was i supposed to do" — do NOT ask the user, read it.',
+  );
+  lines.push(
+    '- When they report finishing something, ask for proof FIRST (see PROOF SYSTEM). Only call mark_todo_done once they actually send it — never on a bare "done".',
+  );
+  lines.push(
+    '- When they want to add something, call add_todo. When they want it off the list, call remove_todo.',
+  );
+  lines.push("- Never quote the id brackets back to the user — they're for your tool calls only.");
   return lines.join('\n');
 }
 
@@ -220,16 +262,20 @@ export function buildSystemPrompt(
 ): string {
   const pressureCtx = buildPressureContext(profile, executionScore, recentStrikes, weeksIn);
   const factLines: string[] = [];
-  if (knownFacts?.goals && knownFacts.goals.trim()) factLines.push(`- goals: ${knownFacts.goals.trim()}`);
-  if (knownFacts?.city && knownFacts.city.trim()) factLines.push(`- city: ${knownFacts.city.trim()}`);
-  if (knownFacts?.why && knownFacts.why.trim()) factLines.push(`- why it matters: ${knownFacts.why.trim()}`);
+  if (knownFacts?.goals && knownFacts.goals.trim())
+    factLines.push(`- goals: ${knownFacts.goals.trim()}`);
+  if (knownFacts?.city && knownFacts.city.trim())
+    factLines.push(`- city: ${knownFacts.city.trim()}`);
+  if (knownFacts?.why && knownFacts.why.trim())
+    factLines.push(`- why it matters: ${knownFacts.why.trim()}`);
   const knownFactsSection = factLines.length
     ? `\nWHAT YOU KNOW ABOUT THEM (use it actively; correct them if they contradict it):\n${factLines.join('\n')}\n`
     : '';
   const summarySection = sessionSummary ? `\nPREVIOUS SESSION:\n${sessionSummary}\n` : '';
-  const knowledgeSection = curatedKnowledge && curatedKnowledge.length > 0
-    ? `\nCURATED KNOWLEDGE (admin-approved corrections from past users — follow these):\n${curatedKnowledge.map((k) => `- ${k}`).join('\n')}\n`
-    : '';
+  const knowledgeSection =
+    curatedKnowledge && curatedKnowledge.length > 0
+      ? `\nCURATED KNOWLEDGE (admin-approved corrections from past users — follow these):\n${curatedKnowledge.map((k) => `- ${k}`).join('\n')}\n`
+      : '';
   const timeSection = timeContext ? `\n${formatTimeContext(timeContext)}` : '';
   const todoSection = todos !== undefined ? `\n${formatTodoSection(todos)}\n` : '';
   const patternSection = patterns ? `\n${formatPatternSignals(patterns)}\n` : '';
