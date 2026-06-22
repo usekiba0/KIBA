@@ -1,10 +1,23 @@
-import { Process, Processor, OnQueueFailed, OnQueueError, OnQueueActive, InjectQueue } from '@nestjs/bull';
+import {
+  Process,
+  Processor,
+  OnQueueFailed,
+  OnQueueError,
+  OnQueueActive,
+  InjectQueue,
+} from '@nestjs/bull';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job, Queue } from 'bull';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User, OnboardingStage, OnboardingVariant, UserStatus, IntakeData } from '../data/entities/user.entity';
+import {
+  User,
+  OnboardingStage,
+  OnboardingVariant,
+  UserStatus,
+  IntakeData,
+} from '../data/entities/user.entity';
 import { Subscription, SubscriptionStatus } from '../data/entities/subscription.entity';
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { SessionSummary, SummaryTrigger } from '../data/entities/session-summary.entity';
@@ -29,7 +42,12 @@ import { DailyTodoSource } from '../data/entities/daily-todo.entity';
 import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
 import { normalizePhoneNumber } from '../common/phone';
-import { parseTimezoneOffset, parseCityOffset, parseCity, parseReminderTime } from './reminder-parser';
+import {
+  parseTimezoneOffset,
+  parseCityOffset,
+  parseCity,
+  parseReminderTime,
+} from './reminder-parser';
 import { resolveReminderFireAt, humanizeFireDelta } from './reminder-time';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
@@ -38,6 +56,7 @@ import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
 import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone } from './world-time';
 import { isOffsetPlausibleForPhone } from './phone-timezone';
+import { detectQuestionLoop, isLoopCallout } from './question-loop';
 
 interface CoachingJob {
   from: string;
@@ -86,6 +105,21 @@ function derivePatternSignals(user: User) {
   };
 }
 
+/**
+ * Deterministic guard for the "KIBA keeps circling the same question" failure
+ * (Bianca 2026-06-23). True when the inbound message explicitly calls out the
+ * loop, OR KIBA's recent assistant turns show it re-asking the same topic. The
+ * coaching prompt turns this into a hard "stop asking, lock it in" steer. Pure
+ * read of in-memory history — no extra query.
+ */
+function isLoopingOnQuestion(dbMessages: Message[], inboundBody: string): boolean {
+  if (isLoopCallout(inboundBody)) return true;
+  const assistantTexts = dbMessages
+    .filter((m) => m.role === MessageRole.AI && m.content)
+    .map((m) => m.content);
+  return detectQuestionLoop(assistantTexts);
+}
+
 // Hard guard for billing-intent messages from COMPLETE users without an active
 // subscription. Catches the case where migration 1779300000000 backfilled
 // pre-existing users to 'complete' even though they never actually paid — the
@@ -93,7 +127,8 @@ function derivePatternSignals(user: User) {
 // short-circuit to the same sendPaymentLink path the intake AI uses.
 // False positives are fine (extra link sent) — false negatives (LLM refuses
 // a paying customer) burned us in production, so the regex stays broad.
-const BILLING_INTENT_RE = /\b(subscri(be|ption|bed|bing)|stripe|checkout|billing|membership)\b|\b(payment|pay)\s+(link|me|the|for|to|via|by)|\b(sign\s*up|signup)\b/i;
+const BILLING_INTENT_RE =
+  /\b(subscri(be|ption|bed|bing)|stripe|checkout|billing|membership)\b|\b(payment|pay)\s+(link|me|the|for|to|via|by)|\b(sign\s*up|signup)\b/i;
 
 // A pre-pay lead CLAIMING they already paid ("i paid", "just subscribed", "card
 // went through", "bought the plan"). Payment is system-verified — only the Stripe
@@ -108,7 +143,8 @@ export const PAYMENT_CLAIM_RE =
 // An intake lead explicitly asking us to send the payment link. Used to deliver
 // the link deterministically the moment they ask (once we have name+goal+tz),
 // instead of letting the model loop re-asking build questions (Karibi 2026-06-05).
-export const LINK_REQUEST_RE = /\b(send|resend|drop|share|gimme|give\s+me|text|where(?:'?s| is)?)\b[^.\n]{0,15}\blink\b|\bsend\s+it\b|\blink\s+(?:again|now|please|pls)\b|\b(?:don'?t|do\s+not|dont)\s+have\b[^.\n]{0,15}\blink\b/i;
+export const LINK_REQUEST_RE =
+  /\b(send|resend|drop|share|gimme|give\s+me|text|where(?:'?s| is)?)\b[^.\n]{0,15}\blink\b|\bsend\s+it\b|\blink\s+(?:again|now|please|pls)\b|\b(?:don'?t|do\s+not|dont)\s+have\b[^.\n]{0,15}\blink\b/i;
 
 /**
  * The user is actively asking KIBA to explain itself / prove its value
@@ -145,11 +181,11 @@ export function intakeBuildComplete(user: {
   const d = user.intake_data ?? {};
   return Boolean(
     user.name &&
-      user.utc_offset_minutes !== null &&
-      user.utc_offset_minutes !== undefined &&
-      d.goal_description &&
-      d.why_it_matters &&
-      d.avoidance_patterns,
+    user.utc_offset_minutes !== null &&
+    user.utc_offset_minutes !== undefined &&
+    d.goal_description &&
+    d.why_it_matters &&
+    d.avoidance_patterns,
   );
 }
 
@@ -194,7 +230,9 @@ export class CoachingProcessor {
 
   @OnQueueFailed()
   onFailed(job: Job, err: Error) {
-    this.logger.error(`[Queue] Job ${job.id} FAILED after ${job.attemptsMade} attempts: ${err.message}\n${err.stack}`);
+    this.logger.error(
+      `[Queue] Job ${job.id} FAILED after ${job.attemptsMade} attempts: ${err.message}\n${err.stack}`,
+    );
   }
 
   @OnQueueError()
@@ -225,8 +263,11 @@ export class CoachingProcessor {
     const digitsOnly = from.replace(/\D/g, '');
     if (digitsOnly.length < 8) {
       structuredLog(this.logger, 'log', {
-        service: 'messaging', operation: 'shortcode_dropped',
-        from, channel, bodyPreview: body.slice(0, 80),
+        service: 'messaging',
+        operation: 'shortcode_dropped',
+        from,
+        channel,
+        bodyPreview: body.slice(0, 80),
       });
       return;
     }
@@ -239,21 +280,23 @@ export class CoachingProcessor {
       // first inbound message decides which opener the intake AI uses. Computed
       // here (lead creation) and never recomputed — later turns keep the variant.
       const variant = detectOnboardingVariant(body);
-      user = await this.userRepo.save(this.userRepo.create({
-        phone_number: from,
-        name: null,
-        coaching_focus: null,
-        goals: null,
-        status: UserStatus.TRIAL,
-        onboarding_stage: OnboardingStage.INTAKE,
-        onboarding_variant: variant,
-        intake_data: {},
-        // Default 9am local check-in so the daily cadence can kick in the moment
-        // the user pays. Users can override mid-coaching ("check in at 7 instead")
-        // — the save_intake_field tool already accepts checkin_time. Without a
-        // default, scheduleCheckin early-returns and the user never hears from us.
-        checkin_time: '09:00',
-      }));
+      user = await this.userRepo.save(
+        this.userRepo.create({
+          phone_number: from,
+          name: null,
+          coaching_focus: null,
+          goals: null,
+          status: UserStatus.TRIAL,
+          onboarding_stage: OnboardingStage.INTAKE,
+          onboarding_variant: variant,
+          intake_data: {},
+          // Default 9am local check-in so the daily cadence can kick in the moment
+          // the user pays. Users can override mid-coaching ("check in at 7 instead")
+          // — the save_intake_field tool already accepts checkin_time. Without a
+          // default, scheduleCheckin early-returns and the user never hears from us.
+          checkin_time: '09:00',
+        }),
+      );
       this.logger.log(`[Onboarding] Created lead ${user.id} for ${from} (variant: ${variant})`);
     }
 
@@ -326,9 +369,13 @@ export class CoachingProcessor {
     // Capture id to a const so the `.catch` closure doesn't re-widen `user`
     // (TS loses null-narrowing on a `let` that's reassigned later in the function).
     const userIdForAntiGhost = user.id;
-    await this.antiGhostService.onUserResponse(userIdForAntiGhost).catch((err) =>
-      this.logger.warn(`onUserResponse failed for ${userIdForAntiGhost}: ${(err as Error).message}`),
-    );
+    await this.antiGhostService
+      .onUserResponse(userIdForAntiGhost)
+      .catch((err) =>
+        this.logger.warn(
+          `onUserResponse failed for ${userIdForAntiGhost}: ${(err as Error).message}`,
+        ),
+      );
 
     const lowerBody = body.toLowerCase();
 
@@ -350,12 +397,19 @@ export class CoachingProcessor {
     // "i can't see images").
     const firstMediaUrl = mediaUrls[0] ?? null;
     let resolvedMediaCt = (mediaContentTypes[0] ?? '').toLowerCase().split(';')[0].trim();
-    if (numMedia > 0 && firstMediaUrl && (!resolvedMediaCt || resolvedMediaCt === 'application/octet-stream')) {
+    if (
+      numMedia > 0 &&
+      firstMediaUrl &&
+      (!resolvedMediaCt || resolvedMediaCt === 'application/octet-stream')
+    ) {
       const sniffed = await sniffRemoteMediaType(firstMediaUrl);
       if (sniffed) {
         structuredLog(this.logger, 'log', {
-          service: 'messaging', operation: 'media_type_sniffed',
-          userId: user.id, channel, contentType: sniffed,
+          service: 'messaging',
+          operation: 'media_type_sniffed',
+          userId: user.id,
+          channel,
+          contentType: sniffed,
         });
         resolvedMediaCt = sniffed;
       }
@@ -373,10 +427,17 @@ export class CoachingProcessor {
         const clock = resolved ? formatTimeInZone(new Date(), resolved.zone) : null;
         if (resolved && clock) {
           structuredLog(this.logger, 'log', {
-            service: 'messaging', operation: 'time_in_place_answered',
-            userId: user.id, channel, zone: resolved.zone,
+            service: 'messaging',
+            operation: 'time_in_place_answered',
+            userId: user.id,
+            channel,
+            zone: resolved.zone,
           });
-          await this.saveAndSend(user, boundary.sessionId, `it's ${clock} in ${resolved.label} right now.`);
+          await this.saveAndSend(
+            user,
+            boundary.sessionId,
+            `it's ${clock} in ${resolved.label} right now.`,
+          );
           return;
         }
       }
@@ -393,8 +454,10 @@ export class CoachingProcessor {
     if (numMedia === 0 && isTimeQuery(body) && user.utc_offset_minutes != null) {
       const clock = formatLocalClock12h(new Date(), user.utc_offset_minutes);
       structuredLog(this.logger, 'log', {
-        service: 'messaging', operation: 'time_query_answered',
-        userId: user.id, channel,
+        service: 'messaging',
+        operation: 'time_query_answered',
+        userId: user.id,
+        channel,
       });
       await this.saveAndSend(user, boundary.sessionId, `it's ${clock} your time.`);
       return;
@@ -425,7 +488,8 @@ export class CoachingProcessor {
             `[IntakePaymentClaim] active sub but stage=${user.onboarding_stage} for ${user.id}`,
           );
           await this.saveAndSend(
-            user, boundary.sessionId,
+            user,
+            boundary.sessionId,
             "got it — your payment's processing on my end. give it a sec and i'll have your plan ready 🔥",
           );
         } else {
@@ -440,14 +504,17 @@ export class CoachingProcessor {
             priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month'),
           });
           await this.saveAndSend(
-            user, boundary.sessionId,
+            user,
+            boundary.sessionId,
             generated ??
               "hmm not seeing it active on my end yet 🤔 tap the link i sent and it kicks in the second it goes through. lmk if the link's giving you trouble.",
           );
         }
         structuredLog(this.logger, 'log', {
-          service: 'messaging', operation: 'intake_payment_claim_backstop',
-          userId: user.id, hasActiveSub: !!activeSub,
+          service: 'messaging',
+          operation: 'intake_payment_claim_backstop',
+          userId: user.id,
+          hasActiveSub: !!activeSub,
         });
         return;
       }
@@ -468,7 +535,11 @@ export class CoachingProcessor {
       });
       intakeHistory.reverse();
       const reply = await this.handleIntakeMessage(
-        user, intakeHistory, body, boundary.sessionId, inboundMsg.id,
+        user,
+        intakeHistory,
+        body,
+        boundary.sessionId,
+        inboundMsg.id,
         inboundIsImage ? (firstMediaUrl ?? undefined) : undefined,
         inboundIsImage ? resolvedMediaCt : undefined,
       );
@@ -485,7 +556,7 @@ export class CoachingProcessor {
         await this.saveAndSend(
           user,
           boundary.sessionId,
-          "send `#kibi` or `#kiba` followed by what was wrong so i can flag it for review.",
+          'send `#kibi` or `#kiba` followed by what was wrong so i can flag it for review.',
         );
         return;
       }
@@ -495,7 +566,7 @@ export class CoachingProcessor {
       await this.saveAndSend(
         user,
         boundary.sessionId,
-        "got it — flagged for review. appreciate you keeping me honest.",
+        'got it — flagged for review. appreciate you keeping me honest.',
       );
       return;
     }
@@ -519,26 +590,34 @@ export class CoachingProcessor {
     if (!entitledSub) {
       const linkResult = await this.sendPaymentLink(user, inboundMsg.id, {
         requireFullIntake: false,
-        leadIn: "looks like your coaching isn't active right now. here's the link to start it back up:",
+        leadIn:
+          "looks like your coaching isn't active right now. here's the link to start it back up:",
       });
       if (!linkResult.ok) {
         if (linkResult.reason === 'rate_limited') {
           // Link already sent moments ago — reassure, never alarm.
           await this.saveAndSend(
-            user, boundary.sessionId,
-            "i just sent you that link a sec ago. tap it above to start back up 👆",
+            user,
+            boundary.sessionId,
+            'i just sent you that link a sec ago. tap it above to start back up 👆',
           );
         } else {
-          this.logger.warn(`[EntitlementGate] sendPaymentLink failed for ${user.id}: ${linkResult.error}`);
+          this.logger.warn(
+            `[EntitlementGate] sendPaymentLink failed for ${user.id}: ${linkResult.error}`,
+          );
           await this.saveAndSend(
-            user, boundary.sessionId,
+            user,
+            boundary.sessionId,
             "i'm having trouble generating that — an admin will reach out shortly.",
           );
         }
       }
       structuredLog(this.logger, 'log', {
-        service: 'messaging', operation: 'entitlement_gate_diverted',
-        userId: user.id, ok: linkResult.ok, reason: linkResult.ok ? undefined : linkResult.reason,
+        service: 'messaging',
+        operation: 'entitlement_gate_diverted',
+        userId: user.id,
+        ok: linkResult.ok,
+        reason: linkResult.ok ? undefined : linkResult.reason,
       });
       return;
     }
@@ -561,20 +640,27 @@ export class CoachingProcessor {
         if (!linkResult.ok) {
           if (linkResult.reason === 'rate_limited') {
             await this.saveAndSend(
-              user, boundary.sessionId,
-              "already sent you that link a sec ago. tap it above 👆",
+              user,
+              boundary.sessionId,
+              'already sent you that link a sec ago. tap it above 👆',
             );
           } else {
-            this.logger.warn(`[BillingGuard] sendPaymentLink failed for ${user.id}: ${linkResult.error}`);
+            this.logger.warn(
+              `[BillingGuard] sendPaymentLink failed for ${user.id}: ${linkResult.error}`,
+            );
             await this.saveAndSend(
-              user, boundary.sessionId,
+              user,
+              boundary.sessionId,
               "i'm having trouble generating that — an admin will reach out shortly.",
             );
           }
         }
         structuredLog(this.logger, 'log', {
-          service: 'messaging', operation: 'billing_intent_guard',
-          userId: user.id, ok: linkResult.ok, reason: linkResult.ok ? undefined : linkResult.reason,
+          service: 'messaging',
+          operation: 'billing_intent_guard',
+          userId: user.id,
+          ok: linkResult.ok,
+          reason: linkResult.ok ? undefined : linkResult.reason,
         });
         return;
       }
@@ -623,8 +709,11 @@ export class CoachingProcessor {
             ? "videos don't come through here — send a screenshot from it instead."
             : "that file type doesn't come through — try a screenshot or jpeg.";
         structuredLog(this.logger, 'log', {
-          service: 'messaging', operation: 'unsupported_media_dropped',
-          userId: user.id, contentType: mediaCt, channel,
+          service: 'messaging',
+          operation: 'unsupported_media_dropped',
+          userId: user.id,
+          contentType: mediaCt,
+          channel,
         });
         await this.saveAndSend(user, boundary.sessionId, reply);
         return;
@@ -648,11 +737,15 @@ export class CoachingProcessor {
 
         if (!verdict.is_valid && verdict.confidence >= 0.8) {
           structuredLog(this.logger, 'log', {
-            service: 'accountability', operation: 'proof_rejected_low_match',
-            userId: user.id, taskId: task.id, confidence: verdict.confidence,
+            service: 'accountability',
+            operation: 'proof_rejected_low_match',
+            userId: user.id,
+            taskId: task.id,
+            confidence: verdict.confidence,
           });
           await this.saveAndSend(
-            user, boundary.sessionId,
+            user,
+            boundary.sessionId,
             `hmm that doesn't look like "${task.task_description}" to me — send a quick shot of the actual thing and i'll log it 💪`,
           );
           return;
@@ -666,15 +759,24 @@ export class CoachingProcessor {
           content: body !== '[image]' ? body : undefined,
         });
         await this.saveAndSend(
-          user, boundary.sessionId,
+          user,
+          boundary.sessionId,
           `proof in ✓ "${task.task_description}" logged — score updated. 💪`,
         );
       } else {
         // No pending task today — route to coaching AI with vision
         const visionTodos = await this.todoService.ensureSeededForToday(user.id).catch(() => []);
-        const visionPatterns = derivePatternSignals(user);
+        const visionPatterns = {
+          ...derivePatternSignals(user),
+          loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
+        };
         const { reply, tokenCount } = await this.coachingService.generateReply(
-          user, dbMessages, body !== '[image]' ? body : '', latestSummary?.summary, mediaUrl ?? undefined, mediaCt,
+          user,
+          dbMessages,
+          body !== '[image]' ? body : '',
+          latestSummary?.summary,
+          mediaUrl ?? undefined,
+          mediaCt,
           this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
           visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
           visionPatterns,
@@ -693,7 +795,10 @@ export class CoachingProcessor {
       return [];
     });
 
-    const patterns = derivePatternSignals(user);
+    const patterns = {
+      ...derivePatternSignals(user),
+      loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
+    };
 
     // Phase 2: coaching reply (DB context already fetched in Phase 1)
     const { reply, tokenCount } = await this.coachingService.generateReply(
@@ -747,8 +852,11 @@ export class CoachingProcessor {
         });
         user = { ...user, utc_offset_minutes: cityOffset, intake_data: intakeWithCity };
         structuredLog(this.logger, 'log', {
-          service: 'onboarding', operation: 'tz_captured_from_city',
-          userId: user.id, utcOffsetMinutes: cityOffset, city: cityName ?? undefined,
+          service: 'onboarding',
+          operation: 'tz_captured_from_city',
+          userId: user.id,
+          utcOffsetMinutes: cityOffset,
+          city: cityName ?? undefined,
         });
         this.flagOffsetPhoneMismatch(user.id, user.phone_number, cityOffset, 'city');
       }
@@ -759,8 +867,10 @@ export class CoachingProcessor {
         await this.userRepo.update(user.id, { checkin_time: checkinTime });
         user = { ...user, checkin_time: checkinTime };
         structuredLog(this.logger, 'log', {
-          service: 'onboarding', operation: 'checkin_captured_from_text',
-          userId: user.id, checkinTime,
+          service: 'onboarding',
+          operation: 'checkin_captured_from_text',
+          userId: user.id,
+          checkinTime,
         });
       }
     }
@@ -785,7 +895,10 @@ export class CoachingProcessor {
     const liveUser = { ...user };
 
     const handlers = {
-      saveIntakeField: async (input: { field: string; value: string | number | boolean | string[] }) => {
+      saveIntakeField: async (input: {
+        field: string;
+        value: string | number | boolean | string[];
+      }) => {
         return this.saveIntakeField(liveUser, input.field, input.value);
       },
       sendPaymentLink: async () => {
@@ -794,15 +907,21 @@ export class CoachingProcessor {
       // Trial users can set reminders too. Same deterministic resolution as the
       // coaching path — the server computes the fire time, never the model.
       scheduleReminder: async (input: {
-        delay_minutes?: number; local_clock?: string; fire_at_iso?: string;
-        message: string; recurrence?: { rule: 'daily'; local_time: string } | null;
+        delay_minutes?: number;
+        local_clock?: string;
+        fire_at_iso?: string;
+        message: string;
+        recurrence?: { rule: 'daily'; local_time: string } | null;
       }) => {
         const offset = liveUser.utc_offset_minutes ?? null;
         const now = Date.now();
         const resolved = resolveReminderFireAt(input, offset, now);
         if (!resolved.ok) return { ok: false as const, error: resolved.error };
         if (input.recurrence && (offset === null || offset === undefined)) {
-          return { ok: false as const, error: 'cannot schedule a daily reminder without the user\'s timezone — ask them first' };
+          return {
+            ok: false as const,
+            error: "cannot schedule a daily reminder without the user's timezone — ask them first",
+          };
         }
         const result = await this.scheduleService.enqueue({
           userId: liveUser.id,
@@ -811,7 +930,11 @@ export class CoachingProcessor {
           fireAt: resolved.fireAt,
           message: input.message,
           recurrence: input.recurrence
-            ? { rule: ReminderRecurrence.DAILY, localTime: input.recurrence.local_time, offsetMinutes: offset as number }
+            ? {
+                rule: ReminderRecurrence.DAILY,
+                localTime: input.recurrence.local_time,
+                offsetMinutes: offset as number,
+              }
             : null,
         });
         if (result.ok) {
@@ -830,7 +953,13 @@ export class CoachingProcessor {
     // alongside the photo, not the literal sentinel.
     const intakeText = body !== '[image]' ? body : '';
     const { reply } = await this.coachingService.generateIntakeReply(
-      user, recentMessages, intakeText, ctx, handlers, imageUrl, imageContentType,
+      user,
+      recentMessages,
+      intakeText,
+      ctx,
+      handlers,
+      imageUrl,
+      imageContentType,
     );
 
     // ── Link delivery: explicit ask + safety-net ──────────────────────────
@@ -860,17 +989,28 @@ export class CoachingProcessor {
       const sent = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
       await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
       structuredLog(this.logger, 'log', {
-        service: 'onboarding', operation: 'payment_link_sent_on_request',
-        userId: user.id, ok: sent.ok,
+        service: 'onboarding',
+        operation: 'payment_link_sent_on_request',
+        userId: user.id,
+        ok: sent.ok,
       });
-    } else if (!liveUser.payment_link_sent_at && intakeBuildComplete(liveUser) && !askedToUnderstand) {
+    } else if (
+      !liveUser.payment_link_sent_at &&
+      intakeBuildComplete(liveUser) &&
+      !askedToUnderstand
+    ) {
       const stalledTurns = (user.intake_link_stall_turns ?? 0) + 1;
       if (stalledTurns >= FORCE_LINK_AFTER_STALLED_TURNS) {
-        const forced = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
+        const forced = await this.sendPaymentLink(liveUser, userMessageId, {
+          requireFullIntake: true,
+        });
         await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
         structuredLog(this.logger, 'log', {
-          service: 'onboarding', operation: 'payment_link_force_sent',
-          userId: user.id, afterStalledTurns: stalledTurns, ok: forced.ok,
+          service: 'onboarding',
+          operation: 'payment_link_force_sent',
+          userId: user.id,
+          afterStalledTurns: stalledTurns,
+          ok: forced.ok,
         });
       } else {
         await this.userRepo.update(user.id, { intake_link_stall_turns: stalledTurns });
@@ -893,14 +1033,18 @@ export class CoachingProcessor {
     const knownGoal = liveUser.intake_data?.goal_description?.trim();
     if (knownGoal) return `still with you on ${knownGoal}. what's on your mind?`;
     if (liveUser.name) return `still here, ${liveUser.name}. what's on your mind?`;
-    return "still here. what are you trying to lock in?";
+    return 'still here. what are you trying to lock in?';
   }
 
   /**
    * Persist a single intake field. Structured fields land on the user row;
    * everything else falls into the intake_data JSONB blob.
    */
-  private async saveIntakeField(liveUser: User, field: string, value: string | number | boolean | string[]) {
+  private async saveIntakeField(
+    liveUser: User,
+    field: string,
+    value: string | number | boolean | string[],
+  ) {
     const userColumnFields: Record<string, keyof User> = {
       name: 'name',
       utc_offset_minutes: 'utc_offset_minutes',
@@ -912,7 +1056,10 @@ export class CoachingProcessor {
       if (col === 'utc_offset_minutes') {
         const n = typeof value === 'number' ? value : parseInt(String(value), 10);
         if (Number.isNaN(n) || n < -720 || n > 840) {
-          return { ok: false as const, error: 'utc_offset_minutes must be an integer between -720 and 840' };
+          return {
+            ok: false as const,
+            error: 'utc_offset_minutes must be an integer between -720 and 840',
+          };
         }
         await this.userRepo.update(liveUser.id, { utc_offset_minutes: n });
         liveUser.utc_offset_minutes = n;
@@ -935,9 +1082,19 @@ export class CoachingProcessor {
 
     // Otherwise, persist into intake_data JSONB.
     const allowed = new Set([
-      'goal_description', 'goals', 'goal_timeline', 'current_status', 'why_it_matters', 'fears', 'avoidance_patterns',
-      'comparison_figure', 'public_failure_scenario', 'typical_failure_moment', 'pressure_preference',
-      'cussing_ok', 'city',
+      'goal_description',
+      'goals',
+      'goal_timeline',
+      'current_status',
+      'why_it_matters',
+      'fears',
+      'avoidance_patterns',
+      'comparison_figure',
+      'public_failure_scenario',
+      'typical_failure_moment',
+      'pressure_preference',
+      'cussing_ok',
+      'city',
     ]);
     if (!allowed.has(field)) {
       return { ok: false as const, error: `unknown field: ${field}` };
@@ -968,7 +1125,10 @@ export class CoachingProcessor {
     } else if (field === 'pressure_preference') {
       const s = String(value).toLowerCase();
       if (s !== 'pressure' && s !== 'encouragement') {
-        return { ok: false as const, error: 'pressure_preference must be "pressure" or "encouragement"' };
+        return {
+          ok: false as const,
+          error: 'pressure_preference must be "pressure" or "encouragement"',
+        };
       }
       intake.pressure_preference = s;
     } else if (field === 'cussing_ok') {
@@ -1032,7 +1192,12 @@ export class CoachingProcessor {
     }
     if (opts.requireFullIntake) {
       if (!liveUser.intake_data?.goal_description || liveUser.utc_offset_minutes === null) {
-        return { ok: false as const, reason: 'incomplete' as const, error: 'minimum intake not yet captured (need name, goal_description, utc_offset_minutes)' };
+        return {
+          ok: false as const,
+          reason: 'incomplete' as const,
+          error:
+            'minimum intake not yet captured (need name, goal_description, utc_offset_minutes)',
+        };
       }
     }
 
@@ -1044,7 +1209,11 @@ export class CoachingProcessor {
     if (liveUser.payment_link_sent_at) {
       const ageMs = Date.now() - new Date(liveUser.payment_link_sent_at).getTime();
       if (ageMs < 5 * 60_000) {
-        return { ok: false as const, reason: 'rate_limited' as const, error: 'a payment link was already sent within the last 5 minutes' };
+        return {
+          ok: false as const,
+          reason: 'rate_limited' as const,
+          error: 'a payment link was already sent within the last 5 minutes',
+        };
       }
     }
 
@@ -1065,7 +1234,10 @@ export class CoachingProcessor {
     // NOTHING in the logs). Log the real error and return a clean failure.
     let session: import('stripe').Stripe.Checkout.Session;
     try {
-      const customer = await this.stripeService.createCustomer(liveUser.name, liveUser.phone_number);
+      const customer = await this.stripeService.createCustomer(
+        liveUser.name,
+        liveUser.phone_number,
+      );
       session = await this.stripeService.createCheckoutSession({
         customerId: customer.id,
         priceId,
@@ -1081,7 +1253,11 @@ export class CoachingProcessor {
         userId: liveUser.id,
         error: (err as Error).message,
       });
-      return { ok: false as const, reason: 'error' as const, error: 'stripe checkout creation failed' };
+      return {
+        ok: false as const,
+        reason: 'error' as const,
+        error: 'stripe checkout creation failed',
+      };
     }
 
     if (!session.url) {
@@ -1090,7 +1266,11 @@ export class CoachingProcessor {
         operation: 'payment_link_no_url',
         userId: liveUser.id,
       });
-      return { ok: false as const, reason: 'error' as const, error: 'stripe did not return a checkout url' };
+      return {
+        ok: false as const,
+        reason: 'error' as const,
+        error: 'stripe did not return a checkout url',
+      };
     }
 
     // SMS the link directly (rather than letting the AI include it in its reply
@@ -1109,7 +1289,11 @@ export class CoachingProcessor {
       this.logger.error(
         `[sendPaymentLink] SMS delivery failed for ${liveUser.id} — not persisting PAYMENT_PENDING so user can retry: ${(err as Error).message}`,
       );
-      return { ok: false as const, reason: 'error' as const, error: 'failed to deliver payment link sms' };
+      return {
+        ok: false as const,
+        reason: 'error' as const,
+        error: 'failed to deliver payment link sms',
+      };
     }
 
     const now = new Date();
@@ -1133,8 +1317,11 @@ export class CoachingProcessor {
     );
 
     structuredLog(this.logger, 'log', {
-      service: 'onboarding', operation: 'sms_payment_link_sent',
-      userId: liveUser.id, sessionId: session.id, userMessageId,
+      service: 'onboarding',
+      operation: 'sms_payment_link_sent',
+      userId: liveUser.id,
+      sessionId: session.id,
+      userMessageId,
     });
 
     return { ok: true as const, checkout_url: session.url };
@@ -1172,7 +1359,10 @@ export class CoachingProcessor {
         // don't know it, refuse rather than silently dropping recurrence —
         // the AI should ask for the timezone first.
         if (input.recurrence && (userOffsetMinutes === null || userOffsetMinutes === undefined)) {
-          return { ok: false as const, error: 'cannot schedule a daily reminder without the user\'s timezone — ask them first' };
+          return {
+            ok: false as const,
+            error: "cannot schedule a daily reminder without the user's timezone — ask them first",
+          };
         }
         const result = await this.scheduleService.enqueue({
           userId,
@@ -1283,7 +1473,11 @@ export class CoachingProcessor {
     // on SMS (where it would degrade to a "Liked 'x'" text) or without a target.
     if (channel === 'imessage' && messageHandle) {
       handlers.reactToMessage = async (input: { reaction: string }) => {
-        const res = await this.messagingService.sendReaction(user.phone_number, messageHandle, input.reaction);
+        const res = await this.messagingService.sendReaction(
+          user.phone_number,
+          messageHandle,
+          input.reaction,
+        );
         return res.ok
           ? { ok: true as const, reaction: input.reaction }
           : { ok: false as const, error: res.error ?? 'reaction failed' };

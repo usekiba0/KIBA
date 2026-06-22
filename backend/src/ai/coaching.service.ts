@@ -529,6 +529,7 @@ export class CoachingService {
       recurringExcuse: string | null;
       recurringExcuseCount: number;
       lastMilestoneHit: number;
+      loopingOnQuestion?: boolean;
     },
   ): Promise<{ reply: string; tokenCount: number }> {
     const [profile, latestScore, strikeCount, knowledge] = await Promise.all([
