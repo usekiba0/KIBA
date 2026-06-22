@@ -30,7 +30,9 @@ describe('buildIntakeSystemPrompt', () => {
     expect(p).toMatch(/NO money\/price\/trial talk until step 9/i);
     // The emotional-build steps must be present and ordered before the close.
     expect(p).toContain('THE "I SEE YOU" MOMENT');
-    expect(p).toContain('MICRO-COMMITMENT');
+    // The commitment step (reframed as a natural challenge, not a pushy "are you
+    // serious" close) must still come before the money.
+    expect(p).toContain('CHALLENGE');
   });
 
   it('surfaces why_it_matters and obstacle in the known summary', () => {
