@@ -11,6 +11,11 @@ describe('world-time', () => {
       ['what time is it in new york right now', 'new york'],
       ['current time in los angeles', 'los angeles'],
       ['what time in the uk', 'uk'],
+      // Form B — "<place> time [now]" and one-word spellings
+      ['Newyork time now', 'newyork'],
+      ['new york time', 'new york'],
+      ['pakistan time now', 'pakistan'],
+      ['germany time rn', 'germany'],
     ])('parses "%s" -> "%s"', (msg, place) => {
       expect(parseTimeInPlace(msg)).toBe(place);
     });
@@ -31,6 +36,7 @@ describe('world-time', () => {
       expect(resolvePlaceTimezone('germany')).toEqual({ zone: 'Europe/Berlin', label: 'Germany' });
       expect(resolvePlaceTimezone('new york')).toEqual({ zone: 'America/New_York', label: 'New York' });
       expect(resolvePlaceTimezone('nyc')).toEqual({ zone: 'America/New_York', label: 'New York' });
+      expect(resolvePlaceTimezone('newyork')).toEqual({ zone: 'America/New_York', label: 'New York' });
       expect(resolvePlaceTimezone('uk')).toEqual({ zone: 'Europe/London', label: 'the UK' });
       expect(resolvePlaceTimezone('pakistan')).toEqual({ zone: 'Asia/Karachi', label: 'Pakistan' });
     });
@@ -62,6 +68,14 @@ describe('world-time', () => {
       expect(r).not.toBeNull();
       expect(formatTimeInZone(now, r!.zone)).toBe('5:03pm');
       expect(r!.label).toBe('Germany');
+    });
+
+    it('answers "Newyork time now" correctly (Form B + one-word spelling)', () => {
+      const now = new Date('2026-06-22T15:03:00Z');
+      const r = resolvePlaceTimezone(parseTimeInPlace('Newyork time now'));
+      expect(r).not.toBeNull();
+      expect(r!.label).toBe('New York');
+      expect(formatTimeInZone(now, r!.zone)).toBe('11:03am'); // EDT UTC-4
     });
   });
 });
