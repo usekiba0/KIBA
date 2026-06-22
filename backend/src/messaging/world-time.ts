@@ -110,12 +110,20 @@ const ZONES: Zone[] = [
 
 const LOOKUP: Map<string, Zone> = (() => {
   const m = new Map<string, Zone>();
-  for (const z of ZONES) for (const k of z.keys) m.set(k, z);
+  for (const z of ZONES) {
+    for (const k of z.keys) {
+      m.set(k, z);
+      // Also index the space-stripped form so "newyork", "losangeles",
+      // "hongkong", "abudhabi" etc. resolve the same as the spaced spelling.
+      const despaced = k.replace(/\s/g, '');
+      if (despaced !== k) m.set(despaced, z);
+    }
+  }
   return m;
 })();
 
-// "what time is it in <place>", "time in <place>", "whats the time in <place>".
-// Captures everything after "in"/"at"/"for". Anchored to the whole message.
+// Form A — "what time is it in <place>", "time in <place>", "whats the time in
+// <place>". Captures everything after "in"/"at"/"for".
 const TIME_IN_PLACE_RE = new RegExp(
   '^\\s*(?:hey|yo|ok|okay|so|um|hmm|bro|aye|ayo)?[\\s,]*' +
     '(?:can you tell me|could you tell me|do you know|u know|you know|tell me)?\\s*' +
@@ -129,17 +137,19 @@ const TIME_IN_PLACE_RE = new RegExp(
   'i',
 );
 
+// Form B — "<place> time", "<place> time now", "newyork time rn". The place is
+// at the FRONT. A bogus place (e.g. "what" from "what time") just fails the
+// lookup and falls through, so this is safe to be permissive.
+const PLACE_TIME_RE = new RegExp(
+  '^\\s*(?:hey|yo|ok|okay|so|um|hmm|bro|aye|ayo)?[\\s,]*' +
+    '(.+?)\\s+time(?:\\s+(?:now|right\\s+now|rn|currently|today|atm))?\\s*[?.!]*$',
+  'i',
+);
+
 const TRAILING_NOISE = /\b(right now|now|rn|currently|today|atm|at the moment|please|pls)\b/g;
 
-/**
- * If the message is "what time is it in <place>", return the place string
- * (normalised, trailing "right now"/etc stripped). Else null.
- */
-export function parseTimeInPlace(text: string | null | undefined): string | null {
-  if (!text) return null;
-  const m = TIME_IN_PLACE_RE.exec(text.trim());
-  if (!m) return null;
-  const place = m[1]
+function normalizePlace(raw: string): string | null {
+  const place = raw
     .toLowerCase()
     .replace(/[^a-z\s.]/g, ' ')
     .replace(TRAILING_NOISE, ' ')
@@ -147,6 +157,20 @@ export function parseTimeInPlace(text: string | null | undefined): string | null
     .replace(/\s+/g, ' ')
     .trim();
   return place || null;
+}
+
+/**
+ * If the message asks the time in a place — "what time is it in <place>" OR
+ * "<place> time now" — return the place string (normalised). Else null.
+ */
+export function parseTimeInPlace(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const trimmed = text.trim();
+  const a = TIME_IN_PLACE_RE.exec(trimmed);
+  if (a) return normalizePlace(a[1]);
+  const b = PLACE_TIME_RE.exec(trimmed);
+  if (b) return normalizePlace(b[1]);
+  return null;
 }
 
 /** Resolve a place name to its IANA zone + display label, or null if unknown. */
