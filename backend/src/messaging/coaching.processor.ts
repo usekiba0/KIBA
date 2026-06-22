@@ -36,6 +36,7 @@ import { splitBubbles } from './bubbles';
 import { humanizeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
+import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone } from './world-time';
 import { isOffsetPlausibleForPhone } from './phone-timezone';
 
 interface CoachingJob {
@@ -360,6 +361,26 @@ export class CoachingProcessor {
       }
     }
     const inboundIsImage = numMedia > 0 && resolvedMediaCt.startsWith('image/');
+
+    // "what time is it in <place>" — compute deterministically from the runtime's
+    // DST-aware tz database. The model hallucinates other-city times ("it's 3:31pm
+    // in germany" when it's 5:03pm), so resolve the place to an IANA zone and
+    // answer for real. Unknown place → fall through to the AI.
+    if (numMedia === 0) {
+      const place = parseTimeInPlace(body);
+      if (place) {
+        const resolved = resolvePlaceTimezone(place);
+        const clock = resolved ? formatTimeInZone(new Date(), resolved.zone) : null;
+        if (resolved && clock) {
+          structuredLog(this.logger, 'log', {
+            service: 'messaging', operation: 'time_in_place_answered',
+            userId: user.id, channel, zone: resolved.zone,
+          });
+          await this.saveAndSend(user, boundary.sessionId, `it's ${clock} in ${resolved.label} right now.`);
+          return;
+        }
+      }
+    }
 
     // "what time is it" — answer deterministically, for EVERY stage (intake and
     // coaching both route through here, and the recurring "wrong time" report was
