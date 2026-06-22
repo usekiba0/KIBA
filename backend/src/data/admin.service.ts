@@ -1,7 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
+// heic-convert is CommonJS with no ESM default export — import=require is correct.
+import heicConvert = require('heic-convert');
 import { User } from './entities/user.entity';
 import { Message } from './entities/message.entity';
 import { Subscription } from './entities/subscription.entity';
@@ -17,6 +20,8 @@ const PLAN_PRICE_CENTS: Record<string, number> = {
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
@@ -239,6 +244,62 @@ export class AdminService {
       order: { created_at: 'ASC' },
       select: ['id', 'session_id', 'role', 'content', 'media_url', 'media_content_type', 'created_at', 'token_count', 'flagged', 'flag_reason', 'message_type', 'is_checkin_prompt', 'is_proof_submission'],
     });
+  }
+
+  /**
+   * Proxy + transcode an inbound media URL for admin display. iPhone/iMessage
+   * photos arrive as HEIC (image/heic), which Chrome/Firefox can't render in an
+   * <img>, so the admin saw blank/broken images. We fetch the file server-side
+   * and transcode HEIC -> JPEG (reusing the same path the vision pipeline uses),
+   * returning browser-displayable bytes. Locked to known inbound media hosts so
+   * this can't be turned into an open SSRF proxy.
+   */
+  async getProxiedMedia(rawUrl: string): Promise<{ buffer: Buffer; contentType: string }> {
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      throw new BadRequestException('invalid url');
+    }
+    const host = parsed.hostname.toLowerCase();
+    const allowed =
+      parsed.protocol === 'https:' &&
+      (host.endsWith('googleapis.com') || // SendBlue inbound-file-store (iMessage)
+        host.endsWith('sendblue.co') ||
+        host.endsWith('twilio.com') || // Twilio MMS
+        host.endsWith('cloudfront.net'));
+    if (!allowed) {
+      throw new BadRequestException('media host not allowed');
+    }
+
+    let resp;
+    try {
+      resp = await axios.get<ArrayBuffer>(rawUrl, { responseType: 'arraybuffer', timeout: 15_000 });
+    } catch (err) {
+      this.logger.warn(`[AdminMedia] fetch failed for ${rawUrl}: ${(err as Error).message}`);
+      throw new BadRequestException('could not fetch media');
+    }
+
+    let buffer = Buffer.from(resp.data);
+    let contentType = String(resp.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    const urlLower = rawUrl.toLowerCase().split('?')[0];
+    const isHeic =
+      contentType === 'image/heic' || contentType === 'image/heif' ||
+      urlLower.endsWith('.heic') || urlLower.endsWith('.heif');
+
+    if (isHeic) {
+      try {
+        const jpeg = await heicConvert({ buffer: resp.data, format: 'JPEG', quality: 0.9 });
+        buffer = Buffer.from(jpeg);
+        contentType = 'image/jpeg';
+      } catch (err) {
+        this.logger.warn(`[AdminMedia] HEIC transcode failed for ${rawUrl}: ${(err as Error).message}`);
+        throw new BadRequestException('could not convert image');
+      }
+    }
+
+    if (!contentType.startsWith('image/')) contentType = 'application/octet-stream';
+    return { buffer, contentType };
   }
 
   async getUserSubscriptionDetail(userId: string) {
