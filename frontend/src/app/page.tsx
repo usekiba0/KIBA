@@ -59,6 +59,13 @@ const GRAD = `linear-gradient(135deg,${R},${V})`;
 const GLOW = (a: number) => `rgba(14,165,233,${a})`;
 const VGLOW = (a: number) => `rgba(16,185,129,${a})`;
 
+// SMS-first onboarding entry point. The number is shown literally on buttons
+// (clickable on mobile via the `sms:` URI scheme) and is the same number Kiba
+// texts users from. Update both `KIBA_PHONE` and `KIBA_PHONE_DISPLAY` together.
+const KIBA_PHONE = '+14695634418';
+const KIBA_PHONE_DISPLAY = '+1 (469) 563-4418';
+const SMS_HREF = `sms:${KIBA_PHONE}?body=${encodeURIComponent('hi kiba — i want to start')}`;
+
 export default function Home() {
   const cursorRef = useRef<HTMLDivElement>(null);
   const followerRef = useRef<HTMLDivElement>(null);
@@ -101,7 +108,8 @@ export default function Home() {
           {[['#how', 'How it works'], ['#proof', 'The System'], ['#pricing', 'Pricing']].map(([h, l]) => (
             <li key={l}><a href={h} style={{ textDecoration: 'none', color: MT, fontSize: 14, transition: 'color 0.2s' }} onMouseEnter={e => (e.currentTarget.style.color = TX)} onMouseLeave={e => (e.currentTarget.style.color = MT)}>{l}</a></li>
           ))}
-          <li><Link href="/onboarding" style={{ background: GRAD, color: 'white', padding: '10px 24px', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', boxShadow: `0 4px 14px ${GLOW(0.4)}`, display: 'inline-block' }}>Start Free Trial</Link></li>
+          <li><a href={SMS_HREF} style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', padding: '10px 18px', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', border: `1px solid ${VGLOW(0.4)}`, display: 'inline-block' }}>💬 Text to Start</a></li>
+          <li><Link href="/onboarding" style={{ background: GRAD, color: 'white', padding: '10px 24px', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', boxShadow: `0 4px 14px ${GLOW(0.4)}`, display: 'inline-block' }}>Web Sign Up</Link></li>
         </ul>
       </nav>
 
@@ -124,13 +132,19 @@ export default function Home() {
             <p style={{ fontSize: 18, color: MT, maxWidth: 480, lineHeight: 1.75, marginBottom: 48, fontWeight: 300, animation: 'fadeUp 0.8s ease 0.2s both' }}>
               Kiba is a psychological accountability system that texts you daily check-ins, demands proof of your work, and scores your execution. No sympathy. No excuses. Just results.
             </p>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' as const, marginBottom: 48, animation: 'fadeUp 0.8s ease 0.3s both' }}>
-              <Link href="/onboarding" style={{ background: GRAD, color: 'white', padding: '17px 40px', borderRadius: 12, fontSize: 16, fontWeight: 600, textDecoration: 'none', boxShadow: `0 8px 32px ${GLOW(0.45)}`, display: 'inline-block' }}>
-                Start Free Trial &rarr;
-              </Link>
-              <a href="#how" style={{ background: 'rgba(255,255,255,0.05)', color: '#d4d4d8', padding: '17px 32px', borderRadius: 12, fontSize: 16, fontWeight: 400, textDecoration: 'none', border: '1px solid rgba(255,255,255,0.1)', display: 'inline-block' }}>
-                See how it works
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' as const, marginBottom: 14, animation: 'fadeUp 0.8s ease 0.3s both' }}>
+              {/* SMS path — text Kiba directly. Primary on mobile (clickable sms: link). */}
+              <a href={SMS_HREF} style={{ background: `linear-gradient(135deg,${V},#34d399)`, color: 'white', padding: '17px 36px', borderRadius: 12, fontSize: 16, fontWeight: 600, textDecoration: 'none', boxShadow: `0 8px 32px ${VGLOW(0.45)}`, display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 18 }}>💬</span>
+                Text {KIBA_PHONE_DISPLAY}
               </a>
+              {/* Web form path — same final result, just collected through a form */}
+              <Link href="/onboarding" style={{ background: GRAD, color: 'white', padding: '17px 36px', borderRadius: 12, fontSize: 16, fontWeight: 600, textDecoration: 'none', boxShadow: `0 8px 32px ${GLOW(0.45)}`, display: 'inline-block' }}>
+                Start with Web Form &rarr;
+              </Link>
+            </div>
+            <div style={{ fontSize: 13, color: '#3a6080', marginBottom: 36, animation: 'fadeUp 0.8s ease 0.35s both' }}>
+              two ways in — same Kiba on the other side. <a href="#how" style={{ color: RL, textDecoration: 'none', borderBottom: `1px dashed ${GLOW(0.4)}`, paddingBottom: 1 }}>see how it works</a>
             </div>
             <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' as const, animation: 'fadeUp 0.8s ease 0.4s both' }}>
               {['1-month free trial', 'No app download', 'Cancel anytime', 'Works on any phone'].map(t => (
@@ -340,10 +354,15 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
-              <Link href="/onboarding" style={{ display: 'inline-block', background: GRAD, color: 'white', padding: '18px 56px', borderRadius: 12, fontSize: 16, fontWeight: 700, textDecoration: 'none', boxShadow: `0 6px 24px ${GLOW(0.5)}`, letterSpacing: '0.3px' }}>
-                Start 1-Month Free Trial &rarr;
-              </Link>
-              <p style={{ fontSize: 13, color: '#2a4a6b', marginTop: 16 }}>No credit card required during trial</p>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const, justifyContent: 'center' }}>
+                <a href={SMS_HREF} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: `linear-gradient(135deg,${V},#34d399)`, color: 'white', padding: '18px 36px', borderRadius: 12, fontSize: 16, fontWeight: 700, textDecoration: 'none', boxShadow: `0 6px 24px ${VGLOW(0.5)}`, letterSpacing: '0.3px' }}>
+                  💬 Text {KIBA_PHONE_DISPLAY}
+                </a>
+                <Link href="/onboarding" style={{ display: 'inline-block', background: GRAD, color: 'white', padding: '18px 36px', borderRadius: 12, fontSize: 16, fontWeight: 700, textDecoration: 'none', boxShadow: `0 6px 24px ${GLOW(0.5)}`, letterSpacing: '0.3px' }}>
+                  Web Form &rarr;
+                </Link>
+              </div>
+              <p style={{ fontSize: 13, color: '#2a4a6b', marginTop: 16 }}>No credit card required during trial · pick whichever feels easier</p>
             </div>
           </FadeIn>
         </div>
@@ -383,9 +402,15 @@ export default function Home() {
             No more <em style={{ fontStyle: 'italic', color: V }}>excuses.</em>
           </h2>
           <p style={{ position: 'relative', fontSize: 17, color: MT, marginBottom: 48, fontWeight: 300 }}>Start your free 1-month trial. Your goals deserve more than motivation — they deserve a system.</p>
-          <Link href="/onboarding" style={{ position: 'relative', display: 'inline-block', background: GRAD, color: 'white', padding: '20px 56px', borderRadius: 14, fontSize: 18, fontWeight: 700, textDecoration: 'none', boxShadow: `0 10px 40px ${GLOW(0.5)}`, letterSpacing: '0.3px' }}>
-            Start Free Trial &mdash; 1 Month Free &rarr;
-          </Link>
+          <div style={{ position: 'relative', display: 'inline-flex', gap: 14, flexWrap: 'wrap' as const, justifyContent: 'center' }}>
+            <a href={SMS_HREF} style={{ display: 'inline-flex', alignItems: 'center', gap: 12, background: `linear-gradient(135deg,${V},#34d399)`, color: 'white', padding: '20px 40px', borderRadius: 14, fontSize: 17, fontWeight: 700, textDecoration: 'none', boxShadow: `0 10px 40px ${VGLOW(0.5)}`, letterSpacing: '0.3px' }}>
+              <span style={{ fontSize: 22 }}>💬</span>
+              Text {KIBA_PHONE_DISPLAY}
+            </a>
+            <Link href="/onboarding" style={{ display: 'inline-block', background: GRAD, color: 'white', padding: '20px 40px', borderRadius: 14, fontSize: 17, fontWeight: 700, textDecoration: 'none', boxShadow: `0 10px 40px ${GLOW(0.5)}`, letterSpacing: '0.3px' }}>
+              Start with Web Form &rarr;
+            </Link>
+          </div>
           <p style={{ position: 'relative', fontSize: 13, color: '#2a4a6b', marginTop: 20 }}>No credit card required &middot; Cancel anytime &middot; Works on any phone</p>
         </FadeIn>
       </div>
