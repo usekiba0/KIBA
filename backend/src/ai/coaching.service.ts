@@ -95,8 +95,10 @@ const SCHEDULE_REMINDER_TOOL: Tool = {
     '"17:02"). Pass the user\'s local wall-clock as "HH:MM" 24h; the system converts to UTC and picks today if ' +
     'it hasn\'t passed, else tomorrow.\n' +
     'Only fall back to fire_at_iso if neither fits. ' +
-    'MINIMUM DELAY: 2 minutes. If the user asks for sooner ("in 1 min", "in 30 sec"), DO NOT call the tool — ' +
-    'reply that the minimum is 2 minutes. For local_clock requests the user\'s timezone must be known; if it ' +
+    'MINIMUM DELAY: 2 minutes — but this ONLY matters when they ask for UNDER 2 minutes ("in 1 min", "in 30 sec"): ' +
+    'then DO NOT call the tool and tell them 2 minutes is the floor. For ANY request of 2 minutes or more ' +
+    '(3 min, 5 min, an hour, tomorrow), JUST SCHEDULE IT and confirm — NEVER volunteer or mention the 2-minute ' +
+    'minimum, it only confuses them. For local_clock requests the user\'s timezone must be known; if it ' +
     'is not, ask first — never guess. ' +
     'RECURRENCE: for a DAILY repeating reminder ("every day at 8am", "every morning", "daily wake-up"), pass ' +
     'local_clock for the first fire AND the `recurrence` object with rule="daily" and the same local_time. The ' +

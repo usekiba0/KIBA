@@ -109,7 +109,7 @@ function formatTimeContext(ctx: TimeContext): string {
     '- RELATIVE ("in 30 min", "in 2 hours", "in 5 hours"): pass delay_minutes (convert hours→minutes only: 5 hours = 300). nothing else.',
     '- SPECIFIC CLOCK TIME ("at 9pm", "7am tomorrow", "5:02pm"): pass local_clock as "HH:MM" 24h (9pm="21:00", 5:02pm="17:02"). the tool converts to UTC and picks today/tomorrow itself.',
     '- after it returns, your confirmation uses the tool\'s "fires_in" value — never your own estimate of how long away it is.',
-    '- minimum is 2 minutes; if they ask for sooner, say so instead of scheduling. if you truly can\'t tell what time they mean, ask.',
+    '- 2-minute floor: ONLY mention it if they ask for UNDER 2 min (then say so instead of scheduling). for 2 min or more (3 min, 5 min, an hour) just schedule it and NEVER bring up a minimum — volunteering it when they asked for 3 min reads broken. if you truly can\'t tell what time they mean, ask.',
     '',
   ].join('\n');
 }
