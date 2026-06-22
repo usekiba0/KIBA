@@ -1,4 +1,5 @@
-import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, Max, MinLength } from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
@@ -105,6 +106,16 @@ export class AdminController {
   @Get('users/:userId/messages')
   getUserMessages(@Param('userId') userId: string) {
     return this.adminService.getUserMessages(userId);
+  }
+
+  // Proxy + transcode inbound media (HEIC -> JPEG) so iPhone photos render in the
+  // admin chat view. Guarded by the same internal-key guard as the rest of /admin.
+  @Get('media')
+  async getMedia(@Query('url') url: string, @Res() res: Response) {
+    const { buffer, contentType } = await this.adminService.getProxiedMedia(url);
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(buffer);
   }
 
   @Get('users/:userId/subscription')

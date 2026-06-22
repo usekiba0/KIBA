@@ -98,6 +98,37 @@ function SubStatusBadge({ status }: { status: SubStatus }) {
   return null;
 }
 
+// Inbound photos (esp. iPhone HEIC) can't render in a plain <img>, and the media
+// endpoint needs the internal-key header an <img> can't send. So fetch it through
+// the auth'd proxy (which transcodes HEIC->JPEG), turn it into a blob URL, render.
+function MediaImage({ url, apiKey }: { url: string; apiKey: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    let objUrl: string | null = null;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/admin/media?url=${encodeURIComponent(url)}`, {
+          headers: { 'x-internal-key': apiKey },
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const blob = await res.blob();
+        if (cancelled) return;
+        objUrl = URL.createObjectURL(blob);
+        setSrc(objUrl);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => { cancelled = true; if (objUrl) URL.revokeObjectURL(objUrl); };
+  }, [url, apiKey]);
+
+  if (failed) return <a href={url} target="_blank" rel="noreferrer" style={{ color: '#7eb4cc' }}>📷 open photo</a>;
+  if (!src) return <span style={{ color: '#7eb4cc', fontSize: 12 }}>loading photo…</span>;
+  return <img src={src} alt="user photo" style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8, display: 'block' }} />;
+}
+
 export default function AdminPage() {
   const [key, setKey] = useState('');
   const [keyInput, setKeyInput] = useState('');
@@ -645,9 +676,14 @@ export default function AdminPage() {
                               border: msg.flagged ? '1px solid #7f1d1d' : 'none',
                               color: '#f0f9ff', fontSize: 14, lineHeight: 1.5,
                             }}>
-                              {msg.media_url && msg.content === '[image]'
-                                ? <img src={msg.media_url} alt="user photo" style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8, display: 'block' }} />
-                                : msg.content}
+                              {msg.media_url ? (
+                                <>
+                                  <MediaImage url={msg.media_url} apiKey={key} />
+                                  {msg.content && msg.content !== '[image]' && (
+                                    <div style={{ marginTop: 6 }}>{msg.content}</div>
+                                  )}
+                                </>
+                              ) : msg.content}
                             </div>
                             {msg.role === 'ai' && (
                               <button onClick={() => toggleFlag(msg)} title={msg.flagged ? 'Unflag' : 'Flag bad response'}
