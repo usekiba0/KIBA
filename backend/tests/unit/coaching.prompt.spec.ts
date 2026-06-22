@@ -146,8 +146,10 @@ describe('buildSystemPrompt', () => {
     // ballooning; still tiny vs the 200K/1M context window (and ~$0.005 of Haiku
     // input per message). Raised 22k→24k for the 2026-06-18 batch, 24k→25k for the
     // 2026-06-20 batch (dry-responder mirroring, strikes/recovery, no-zero-days).
+    // Raised 25k->26k for the 2026-06-23 anti-loop batch (DON'T LOOP convergence
+    // rule: stop re-asking answered questions / interrogating during plan-building).
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(25000);
+    expect(prompt.length).toBeLessThan(26000);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
@@ -177,6 +179,25 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
       expect(prompt.toLowerCase()).toContain('last resort');
       expect(prompt.toLowerCase()).toMatch(/actually understand|real opinionated|real problem/);
+    });
+  });
+
+  describe('anti-loop / convergence (Bianca "can\'t get past this circle" 2026-06-23)', () => {
+    it('explicitly forbids re-asking an already-answered question', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      expect(prompt.toLowerCase()).toMatch(/never ask the same question twice/);
+      expect(prompt.toLowerCase()).toMatch(/already answered/);
+    });
+
+    it('forbids stacking two asks in one message', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      expect(prompt.toLowerCase()).toMatch(/never stack two asks/);
+    });
+
+    it('tells KIBA to commit and move on instead of gathering forever', () => {
+      const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+      expect(prompt.toLowerCase()).toMatch(/don'?t loop/);
+      expect(prompt.toLowerCase()).toMatch(/the second you have enough to act, act|good-enough-and-moving/);
     });
   });
 
