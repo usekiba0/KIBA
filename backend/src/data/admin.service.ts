@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 // heic-convert is CommonJS with no ESM default export — import=require is correct.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import heicConvert = require('heic-convert');
 import { User } from './entities/user.entity';
 import { Message } from './entities/message.entity';
