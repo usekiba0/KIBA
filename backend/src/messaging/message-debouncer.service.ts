@@ -17,11 +17,23 @@ interface BufferState {
   timer: NodeJS.Timeout;
 }
 
-// 1.5s is long enough to coalesce iMessage chunks ("Look where I" / "At" /
-// "the gym" all land within ~300ms in production logs) and the trailing image
-// webhook (often arrives 0.5–1s after its sibling text), but short enough to
-// keep replies feeling instant.
-const DEBOUNCE_MS = 1500;
+// IMAGE bursts: 1.5s is long enough to coalesce iMessage chunks ("Look where I"
+// / "At" / "the gym" land within ~300ms) and the trailing image webhook (often
+// 0.5–1s after its sibling text), but short enough to keep photo replies snappy.
+const IMAGE_DEBOUNCE_MS = 1500;
+// TEXT bursts: 2s (top of the V4 doc's "1-2 second buffer", Rule 2). People send
+// a name then a correction, or a thought across 2-3 bubbles, with gaps a bit
+// longer than the image case — 2s reliably reads them together so KIBA never
+// reacts to half ("Bett" before "Karibi" lands). A texting delay this size also
+// reads as natural typing, not slow.
+const TEXT_DEBOUNCE_MS = 2000;
+
+/** Delay before flushing a buffer: image bursts flush fast, text bursts wait a
+ * touch longer so quick-succession bubbles are read as one message. */
+export function debounceDelayFor(messages: { mediaUrls: string[] }[]): number {
+  const hasMedia = messages.some((m) => m.mediaUrls.length > 0);
+  return hasMedia ? IMAGE_DEBOUNCE_MS : TEXT_DEBOUNCE_MS;
+}
 
 // Keep webhook IDs around long enough to absorb Twilio/SendBlue retries even
 // after the original batch has already flushed and been processed.
@@ -45,25 +57,25 @@ export class MessageDebouncerService {
       this.recentlySeen.set(msg.uniqueId, Date.now());
     }
 
-    const existing = this.buffers.get(msg.from);
-    if (existing) {
-      clearTimeout(existing.timer);
-      existing.messages.push(msg);
-      existing.timer = this.scheduleFlush(msg.from);
+    let buf = this.buffers.get(msg.from);
+    if (buf) {
+      clearTimeout(buf.timer);
+      buf.messages.push(msg);
     } else {
-      this.buffers.set(msg.from, {
-        messages: [msg],
-        timer: this.scheduleFlush(msg.from),
-      });
+      buf = { messages: [msg], timer: undefined as unknown as NodeJS.Timeout };
+      this.buffers.set(msg.from, buf);
     }
+    // Recompute the delay from the WHOLE buffer each push: a text burst that
+    // later gains an image flips to the faster image window, and vice versa.
+    buf.timer = this.scheduleFlush(msg.from, debounceDelayFor(buf.messages));
   }
 
-  private scheduleFlush(from: string): NodeJS.Timeout {
+  private scheduleFlush(from: string, delayMs: number): NodeJS.Timeout {
     return setTimeout(() => {
       this.flush(from).catch((err) =>
         this.logger.error(`[Debounce] flush error for ${from}: ${(err as Error).message}\n${(err as Error).stack}`),
       );
-    }, DEBOUNCE_MS);
+    }, delayMs);
   }
 
   private pruneSeen(): void {
