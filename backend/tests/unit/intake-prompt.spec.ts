@@ -131,6 +131,23 @@ describe('buildIntakeSystemPrompt', () => {
     expect(p).toMatch(/never describe a PM time as morning/i);
   });
 
+  it('forbids guessing a clock time when the timezone is unknown (RC-2)', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' }, utcOffsetMinutes: null }));
+    expect(p).toMatch(/do NOT know their timezone/i);
+    expect(p).toMatch(/NEVER state or guess a clock time/i);
+    expect(p).toMatch(/ask what city they're in/i);
+  });
+
+  it('hands the model the exact local clock once the timezone is known', () => {
+    const p = buildIntakeSystemPrompt(ctx({
+      name: 'Sam', intakeData: { goal_description: 'gym' },
+      utcOffsetMinutes: -300, nowUtc: new Date('2026-06-24T15:04:00Z'),
+    }));
+    expect(p).toMatch(/USER LOCAL CLOCK/);
+    expect(p).toContain('10:04'); // 15:04 UTC at -300 = 10:04
+    expect(p).not.toMatch(/do NOT know their timezone/i);
+  });
+
   it('treats a goal list (no explicit anchor) as a captured goal, not missing', () => {
     const p = buildIntakeSystemPrompt(ctx({
       name: 'Sam',

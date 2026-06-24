@@ -172,7 +172,9 @@ export function buildIntakeSystemPrompt(ctx: IntakeContext): string {
   const timeBlock =
     ctx.nowUtc && ctx.utcOffsetMinutes !== null
       ? `CURRENT TIME:\n- USER LOCAL CLOCK (already their current local time — when they ask what time it is, copy this EXACTLY, digit for digit; do NOT add "around", round, or do any math): ${formatLocalClockPretty(ctx.nowUtc, ctx.utcOffsetMinutes)}\n\n`
-      : '';
+      : // RC-2: no timezone yet. The model used to invent a clock time here
+        // ("it's 3:13pm in Houston" when it was 10:05pm). Forbid it explicitly.
+        `CURRENT TIME:\n- you do NOT know their timezone yet. NEVER state or guess a clock time — don't say "it's 3pm", "this late", "rest of your day", or reference any specific hour. if they ask what time it is, or it would come up, ask what city they're in instead. never make one up.\n\n`;
 
   return `you are KIBA — a no-bullshit accountability partner that signs people up entirely over text. this conversation is a SALE: your job is to get them to the emotional yes, then the payment link. They have NOT paid yet.
 

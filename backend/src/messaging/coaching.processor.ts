@@ -480,6 +480,25 @@ export class CoachingProcessor {
       return;
     }
 
+    // Same question, no known timezone (RC-2). NEVER let the model answer — it
+    // fabricates ("it's 3:13pm" when it's 10:05pm). Ask for their city
+    // deterministically; the city->offset parser below captures it and the next
+    // "what time is it" is answered exactly. Covers intake and coaching alike.
+    if (numMedia === 0 && isTimeQuery(body) && user.utc_offset_minutes == null) {
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'time_query_no_offset_ask_city',
+        userId: user.id,
+        channel,
+      });
+      await this.saveAndSend(
+        user,
+        boundary.sessionId,
+        "what city are you in? i'll lock it in so i always know your time.",
+      );
+      return;
+    }
+
     // === Stage routing: SMS-first onboarding ===
     // Pre-payment users go through the intake AI flow, not the coaching flow.
     // Correction triggers, score queries, reminders, etc. are all coach-mode

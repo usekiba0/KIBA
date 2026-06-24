@@ -42,6 +42,7 @@ smoke checks against a test number.
 | A9 | Relationship-memory merge NEVER blanks stored memory on an empty/failed result | KIBA forgets everything after one bad merge (RC‑3 / Layer 2) | `ai/summarisation.service.ts` `updateRelationshipMemory` | `tests/unit/relationship-memory.spec.ts` |
 | A10 | The persistent relationship digest is injected into the coaching prompt when present | KIBA ignores what it "remembers" | `ai/prompts/coaching.prompt.ts` memory section | `tests/unit/coaching.prompt.spec.ts` › "injects the persistent relationship memory" |
 | A11 | Durable "never forget" facts are append-only (new appended, dupes ignored) and injected every message | a hard fact (death, allergy, partner's name) drifts out of the digest (Layer 3) | `ai/summarisation.service.ts` `extractAndStoreHardFacts`; `coaching.prompt.ts` known-facts | `tests/unit/relationship-memory.spec.ts`, `tests/unit/coaching.prompt.spec.ts` › "never forget hard facts" |
+| A12 | Intake prompt FORBIDS guessing a clock time when timezone is unknown; tells it to ask city | model fabricates "it's 3:13pm" (RC‑2) | `ai/prompts/intake.prompt.ts` timeBlock | `tests/unit/intake-prompt.spec.ts` › "forbids guessing a clock time" |
 
 ## Tier B — behavioral smoke checks (run by hand before a big deploy)
 
@@ -52,15 +53,17 @@ smoke checks against a test number.
 | B3 | Fast back-and-forth of 12+ turns negotiating one thing | KIBA does not forget the topic or re-ask "today or tomorrow" (RC‑3 / Layer 1 cross-session history) |
 | B4 | Ask the time inside a larger sentence ("is it too late? what time even is it") | time given matches reality (RC‑2) |
 | B5 | Talk over 2 days (let a session expire), then reference yesterday | KIBA remembers yesterday's conversation and commitments (Layer 1 + Layer 2) |
+| B6 | As a user with NO city given, ask "what time is it" | KIBA asks for your city — never states a guessed time (RC‑2 deterministic short-circuit) |
 
 ---
 
 ## Open / not-yet-locked (tracked, fix + add a row when done)
 
-- **RC‑2** — users reach coaching with `utc_offset_minutes = NULL` (webhook never sets it) → fabricated time + failed clock reminders. *Planned: infer offset from phone area code; ask city deterministically when unknown.*
 - **RC‑4** — loop guard too narrow (misses imperative re-asks) and not wired into intake. *Planned: broaden detection + wire into intake.*
 - **Coaching.processor test harness** — RC‑5 self-heal and Layer 1 cross-session fetch are Tier B only; the processor has no unit harness. *Follow-up: build one and promote B1/B3/B5 to Tier A.*
 
 **Resolved by the memory rework (2026-06-24):** RC‑3 (session reset wiping memory) — coaching history is now user-scoped (Layer 1) and the relationship digest loads every message (Layer 2), so a 4h reset or 30-message cap no longer causes amnesia. The message cap still exists but is now harmless.
 
-_Last updated: 2026-06-24 — RC‑1 (reminder dispatch), RC‑5 (stage self-heal), Layers 1–3 (persistent memory + drift-proof hard facts)._
+**RC‑2 (2026-06-24):** NULL timezone no longer fabricates a time. We did NOT infer from area code (mobile number portability makes it an unreliable guess); instead the model is forbidden from stating a clock time when the zone is unknown and asks for the city once (we already capture city→offset deterministically).
+
+_Last updated: 2026-06-24 — RC‑1 (reminder dispatch), RC‑5 (stage self-heal), Layers 1–3 (persistent memory + drift-proof hard facts), RC‑2 (no time fabrication)._
