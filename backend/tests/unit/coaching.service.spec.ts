@@ -169,6 +169,38 @@ describe('CoachingService', () => {
     expect(result.reply).toBe('still with you. what did you do today?');
   });
 
+  // Bug 1 (Ali/Sam transcript): the model finished a turn on a save_intake_field
+  // tool call with NO text, and the first forced retry ALSO came back empty, so the
+  // processor pasted the canned "still with you on…" fallback. The forced retry now
+  // appends an explicit "reply now" nudge and retries, so it never leaves empty.
+  it('retries the forced completion with a reply nudge when the first comes back empty', async () => {
+    const toolResp = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 't1', name: 'noop', input: {} }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    };
+    const emptyResp = { stop_reason: 'end_turn', content: [{ type: 'text', text: '   ' }], usage: { input_tokens: 5, output_tokens: 1 } };
+    mockCreate
+      .mockResolvedValueOnce(toolResp) // iter 0: tool call, no text
+      .mockResolvedValueOnce(emptyResp) // iter 1: ends turn with no text -> loop breaks empty
+      .mockResolvedValueOnce(emptyResp) // forced retry 1 -> still empty
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'okay 50k, halfway there. which one is closer?' }], usage: { input_tokens: 20, output_tokens: 9 } }); // forced retry 2 -> text
+
+    const result = await (service as any).runChat({
+      systemPrompt: 'sys', recentMessages: [], incomingText: 'around 50k a month',
+      tools: [{ name: 'noop' }], dispatch: async () => ({ ok: true }),
+      userId: 'user-1', operationLabel: 'test',
+    });
+
+    // The forced retries (calls 3 & 4) omit tools and append the "reply now" nudge.
+    const forcedCall = mockCreate.mock.calls[2][0];
+    expect(forcedCall.tools).toBeUndefined();
+    const lastMsg = forcedCall.messages[forcedCall.messages.length - 1];
+    expect(lastMsg.role).toBe('user');
+    expect(String(lastMsg.content)).toMatch(/reply to the user/i);
+    expect(result.reply).toBe('okay 50k, halfway there. which one is closer?');
+  });
+
   // RC-1 regression: the coaching dispatch used to gate on fire_at_iso and
   // silently reject every delay_minutes / local_clock reminder the model sent
   // (the schema tells it to PREFER those), making the model improvise "system's

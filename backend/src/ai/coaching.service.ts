@@ -851,18 +851,30 @@ export class CoachingService {
     // 2026-06-20). The history already carries the tool calls + their results, so
     // force ONE final completion WITHOUT tools to get the human-facing reply.
     if (!finalReply && args.dispatch) {
-      try {
-        const forced = await this.client.messages.create({
-          model,
-          max_tokens: 512,
-          system: args.systemPrompt,
-          messages: history,
-        });
-        totalInputTokens += forced.usage.input_tokens;
-        totalOutputTokens += forced.usage.output_tokens;
-        finalReply = extractText(forced);
-      } catch (err) {
-        this.logger.warn(`forced text completion failed (user ${args.userId}): ${(err as Error).message}`);
+      // Re-sending the same history without tools often STILL comes back empty —
+      // the last thing the model sees is its own tool_result, so it thinks it's
+      // already responded and ends the turn silently. Append an explicit nudge to
+      // actually speak, so it can never leave the user on the canned fallback.
+      const nudge: Anthropic.Messages.MessageParam = {
+        role: 'user',
+        content:
+          "(system: you just saved that. now reply to the user in your normal texting voice — react to what they actually said and move the conversation forward. text only, do not call any tools, and do not mention this note.)",
+      };
+      for (let retry = 0; retry < 2 && !finalReply; retry++) {
+        try {
+          const forced = await this.client.messages.create({
+            model,
+            max_tokens: 512,
+            system: args.systemPrompt,
+            messages: [...history, nudge],
+          });
+          totalInputTokens += forced.usage.input_tokens;
+          totalOutputTokens += forced.usage.output_tokens;
+          finalReply = extractText(forced);
+        } catch (err) {
+          this.logger.warn(`forced text completion failed (user ${args.userId}): ${(err as Error).message}`);
+          break;
+        }
       }
     }
 
