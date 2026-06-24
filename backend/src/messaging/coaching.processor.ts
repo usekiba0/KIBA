@@ -56,7 +56,7 @@ import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
 import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone } from './world-time';
 import { isOffsetPlausibleForPhone } from './phone-timezone';
-import { detectQuestionLoop, isLoopCallout } from './question-loop';
+import { detectQuestionLoop, detectRepeatedChoiceLoop, isLoopCallout } from './question-loop';
 
 interface CoachingJob {
   from: string;
@@ -117,7 +117,7 @@ function isLoopingOnQuestion(dbMessages: Message[], inboundBody: string): boolea
   const assistantTexts = dbMessages
     .filter((m) => m.role === MessageRole.AI && m.content)
     .map((m) => m.content);
-  return detectQuestionLoop(assistantTexts);
+  return detectQuestionLoop(assistantTexts) || detectRepeatedChoiceLoop(assistantTexts);
 }
 
 // Hard guard for billing-intent messages from COMPLETE users without an active
@@ -960,6 +960,10 @@ export class CoachingProcessor {
       // from what Stripe actually bills. Defaults match the agreed offer (7d / $20).
       trialDays: this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
       priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month'),
+      // RC-4: the loop guard now runs for intake too (it was coaching-only). The
+      // "today or tomorrow. pick one. ... today or tomorrow morning" circling
+      // happened during the SMS build, so intake needs the same hard steer.
+      loopingOnQuestion: isLoopingOnQuestion(recentMessages, body),
     };
 
     // Mutable copy we mutate as tool calls land so subsequent calls in the same

@@ -222,8 +222,48 @@ export function topicTokens(text: string): Set<string> {
 /** Is this assistant message asking the user something? */
 export function isAsk(text: string): boolean {
   if (text.includes('?')) return true;
-  // Question/imperative cues even when the '?' is dropped (real texting).
-  return /\b(what|when|where|which|how|why|who|lmk|let me know|tell me|give me)\b/i.test(text);
+  // Question/imperative cues even when the '?' is dropped (real texting). Includes
+  // imperative demands to choose ("pick one", "choose", "decide") and bare either/or
+  // prompts ("today or tomorrow") — these ARE asks even with no '?' or wh-word, and
+  // missing them is exactly how the "today or tomorrow. pick one" loop slipped past.
+  return /\b(what|when|where|which|how|why|who|lmk|let me know|tell me|give me|pick|choose|decide)\b/i.test(
+    text,
+  );
+}
+
+/**
+ * Extract normalized either/or CHOICES KIBA posed in a message ("today or
+ * tomorrow" -> "today|tomorrow", "gym or business" -> "business|gym"). Single
+ * word per side keeps it tight and order-independent.
+ */
+function choiceKeys(text: string): Set<string> {
+  const t = text.toLowerCase().replace(/[^a-z\s]/g, ' ');
+  const out = new Set<string>();
+  const re = /\b([a-z]{2,})\s+or\s+([a-z]{2,})\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t)) !== null) {
+    if (m[1] === m[2]) continue;
+    out.add([m[1], m[2]].sort().join('|'));
+  }
+  return out;
+}
+
+/**
+ * True when KIBA poses the SAME either/or choice in 2+ of its last three turns
+ * ("today or tomorrow" → "today or tomorrow. pick one" → "today or tomorrow
+ * morning"). Re-posing an identical binary choice within three turns is a
+ * high-precision loop signal that the topic-overlap detector misses because the
+ * choice words ("today"/"tomorrow") are stopwords.
+ */
+export function detectRepeatedChoiceLoop(assistantTexts: string[]): boolean {
+  const recent = assistantTexts.slice(-3);
+  if (recent.length < 2) return false;
+  const counts = new Map<string, number>();
+  for (const msg of recent) {
+    for (const key of choiceKeys(msg)) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const c of counts.values()) if (c >= 2) return true;
+  return false;
 }
 
 function shareTopic(a: Set<string>, b: Set<string>): boolean {

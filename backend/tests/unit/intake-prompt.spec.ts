@@ -131,6 +131,14 @@ describe('buildIntakeSystemPrompt', () => {
     expect(p).toMatch(/never describe a PM time as morning/i);
   });
 
+  it('injects a LOOP ALERT into intake when the guard flags circling (RC-4)', () => {
+    const looping = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' }, loopingOnQuestion: true }));
+    expect(looping).toMatch(/LOOP ALERT/);
+    expect(looping).toMatch(/do NOT re-ask|same "this or that" choice/i);
+    const normal = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' } }));
+    expect(normal).not.toMatch(/LOOP ALERT/);
+  });
+
   it('forbids guessing a clock time when the timezone is unknown (RC-2)', () => {
     const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' }, utcOffsetMinutes: null }));
     expect(p).toMatch(/do NOT know their timezone/i);

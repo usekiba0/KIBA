@@ -1,9 +1,52 @@
 import {
   detectQuestionLoop,
+  detectRepeatedChoiceLoop,
   isLoopCallout,
   isAsk,
   topicTokens,
 } from '../../src/messaging/question-loop';
+
+// RC-4: the real transcript that slipped past the old detector.
+describe('detectRepeatedChoiceLoop', () => {
+  it('catches the same either/or choice posed across turns', () => {
+    expect(detectRepeatedChoiceLoop([
+      'when are you sitting down to train the bot. today or tomorrow. what time.',
+      'yes to which one. today or tomorrow. pick one.',
+      'now back to the bot. today or tomorrow morning.',
+    ])).toBe(true);
+  });
+
+  it('catches it even when only two of the last three repeat the choice', () => {
+    expect(detectRepeatedChoiceLoop([
+      'today or tomorrow?',
+      'aight. what else is on your plate.',
+      'so the bot — today or tomorrow.',
+    ])).toBe(true);
+  });
+
+  it('does NOT fire on a single either/or question', () => {
+    expect(detectRepeatedChoiceLoop([
+      'what should we lock in first.',
+      'gym or business — which one.',
+      'cool, when.',
+    ])).toBe(false);
+  });
+
+  it('does NOT fire on different choices in different turns', () => {
+    expect(detectRepeatedChoiceLoop([
+      'gym or business?',
+      'morning or night?',
+      'coffee or tea?',
+    ])).toBe(false);
+  });
+});
+
+describe('isAsk imperatives (RC-4)', () => {
+  it('treats "pick one" / "choose" as asks even without a question mark', () => {
+    expect(isAsk('today or tomorrow. pick one.')).toBe(true);
+    expect(isAsk('just choose and lock it.')).toBe(true);
+  });
+});
 
 describe('topicTokens', () => {
   it('canonicalises workout synonyms to one topic', () => {

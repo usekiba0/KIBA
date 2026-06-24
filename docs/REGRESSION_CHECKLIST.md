@@ -38,6 +38,8 @@ smoke checks against a test number.
 | A5 | Reminder phrasing parses correctly ("at 8:30am" → 08:30, "in 5 hours" → 300) | wrong reminder time | `coaching-reminder-parser` | `tests/unit/coaching-reminder-parser.spec.ts` |
 | A6 | Verbal "I already paid" is never trusted — only a Stripe sub activates a user | user lies into free coaching | intake payment-claim backstop | `tests/unit/payment-claim.spec.ts` |
 | A7 | Question-loop detection fires on repeated same-topic asks / user loop call-outs | KIBA re-asks the same question | `messaging/question-loop.ts` | `tests/unit/question-loop.spec.ts` |
+| A13 | Repeated-choice loop fires when the SAME either/or ("today or tomorrow") is posed across turns; `isAsk` counts imperatives ("pick one") | KIBA circles a binary choice (RC‑4) | `messaging/question-loop.ts` `detectRepeatedChoiceLoop`, `isAsk` | `tests/unit/question-loop.spec.ts` › "detectRepeatedChoiceLoop" |
+| A14 | Intake injects a LOOP ALERT when the guard flags circling (loop guard now runs for intake, not just coaching) | KIBA circles during the SMS sales build (RC‑4) | `ai/prompts/intake.prompt.ts` loopBlock; `coaching.processor.ts` intake ctx | `tests/unit/intake-prompt.spec.ts` › "injects a LOOP ALERT into intake" |
 | A8 | No markdown / em-dashes in outbound; multi-bubble split is preserved | junk rendering on phone | `humanizeVoice`, `splitBubbles` | `tests/unit/bubbles.spec.ts`, voice specs |
 | A9 | Relationship-memory merge NEVER blanks stored memory on an empty/failed result | KIBA forgets everything after one bad merge (RC‑3 / Layer 2) | `ai/summarisation.service.ts` `updateRelationshipMemory` | `tests/unit/relationship-memory.spec.ts` |
 | A10 | The persistent relationship digest is injected into the coaching prompt when present | KIBA ignores what it "remembers" | `ai/prompts/coaching.prompt.ts` memory section | `tests/unit/coaching.prompt.spec.ts` › "injects the persistent relationship memory" |
@@ -59,11 +61,12 @@ smoke checks against a test number.
 
 ## Open / not-yet-locked (tracked, fix + add a row when done)
 
-- **RC‑4** — loop guard too narrow (misses imperative re-asks) and not wired into intake. *Planned: broaden detection + wire into intake.*
-- **Coaching.processor test harness** — RC‑5 self-heal and Layer 1 cross-session fetch are Tier B only; the processor has no unit harness. *Follow-up: build one and promote B1/B3/B5 to Tier A.*
+- **Coaching.processor test harness** — RC‑5 self-heal, Layer 1 cross-session fetch, RC‑2 ask-city short-circuit, and the intake loop wiring are Tier B only; the processor has no unit harness. *Follow-up: build one and promote the B-rows to Tier A.*
 
 **Resolved by the memory rework (2026-06-24):** RC‑3 (session reset wiping memory) — coaching history is now user-scoped (Layer 1) and the relationship digest loads every message (Layer 2), so a 4h reset or 30-message cap no longer causes amnesia. The message cap still exists but is now harmless.
 
 **RC‑2 (2026-06-24):** NULL timezone no longer fabricates a time. We did NOT infer from area code (mobile number portability makes it an unreliable guess); instead the model is forbidden from stating a clock time when the zone is unknown and asks for the city once (we already capture city→offset deterministically).
 
-_Last updated: 2026-06-24 — RC‑1 (reminder dispatch), RC‑5 (stage self-heal), Layers 1–3 (persistent memory + drift-proof hard facts), RC‑2 (no time fabrication)._
+**RC‑4 (2026-06-24):** loop guard broadened (`detectRepeatedChoiceLoop` catches a repeated either/or; `isAsk` counts imperatives) and now runs for intake too (LOOP ALERT), not just coaching.
+
+_Last updated: 2026-06-24 — all transcript root causes (RC‑1/2/3/4/5) + Layers 1–3 (persistent memory). Every fix has a Tier‑A test or a Tier‑B smoke row._

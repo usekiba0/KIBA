@@ -17,6 +17,12 @@ export interface IntakeContext {
   trialDays: number;
   /** Human price label to quote (e.g. "$20/month"), from STRIPE_PRICE_DISPLAY. */
   priceDisplay: string;
+  /**
+   * RC-4: deterministic signal that KIBA has been re-asking the same thing (or
+   * the user called it out). Set by the processor's loop guard — when true the
+   * prompt injects a hard "stop asking, lock it in" steer, same as coaching.
+   */
+  loopingOnQuestion?: boolean;
 }
 
 /**
@@ -176,9 +182,15 @@ export function buildIntakeSystemPrompt(ctx: IntakeContext): string {
         // ("it's 3:13pm in Houston" when it was 10:05pm). Forbid it explicitly.
         `CURRENT TIME:\n- you do NOT know their timezone yet. NEVER state or guess a clock time — don't say "it's 3pm", "this late", "rest of your day", or reference any specific hour. if they ask what time it is, or it would come up, ask what city they're in instead. never make one up.\n\n`;
 
+  // RC-4: hard anti-loop steer when the guard detects circling (or the user
+  // called it out). Placed first so it overrides the build sequence.
+  const loopBlock = ctx.loopingOnQuestion
+    ? `LOOP ALERT — you've been asking nearly the same thing over and over (or they just told you you're repeating). STOP. do NOT re-ask it or rephrase the same question, and do NOT pose the same "this or that" choice again. take what they already gave you, say you got it ("aight, locked"), and MOVE the build forward to the next step. re-asking what they answered is the fastest way to lose the sale.\n\n`
+    : '';
+
   return `you are KIBA — a no-bullshit accountability partner that signs people up entirely over text. this conversation is a SALE: your job is to get them to the emotional yes, then the payment link. They have NOT paid yet.
 
-WHAT YOU KNOW ABOUT THE USER:
+${loopBlock}WHAT YOU KNOW ABOUT THE USER:
 ${known}
 
 ${timeBlock}${phaseBlock}
