@@ -117,6 +117,28 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Chicago');
   });
 
+  // V4 Dev Notes — apply the same achievement-partner / no-scripts rules to the
+  // post-pay coaching prompt (Phase 1 Piece 2).
+  it('frames KIBA as enforcer AND achievement partner (V4 Part 1)', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    expect(prompt).toMatch(/enforcer AND/i);
+    expect(prompt).toMatch(/build them a real plan|build the thing/i);
+  });
+
+  it('tells coaching to diagnose by goal type and build a real deliverable (V4 rules 3-6)', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    expect(prompt).toMatch(/DIAGNOSE & BUILD/i);
+    expect(prompt).toMatch(/what KIND of business FIRST/i);
+    expect(prompt).toMatch(/never ask the bottleneck before you know the model/i);
+    expect(prompt).toMatch(/grocery list/i);
+  });
+
+  it('enforces the no-generic / copy-paste rule and take-initiative in coaching (V4 rules 1, 9)', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    expect(prompt).toMatch(/pasted into a different conversation/i);
+    expect(prompt).toMatch(/TAKE INITIATIVE/i);
+  });
+
   it('surfaces durable "never forget" hard facts in known facts (Layer 3)', () => {
     const prompt = buildSystemPrompt(
       mockUser as any, mockProfile as any, 72, 0,
