@@ -42,10 +42,13 @@ describe('SummarisationService.updateRelationshipMemory', () => {
   });
 
   it('writes the merged memory when the model returns text', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'Marcus just lost his job; shaken. Anchor goal is 100k by Q4.' }],
-      usage: { input_tokens: 200, output_tokens: 80 },
-    });
+    // Call 1 = hard-fact extraction (NONE), Call 2 = digest merge.
+    mockCreate
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'NONE' }], usage: { input_tokens: 50, output_tokens: 2 } })
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Marcus just lost his job; shaken. Anchor goal is 100k by Q4.' }],
+        usage: { input_tokens: 200, output_tokens: 80 },
+      });
     await service.updateRelationshipMemory('user-1', 'session-1');
     expect(userUpdate).toHaveBeenCalledWith(
       'user-1',
@@ -54,12 +57,36 @@ describe('SummarisationService.updateRelationshipMemory', () => {
   });
 
   it('does NOT overwrite stored memory when the merge returns empty', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: '   ' }],
-      usage: { input_tokens: 200, output_tokens: 0 },
-    });
+    mockCreate
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'NONE' }], usage: { input_tokens: 50, output_tokens: 2 } })
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: '   ' }], usage: { input_tokens: 200, output_tokens: 0 } });
     await service.updateRelationshipMemory('user-1', 'session-1');
-    expect(userUpdate).not.toHaveBeenCalled();
+    expect(userUpdate).not.toHaveBeenCalledWith('user-1', expect.objectContaining({ relationship_memory: expect.anything() }));
+  });
+
+  it('appends new hard facts to the append-only notes list (Layer 3)', async () => {
+    userRow.intake_data = { notes: ['Anchor goal is 100k'] } as any;
+    mockCreate
+      // extraction call returns a new durable fact
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: '- Dad passed away March 2026' }], usage: { input_tokens: 80, output_tokens: 10 } })
+      // digest merge
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'digest text' }], usage: { input_tokens: 200, output_tokens: 80 } });
+    await service.updateRelationshipMemory('user-1', 'session-1');
+    expect(userUpdate).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({
+        intake_data: expect.objectContaining({ notes: ['Anchor goal is 100k', 'Dad passed away March 2026'] }),
+      }),
+    );
+  });
+
+  it('does not duplicate a hard fact that is already stored', async () => {
+    userRow.intake_data = { notes: ['Dad passed away March 2026'] } as any;
+    mockCreate
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'dad passed away march 2026' }], usage: { input_tokens: 80, output_tokens: 10 } })
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'digest text' }], usage: { input_tokens: 200, output_tokens: 80 } });
+    await service.updateRelationshipMemory('user-1', 'session-1');
+    expect(userUpdate).not.toHaveBeenCalledWith('user-1', expect.objectContaining({ intake_data: expect.anything() }));
   });
 
   it('does not write for an empty session (no messages)', async () => {

@@ -570,6 +570,8 @@ export class CoachingService {
       goals: goalsText,
       city: intake.city ?? null,
       why: intake.why_it_matters ?? null,
+      // Layer 3 — durable "never forget" facts (append-only anchor list).
+      facts: intake.notes && intake.notes.length ? intake.notes : null,
     };
     const systemPrompt = buildSystemPrompt(
       { id: user.id, name: userName, phone_number: user.phone_number },

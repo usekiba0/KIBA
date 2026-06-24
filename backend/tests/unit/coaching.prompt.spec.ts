@@ -117,6 +117,16 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Chicago');
   });
 
+  it('surfaces durable "never forget" hard facts in known facts (Layer 3)', () => {
+    const prompt = buildSystemPrompt(
+      mockUser as any, mockProfile as any, 72, 0,
+      undefined, undefined, undefined, undefined, undefined, 0,
+      { goals: 'gym', city: null, why: null, facts: ['Dad passed away March 2026', 'Celiac — no gluten'] },
+    );
+    expect(prompt).toContain('Dad passed away March 2026');
+    expect(prompt).toContain('Celiac');
+  });
+
   it('injects the persistent relationship memory when provided (Layer 2)', () => {
     const memory =
       'Marcus, 27, runs a sports-betting side business and trains 4x/week. Ghosted Tuesday, said work was brutal. Anchor goal is 100k by Q4.';

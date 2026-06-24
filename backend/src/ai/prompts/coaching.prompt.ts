@@ -258,7 +258,7 @@ export function buildSystemPrompt(
    * Core facts the user told us (from intake_data). Surfaced so the AI can use
    * memory actively and catch contradictions ("since when are you in houston?").
    */
-  knownFacts?: { goals?: string | null; city?: string | null; why?: string | null },
+  knownFacts?: { goals?: string | null; city?: string | null; why?: string | null; facts?: string[] | null },
   /**
    * The evolving relationship digest (User.relationship_memory). Loaded on EVERY
    * message so KIBA remembers this person across days, not just within a session.
@@ -273,6 +273,10 @@ export function buildSystemPrompt(
     factLines.push(`- city: ${knownFacts.city.trim()}`);
   if (knownFacts?.why && knownFacts.why.trim())
     factLines.push(`- why it matters: ${knownFacts.why.trim()}`);
+  // Layer 3 — durable "never forget" facts. Surfaced as plain anchors so KIBA
+  // treats them as things it already knows about the person.
+  if (knownFacts?.facts && knownFacts.facts.length)
+    for (const f of knownFacts.facts) if (f && f.trim()) factLines.push(`- ${f.trim()}`);
   const knownFactsSection = factLines.length
     ? `\nWHAT YOU KNOW ABOUT THEM (use it actively; correct them if they contradict it):\n${factLines.join('\n')}\n`
     : '';
