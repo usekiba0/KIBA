@@ -167,6 +167,17 @@ export const EXPLAIN_REQUEST_RE =
 export const FORCE_LINK_AFTER_STALLED_TURNS = 2;
 
 /**
+ * How many recent messages of raw conversation the coaching AI carries.
+ * LAYER 1 of persistent memory: this fetch is scoped to user_id, NOT the current
+ * session, so a 4-hour idle reset or a mid-burst session boundary no longer wipes
+ * what was just said. KIBA sees the last N turns across days — "yesterday you said
+ * you'd train the bot at 8:30" — instead of waking up a stranger every morning.
+ * Bounded so the prompt stays cheap; older context is carried by the relationship
+ * digest (Layer 2), not raw history.
+ */
+export const COACHING_HISTORY_LIMIT = 40;
+
+/**
  * The emotional build is "complete" once the functional minimum (name + goal +
  * timezone) AND the two anchors the close leans on (why it matters + their
  * obstacle) are persisted. The micro-commitment "yes" isn't a stored field, but
@@ -347,13 +358,19 @@ export class CoachingProcessor {
     });
 
     // Phase 1: crisis check + DB fetches in parallel (crisis never waits for DB)
+    // LAYER 1 — cross-session memory: history is scoped to the USER, not the
+    // current session, and fetched newest-first then reversed to chronological.
+    // A session reset (4h idle or message-count) no longer hands the model an
+    // empty window; it keeps seeing the last COACHING_HISTORY_LIMIT real turns.
     const [crisisResult, dbMessages, latestSummary] = await Promise.all([
       this.crisisService.classify(body),
-      this.messageRepo.find({
-        where: { session_id: boundary.sessionId },
-        order: { created_at: 'ASC' },
-        take: 20,
-      }),
+      this.messageRepo
+        .find({
+          where: { user_id: user.id },
+          order: { created_at: 'DESC' },
+          take: COACHING_HISTORY_LIMIT,
+        })
+        .then((rows) => rows.reverse()),
       boundary.isNewSession
         ? this.summaryRepo.findOne({ where: { user_id: user.id }, order: { created_at: 'DESC' } })
         : Promise.resolve(null),
@@ -548,15 +565,13 @@ export class CoachingProcessor {
         return;
       }
 
-      // RESUME, DON'T RESTART. `dbMessages` is scoped to the CURRENT session, but
-      // the 4h session boundary opens a fresh empty session whenever a lead comes
-      // back hours/days later (or just texts "yo"). Coaching users survive that
-      // because they carry a cross-session summary; intake users have none, so a
-      // session-scoped fetch hands the intake AI an empty history and it falls back
-      // to its cold opener ("what's your name tho?") — wiping the whole pre-pay
-      // conversation (Karibi 2026-06-16). Load the lead's recent messages ACROSS
-      // sessions so the build picks up exactly where it left off and everything
-      // they told us before paying stays in context.
+      // RESUME, DON'T RESTART. The 4h session boundary opens a fresh empty session
+      // whenever a lead comes back hours/days later (or just texts "yo"). Load the
+      // lead's recent messages ACROSS sessions so the intake build picks up exactly
+      // where it left off and everything they told us before paying stays in
+      // context, instead of falling back to the cold opener ("what's your name
+      // tho?") and wiping the whole pre-pay conversation (Karibi 2026-06-16).
+      // (Coaching does the same cross-session fetch above — see COACHING_HISTORY_LIMIT.)
       const intakeHistory = await this.messageRepo.find({
         where: { user_id: user.id },
         order: { created_at: 'DESC' },
@@ -712,11 +727,20 @@ export class CoachingProcessor {
       return;
     }
 
-    // Queue session summarisation if needed (non-blocking)
-    if (boundary.shouldSummarise) {
+    // Queue session summarisation + relationship-memory merge if a session just
+    // closed (non-blocking). Both target closedSessionId — the session that was
+    // just ended — NOT boundary.sessionId, which is the fresh empty one. The
+    // memory merge is what lets KIBA remember this person next time (Layer 2);
+    // it only overwrites stored memory on success, so a failure here never wipes
+    // what KIBA already knew.
+    if (boundary.shouldSummarise && boundary.closedSessionId) {
+      const closedSessionId = boundary.closedSessionId;
       this.summarisationService
-        .summariseSession(user.id, boundary.sessionId, SummaryTrigger.SESSION_EXPIRY)
+        .summariseSession(user.id, closedSessionId, SummaryTrigger.SESSION_EXPIRY)
         .catch((err) => this.logger.error(`Summarisation error: ${err}`));
+      this.summarisationService
+        .updateRelationshipMemory(user.id, closedSessionId)
+        .catch((err) => this.logger.error(`Relationship memory update error: ${err}`));
     }
 
     // Image = proof submission — look up today's pending task

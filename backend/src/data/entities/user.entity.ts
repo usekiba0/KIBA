@@ -217,4 +217,19 @@ export class User {
   // 2026-06-18 with the weekly-review flow).
   @Column({ type: 'varchar', length: 10, nullable: true })
   last_weekly_review_date: string | null;
+
+  // ── Persistent relationship memory (Layer 2, added 2026-06-24) ─────────────
+  // An evolving prose digest of WHO this person is — goals, why, situation,
+  // recent life events, what they've committed to and followed through on or
+  // skipped, their patterns and mood. Unlike the per-session SessionSummary
+  // (one row per session, loaded only on a fresh session, can silently fail and
+  // leave the model amnesiac), this is a single running memory: MERGED at each
+  // session close (a failed update leaves the prior memory intact) and loaded
+  // into EVERY coaching prompt so KIBA never wakes up a stranger. It carries the
+  // long arc; raw recent turns (COACHING_HISTORY_LIMIT) carry the immediate past.
+  @Column({ type: 'text', nullable: true })
+  relationship_memory: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  relationship_memory_updated_at: Date | null;
 }

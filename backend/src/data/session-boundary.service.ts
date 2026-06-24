@@ -11,6 +11,14 @@ export interface SessionBoundary {
   isNewSession: boolean;
   minutesSinceLastMessage: number;
   shouldSummarise: boolean;
+  /**
+   * The session that was JUST closed by this boundary (only set when
+   * shouldSummarise is true). `sessionId` above is the fresh, empty session —
+   * summarisation and relationship-memory must run against THIS id, not that one.
+   * (Before this field, summarisation ran against the empty new session and
+   * silently produced nothing — fixed 2026-06-24.)
+   */
+  closedSessionId?: string;
 }
 
 @Injectable()
@@ -56,7 +64,7 @@ export class SessionBoundaryService {
         userId, trigger, minutesElapsed,
       });
 
-      return { sessionId: newSession.id, isNewSession: true, minutesSinceLastMessage: minutesElapsed, shouldSummarise: true };
+      return { sessionId: newSession.id, isNewSession: true, minutesSinceLastMessage: minutesElapsed, shouldSummarise: true, closedSessionId: activeSession.id };
     }
 
     return { sessionId: activeSession.id, isNewSession: false, minutesSinceLastMessage: minutesElapsed, shouldSummarise: false };

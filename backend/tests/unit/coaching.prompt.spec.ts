@@ -117,6 +117,36 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Chicago');
   });
 
+  it('injects the persistent relationship memory when provided (Layer 2)', () => {
+    const memory =
+      'Marcus, 27, runs a sports-betting side business and trains 4x/week. Ghosted Tuesday, said work was brutal. Anchor goal is 100k by Q4.';
+    const prompt = buildSystemPrompt(
+      mockUser as any,
+      mockProfile as any,
+      72,
+      0,
+      undefined, // sessionSummary
+      undefined, // curatedKnowledge
+      undefined, // timeContext
+      undefined, // todos
+      undefined, // patterns
+      0, // weeksIn
+      undefined, // knownFacts
+      memory, // relationshipMemory
+    );
+    expect(prompt).toMatch(/WHAT YOU REMEMBER ABOUT THEM/i);
+    expect(prompt).toContain('100k by Q4');
+  });
+
+  it('omits the relationship-memory block when memory is empty', () => {
+    const prompt = buildSystemPrompt(
+      mockUser as any, mockProfile as any, 72, 0,
+      undefined, undefined, undefined, undefined, undefined, 0, undefined,
+      '   ',
+    );
+    expect(prompt).not.toMatch(/WHAT YOU REMEMBER ABOUT THEM/i);
+  });
+
   it('omits the known-facts block when no facts are provided', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
     expect(prompt).not.toMatch(/WHAT YOU KNOW ABOUT THEM/i);

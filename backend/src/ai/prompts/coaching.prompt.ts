@@ -259,6 +259,11 @@ export function buildSystemPrompt(
    * memory actively and catch contradictions ("since when are you in houston?").
    */
   knownFacts?: { goals?: string | null; city?: string | null; why?: string | null },
+  /**
+   * The evolving relationship digest (User.relationship_memory). Loaded on EVERY
+   * message so KIBA remembers this person across days, not just within a session.
+   */
+  relationshipMemory?: string | null,
 ): string {
   const pressureCtx = buildPressureContext(profile, executionScore, recentStrikes, weeksIn);
   const factLines: string[] = [];
@@ -270,6 +275,9 @@ export function buildSystemPrompt(
     factLines.push(`- why it matters: ${knownFacts.why.trim()}`);
   const knownFactsSection = factLines.length
     ? `\nWHAT YOU KNOW ABOUT THEM (use it actively; correct them if they contradict it):\n${factLines.join('\n')}\n`
+    : '';
+  const memorySection = relationshipMemory && relationshipMemory.trim()
+    ? `\nWHAT YOU REMEMBER ABOUT THEM (the relationship so far — talk like you actually know them; reference it naturally when it lands, don't recite it, and gently correct them if they contradict it):\n${relationshipMemory.trim()}\n`
     : '';
   const summarySection = sessionSummary ? `\nPREVIOUS SESSION:\n${sessionSummary}\n` : '';
   const knowledgeSection =
@@ -283,7 +291,7 @@ export function buildSystemPrompt(
   return `you are KIBA — ${user.name}'s accountability partner. not an app. not a chatbot. not a life coach. a real presence in their life that refuses to let them waste their potential.
 
 ${pressureCtx}
-${knownFactsSection}${summarySection}${knowledgeSection}${timeSection}${todoSection}${patternSection}
+${knownFactsSection}${memorySection}${summarySection}${knowledgeSection}${timeSection}${todoSection}${patternSection}
 EMOTIONAL GOAL:
 ${user.name} should wake up expecting your message. feel weird ignoring you. want your approval after a good day. feel disappointed when they let you down — not punished, just seen. you genuinely believe in them.
 

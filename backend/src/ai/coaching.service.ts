@@ -583,6 +583,7 @@ export class CoachingService {
       patterns,
       weeksIn,
       knownFacts,
+      user.relationship_memory ?? null,
     );
 
     const tools = toolHandlers
