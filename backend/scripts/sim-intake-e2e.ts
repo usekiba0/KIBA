@@ -56,13 +56,23 @@ function ctx(): IntakeContext {
   };
 }
 
-// The exact failing scenario from Ali/Sam's real transcript.
+// Full V4 acceptance run — the Ali/Sam flow + the edge probes (direct question,
+// value-on-request, the close).
 const SCENARIO = [
-  'Hey', 'Sam', 'Get my business to 100k a month and plan my days better',
+  'Hey',
+  'Sam',
+  'Get my business to 100k a month and plan my days better',
   'I run 2 business a sports betting picks sub and an Ai app',
-  'Around 50k a month', 'Mainly not getting enough new subs retention solid',
-  'Mostly meta ads but having issues with organic', 'Not really consistent with content',
+  'Around 50k a month',
+  'Mainly not getting enough new subs retention solid',
+  'Mostly meta ads but having issues with organic',
+  'Not really consistent with content',
+  'honestly just freedom not stressing about money',
+  'wait how are you actually gonna help me with this',
   'give me a content idea for the picks page',
+  'real and direct, cussing is fine',
+  "i'm in karachi",
+  'yeah i am serious lets do it',
 ];
 
 async function run() {
