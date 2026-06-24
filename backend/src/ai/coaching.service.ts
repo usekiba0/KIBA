@@ -889,9 +889,17 @@ export class CoachingService {
     userId: string,
   ): Promise<unknown> {
     if (block.name === 'schedule_reminder') {
-      const input = block.input as { fire_at_iso?: unknown; message?: unknown; recurrence?: unknown };
-      if (typeof input.fire_at_iso !== 'string' || typeof input.message !== 'string') {
-        return { ok: false, error: 'fire_at_iso and message must both be strings' };
+      // The model is told to send ONE of delay_minutes / local_clock / fire_at_iso
+      // (fire_at_iso is the last resort) and the server resolves the fire time.
+      // This dispatch must forward whichever it sent — gating on fire_at_iso alone
+      // silently rejected every normal "remind me at 8:30am" / "in 5 min" request
+      // and made the model improvise "system's being weird".
+      const input = block.input as {
+        delay_minutes?: number; local_clock?: string; fire_at_iso?: string;
+        message?: unknown; recurrence?: unknown;
+      };
+      if (typeof input.message !== 'string' || !input.message.trim()) {
+        return { ok: false, error: 'message must be a non-empty string' };
       }
       let recurrence: { rule: 'daily'; local_time: string } | null = null;
       if (input.recurrence != null) {
@@ -905,13 +913,17 @@ export class CoachingService {
         recurrence = { rule: 'daily', local_time: r.local_time };
       }
       const result = await toolHandlers.scheduleReminder({
+        delay_minutes: input.delay_minutes,
+        local_clock: input.local_clock,
         fire_at_iso: input.fire_at_iso,
         message: input.message,
         recurrence,
       });
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_schedule_reminder',
-        userId, ok: result.ok, fireAtIso: input.fire_at_iso, recurrence: recurrence?.rule ?? null,
+        userId, ok: result.ok,
+        delayMinutes: input.delay_minutes ?? null, localClock: input.local_clock ?? null,
+        fireAtIso: input.fire_at_iso ?? null, recurrence: recurrence?.rule ?? null,
       });
       return result;
     }

@@ -169,6 +169,61 @@ describe('CoachingService', () => {
     expect(result.reply).toBe('still with you. what did you do today?');
   });
 
+  // RC-1 regression: the coaching dispatch used to gate on fire_at_iso and
+  // silently reject every delay_minutes / local_clock reminder the model sent
+  // (the schema tells it to PREFER those), making the model improvise "system's
+  // being weird". These lock the dispatch to forward whichever param it got.
+  describe('dispatchCoachingTool — schedule_reminder', () => {
+    function makeHandlers() {
+      return {
+        scheduleReminder: jest.fn().mockResolvedValue({
+          ok: true, reminder_id: 'r1', fire_at_iso: '2026-06-24T13:30:00.000Z', fires_in: '8 hours',
+        }),
+      } as any;
+    }
+
+    it('forwards local_clock (no fire_at_iso) to scheduleReminder', async () => {
+      const handlers = makeHandlers();
+      const block = { type: 'tool_use', id: 't1', name: 'schedule_reminder',
+        input: { local_clock: '08:30', message: 'do the telegram bot' } };
+      const result = await (service as any).dispatchCoachingTool(block, handlers, 'user-1');
+      expect(handlers.scheduleReminder).toHaveBeenCalledWith(
+        expect.objectContaining({ local_clock: '08:30', message: 'do the telegram bot' }),
+      );
+      expect((result as any).ok).toBe(true);
+    });
+
+    it('forwards delay_minutes (no fire_at_iso) to scheduleReminder', async () => {
+      const handlers = makeHandlers();
+      const block = { type: 'tool_use', id: 't2', name: 'schedule_reminder',
+        input: { delay_minutes: 5, message: 'stretch' } };
+      const result = await (service as any).dispatchCoachingTool(block, handlers, 'user-1');
+      expect(handlers.scheduleReminder).toHaveBeenCalledWith(
+        expect.objectContaining({ delay_minutes: 5, message: 'stretch' }),
+      );
+      expect((result as any).ok).toBe(true);
+    });
+
+    it('forwards a daily recurrence with local_clock', async () => {
+      const handlers = makeHandlers();
+      const block = { type: 'tool_use', id: 't3', name: 'schedule_reminder',
+        input: { local_clock: '07:00', message: 'wake up', recurrence: { rule: 'daily', local_time: '07:00' } } };
+      await (service as any).dispatchCoachingTool(block, handlers, 'user-1');
+      expect(handlers.scheduleReminder).toHaveBeenCalledWith(
+        expect.objectContaining({ recurrence: { rule: 'daily', local_time: '07:00' } }),
+      );
+    });
+
+    it('rejects only when message is missing/empty — never for a missing fire_at_iso', async () => {
+      const handlers = makeHandlers();
+      const block = { type: 'tool_use', id: 't4', name: 'schedule_reminder',
+        input: { local_clock: '08:30' } };
+      const result = await (service as any).dispatchCoachingTool(block, handlers, 'user-1');
+      expect((result as any).ok).toBe(false);
+      expect(handlers.scheduleReminder).not.toHaveBeenCalled();
+    });
+  });
+
   it('includes conversation history in the messages array', async () => {
     const history: Message[] = [{
       id: 'm1', session_id: 's1', user_id: 'user-1',

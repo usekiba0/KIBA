@@ -467,6 +467,35 @@ export class CoachingProcessor {
     // Pre-payment users go through the intake AI flow, not the coaching flow.
     // Correction triggers, score queries, reminders, etc. are all coach-mode
     // features and are gated behind onboarding_stage === COMPLETE.
+
+    // SELF-HEAL webhook lag: a user who already has an entitled sub
+    // (ACTIVE/TRIALING) but is still not COMPLETE has paid — the
+    // checkout.session.completed webhook lagged or failed. If we route them to
+    // intake they get re-pitched the link they already bought ("trial's free,
+    // tap that link"). Promote them to COMPLETE NOW so they fall through to
+    // coaching. The webhook still flips the stage on its own; this just closes
+    // the window where an inbound message beats it.
+    if (user.onboarding_stage !== OnboardingStage.COMPLETE) {
+      const entitledSub = await this.subscriptionRepo.findOne({
+        where: [
+          { user_id: user.id, status: SubscriptionStatus.ACTIVE },
+          { user_id: user.id, status: SubscriptionStatus.TRIALING },
+        ],
+      });
+      if (entitledSub) {
+        this.logger.warn(
+          `[StageSelfHeal] entitled sub but stage=${user.onboarding_stage} for ${user.id} — promoting to COMPLETE`,
+        );
+        user.onboarding_stage = OnboardingStage.COMPLETE;
+        await this.userRepo.update(user.id, { onboarding_stage: OnboardingStage.COMPLETE });
+        structuredLog(this.logger, 'log', {
+          service: 'messaging',
+          operation: 'stage_self_heal_to_complete',
+          userId: user.id,
+        });
+      }
+    }
+
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) {
       // PAYMENT-CLAIM BACKSTOP (deterministic — don't trust the LLM here).
       // A lead who's been sent the link but still isn't COMPLETE telling us they
