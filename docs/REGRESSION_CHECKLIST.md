@@ -39,6 +39,8 @@ smoke checks against a test number.
 | A6 | Verbal "I already paid" is never trusted — only a Stripe sub activates a user | user lies into free coaching | intake payment-claim backstop | `tests/unit/payment-claim.spec.ts` |
 | A7 | Question-loop detection fires on repeated same-topic asks / user loop call-outs | KIBA re-asks the same question | `messaging/question-loop.ts` | `tests/unit/question-loop.spec.ts` |
 | A8 | No markdown / em-dashes in outbound; multi-bubble split is preserved | junk rendering on phone | `humanizeVoice`, `splitBubbles` | `tests/unit/bubbles.spec.ts`, voice specs |
+| A9 | Relationship-memory merge NEVER blanks stored memory on an empty/failed result | KIBA forgets everything after one bad merge (RC‑3 / Layer 2) | `ai/summarisation.service.ts` `updateRelationshipMemory` | `tests/unit/relationship-memory.spec.ts` |
+| A10 | The persistent relationship digest is injected into the coaching prompt when present | KIBA ignores what it "remembers" | `ai/prompts/coaching.prompt.ts` memory section | `tests/unit/coaching.prompt.spec.ts` › "injects the persistent relationship memory" |
 
 ## Tier B — behavioral smoke checks (run by hand before a big deploy)
 
@@ -46,16 +48,19 @@ smoke checks against a test number.
 |----|----------------------------------------|--------|
 | B1 | Pay, then text KIBA *immediately* (before the webhook lands) | KIBA coaches you — does NOT re-pitch the link (RC‑5 self-heal) |
 | B2 | As a paid user with NO city given, ask "remind me at 8:30am to X" | KIBA either sets it for 8:30 or asks your city once — never "system's being weird" (RC‑1 + RC‑2) |
-| B3 | Fast back-and-forth of 12+ turns negotiating one thing | KIBA does not forget the topic or re-ask "today or tomorrow" (RC‑3) |
+| B3 | Fast back-and-forth of 12+ turns negotiating one thing | KIBA does not forget the topic or re-ask "today or tomorrow" (RC‑3 / Layer 1 cross-session history) |
 | B4 | Ask the time inside a larger sentence ("is it too late? what time even is it") | time given matches reality (RC‑2) |
+| B5 | Talk over 2 days (let a session expire), then reference yesterday | KIBA remembers yesterday's conversation and commitments (Layer 1 + Layer 2) |
 
 ---
 
 ## Open / not-yet-locked (tracked, fix + add a row when done)
 
 - **RC‑2** — users reach coaching with `utc_offset_minutes = NULL` (webhook never sets it) → fabricated time + failed clock reminders. *Planned: infer offset from phone area code; ask city deterministically when unknown.*
-- **RC‑3** — 30-message session cap wipes coaching history mid-conversation. *Planned: drop the message-count reset, keep 4h idle reset.*
 - **RC‑4** — loop guard too narrow (misses imperative re-asks) and not wired into intake. *Planned: broaden detection + wire into intake.*
-- **RC‑5 processor test** — self-heal is currently Tier B (B1) only; coaching.processor has no unit harness. *Follow-up: build a processor test harness and promote B1 to Tier A.*
+- **Layer 3 (memory drift anchor)** — the relationship digest is LLM-rewritten each session, so a critical hard fact could slowly compress out. *Optional: an append-only "never forget" list that anchors the merge. Deferred pending real-world signal that drift actually happens — Layer 2 already preserves life events/facts.*
+- **Coaching.processor test harness** — RC‑5 self-heal and Layer 1 cross-session fetch are Tier B only; the processor has no unit harness. *Follow-up: build one and promote B1/B3/B5 to Tier A.*
 
-_Last updated: 2026-06-24 — seeded with shipped invariants + RC‑1 (reminder dispatch) and RC‑5 (stage self-heal)._
+**Resolved by the memory rework (2026-06-24):** RC‑3 (session reset wiping memory) — coaching history is now user-scoped (Layer 1) and the relationship digest loads every message (Layer 2), so a 4h reset or 30-message cap no longer causes amnesia. The message cap still exists but is now harmless.
+
+_Last updated: 2026-06-24 — RC‑1 (reminder dispatch), RC‑5 (stage self-heal), Layers 1 & 2 (persistent memory)._
