@@ -26,13 +26,55 @@ describe('buildIntakeSystemPrompt', () => {
 
   it('holds money talk until the close in the BUILD phase', () => {
     const p = buildIntakeSystemPrompt(ctx());
-    expect(p).toContain('PHASE: build');
-    expect(p).toMatch(/NO money\/price\/trial talk until step 9/i);
+    expect(p).toMatch(/PHASE: be a real coach/i);
+    expect(p).toMatch(/NO money ?\/ ?price ?\/ ?trial talk until the close/i);
     // The emotional-build steps must be present and ordered before the close.
     expect(p).toContain('THE "I SEE YOU" MOMENT');
     // The commitment step (reframed as a natural challenge, not a pushy "are you
     // serious" close) must still come before the money.
     expect(p).toContain('CHALLENGE');
+  });
+
+  // V4 Dev Notes — the scripted-response bug + diagnostic sequencing (Phase 1).
+  it('frames the conversation as coaching, not a sale (V4 Part 1)', () => {
+    const p = buildIntakeSystemPrompt(ctx());
+    expect(p).not.toMatch(/this conversation is a SALE/i);
+    expect(p).toMatch(/from the very first message you are a real coach/i);
+  });
+
+  it('bans the two scripted lines the doc called out (BUG #1, #3)', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'business' } }));
+    // The literal scripted questions must no longer be issued by the flow.
+    expect(p).not.toContain('why does it actually matter to you though?');
+    expect(p).not.toContain('be honest, what usually makes you fold?');
+    // And both must be explicitly banned.
+    expect(p).toMatch(/do NOT jump to "why does it matter"/i);
+    expect(p).toMatch(/what usually makes you fold.*banned|banned.*what usually makes you fold/i);
+  });
+
+  it('requires diagnosing the business TYPE before bottlenecks (V4 Part 3 rule 5)', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'get to 100k' } }));
+    expect(p).toMatch(/what KIND of business FIRST/i);
+    expect(p).toMatch(/NEVER ask about bottlenecks before you know the business type/i);
+  });
+
+  it('collects the emotional driver by goal type, never a fixed line (V4 Part 6)', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' } }));
+    expect(p).toMatch(/THE EMOTIONAL DRIVER/i);
+    expect(p).toMatch(/the WORDING is never fixed/i);
+    expect(p).toContain('what does life actually look like when you hit that number');
+  });
+
+  it('takes initiative on the check-in time instead of asking permission (V4 rule 9)', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' } }));
+    expect(p).toMatch(/TAKE INITIATIVE on the check-in/i);
+    expect(p).toMatch(/i'll lock you in at .* every morning, that work/i);
+    expect(p).toMatch(/never "when would you like me to check in/i);
+  });
+
+  it('enforces the copy-paste / no-generic-response test (V4 BUG #1)', () => {
+    const p = buildIntakeSystemPrompt(ctx());
+    expect(p).toMatch(/if you could paste it into a different conversation/i);
   });
 
   it('surfaces why_it_matters and obstacle in the known summary', () => {

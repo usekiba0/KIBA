@@ -45,6 +45,7 @@ smoke checks against a test number.
 | A12 | Intake prompt FORBIDS guessing a clock time when timezone is unknown; tells it to ask city | model fabricates "it's 3:13pm" (RC‑2) | `ai/prompts/intake.prompt.ts` timeBlock | `tests/unit/intake-prompt.spec.ts` › "forbids guessing a clock time" |
 | A13 | Repeated-choice loop fires when the SAME either/or ("today or tomorrow") is posed across turns; `isAsk` counts imperatives ("pick one") | KIBA circles a binary choice (RC‑4) | `messaging/question-loop.ts` `detectRepeatedChoiceLoop`, `isAsk` | `tests/unit/question-loop.spec.ts` › "detectRepeatedChoiceLoop" |
 | A14 | Intake injects a LOOP ALERT when the guard flags circling (loop guard now runs for intake, not just coaching) | KIBA circles during the SMS sales build (RC‑4) | `ai/prompts/intake.prompt.ts` loopBlock; `coaching.processor.ts` intake ctx | `tests/unit/intake-prompt.spec.ts` › "injects a LOOP ALERT into intake" |
+| A15 | Intake is diagnostic not scripted: bans "what makes you fold" / cold "why does it matter", asks business TYPE before bottleneck, collects emotional driver by goal type, takes initiative on check-in (V4 Dev Notes Piece 1) | scripted lines that ignore what the user said (V4 BUG #1/#3) | `ai/prompts/intake.prompt.ts` BUILD flow | `tests/unit/intake-prompt.spec.ts` › "bans the two scripted lines", "diagnosing the business TYPE", "emotional driver by goal type" |
 
 ## Tier B — behavioral smoke checks (run by hand before a big deploy)
 
@@ -56,6 +57,7 @@ smoke checks against a test number.
 | B4 | Ask the time inside a larger sentence ("is it too late? what time even is it") | time given matches reality (RC‑2) |
 | B5 | Talk over 2 days (let a session expire), then reference yesterday | KIBA remembers yesterday's conversation and commitments (Layer 1 + Layer 2) |
 | B6 | As a user with NO city given, ask "what time is it" | KIBA asks for your city — never states a guessed time (RC‑2 deterministic short-circuit) |
+| B7 | New user gives a business goal | KIBA asks the business TYPE first, diagnoses, converges on one move, then asks the emotional driver — never fires "what makes you fold" (V4 Piece 1; also `scripts/sim-intake.ts`) |
 
 ---
 
