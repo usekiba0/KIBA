@@ -205,6 +205,44 @@ describe('CoachingService', () => {
   // silently reject every delay_minutes / local_clock reminder the model sent
   // (the schema tells it to PREFER those), making the model improvise "system's
   // being weird". These lock the dispatch to forward whichever param it got.
+  // Multi-image (Karibi 2026-06-25): KIBA sees all the photos in one reply, not
+  // one-per-photo. runChat builds an image block per URL, capped at 4.
+  describe('runChat multi-image', () => {
+    beforeEach(() => {
+      (service as any).prepareImageBlock = jest.fn(async () => ({
+        ok: true, block: { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'x' } },
+      }));
+    });
+
+    it('builds one image block per image in a single user message', async () => {
+      mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'nice shots' }], usage: { input_tokens: 10, output_tokens: 5 } });
+      const result = await (service as any).runChat({
+        systemPrompt: 'sys', recentMessages: [], incomingText: 'check these',
+        imageUrls: ['a.jpg', 'b.jpg', 'c.jpg'], imageContentTypes: ['image/jpeg', 'image/jpeg', 'image/jpeg'],
+        userId: 'u1', operationLabel: 'test',
+      });
+      const sent = mockCreate.mock.calls[0][0];
+      const last = sent.messages[sent.messages.length - 1];
+      const imageBlocks = (last.content as Array<{ type: string }>).filter((b) => b.type === 'image');
+      expect(imageBlocks.length).toBe(3);
+      expect(result.reply).toBe('nice shots');
+    });
+
+    it('caps at 4 images even when more are sent', async () => {
+      mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'got all of those' }], usage: { input_tokens: 10, output_tokens: 5 } });
+      await (service as any).runChat({
+        systemPrompt: 'sys', recentMessages: [], incomingText: '',
+        imageUrls: ['1.jpg', '2.jpg', '3.jpg', '4.jpg', '5.jpg', '6.jpg'],
+        imageContentTypes: ['image/jpeg', 'image/jpeg', 'image/jpeg', 'image/jpeg', 'image/jpeg', 'image/jpeg'],
+        userId: 'u1', operationLabel: 'test',
+      });
+      const sent = mockCreate.mock.calls[0][0];
+      const last = sent.messages[sent.messages.length - 1];
+      const imageBlocks = (last.content as Array<{ type: string }>).filter((b) => b.type === 'image');
+      expect(imageBlocks.length).toBe(4);
+    });
+  });
+
   describe('dispatchCoachingTool — schedule_reminder', () => {
     function makeHandlers() {
       return {

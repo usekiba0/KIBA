@@ -519,8 +519,8 @@ export class CoachingService {
     recentMessages: Message[],
     incomingText: string,
     sessionSummary?: string,
-    imageUrl?: string,
-    imageContentType?: string,
+    imageUrls?: string[],
+    imageContentTypes?: string[],
     toolHandlers?: CoachingToolHandlers,
     todos?: Array<{ id: string; content: string; status: string }>,
     patterns?: {
@@ -605,8 +605,8 @@ export class CoachingService {
       systemPrompt,
       recentMessages,
       incomingText,
-      imageUrl,
-      imageContentType,
+      imageUrls,
+      imageContentTypes,
       tools,
       dispatch,
       userId: user.id,
@@ -624,8 +624,8 @@ export class CoachingService {
     incomingText: string,
     ctx: IntakeContext,
     toolHandlers: IntakeToolHandlers,
-    imageUrl?: string,
-    imageContentType?: string,
+    imageUrls?: string[],
+    imageContentTypes?: string[],
   ): Promise<{ reply: string; tokenCount: number }> {
     const systemPrompt = buildIntakeSystemPrompt(ctx);
     const tools = [SAVE_INTAKE_FIELD_TOOL, SEND_PAYMENT_LINK_TOOL, SCHEDULE_REMINDER_TOOL];
@@ -636,8 +636,8 @@ export class CoachingService {
       systemPrompt,
       recentMessages,
       incomingText,
-      imageUrl,
-      imageContentType,
+      imageUrls,
+      imageContentTypes,
       tools,
       dispatch,
       userId: user.id,
@@ -726,8 +726,8 @@ export class CoachingService {
     systemPrompt: string;
     recentMessages: Message[];
     incomingText: string;
-    imageUrl?: string;
-    imageContentType?: string;
+    imageUrls?: string[];
+    imageContentTypes?: string[];
     tools?: Tool[];
     dispatch?: (block: Anthropic.Messages.ToolUseBlock) => Promise<unknown>;
     userId: string;
@@ -741,29 +741,38 @@ export class CoachingService {
       content: m.content,
     }));
 
+    // Multi-image: people send several photos at once (a few angles, a couple of
+    // screenshots). Claude sees them all in one message, so KIBA reacts to the
+    // SET in one reply instead of one-per-photo. Cap at 4 to bound vision cost.
+    const MAX_IMAGES = 4;
+    const urls = (args.imageUrls ?? []).slice(0, MAX_IMAGES);
     let usingImage = false;
     let lastContent: string | Array<Anthropic.Messages.ImageBlockParam | Anthropic.Messages.TextBlockParam>;
-    if (args.imageUrl && this.isSupportedImageFormat(args.imageUrl, args.imageContentType)) {
-      const prep = await this.prepareImageBlock(args.imageUrl, args.imageContentType);
-      if (prep.ok) {
-        usingImage = true;
-        lastContent = [
-          prep.block,
-          { type: 'text', text: args.incomingText || 'The user sent this photo with no caption — react to what you actually see in it, in your voice.' },
-        ];
-      } else {
+    if (urls.length > 0) {
+      const blocks: Anthropic.Messages.ImageBlockParam[] = [];
+      let sawUnsupported = false;
+      for (let i = 0; i < urls.length; i++) {
+        const ct = args.imageContentTypes?.[i];
+        if (!this.isSupportedImageFormat(urls[i], ct)) { sawUnsupported = true; continue; }
+        const prep = await this.prepareImageBlock(urls[i], ct);
+        if (prep.ok) blocks.push(prep.block);
+      }
+      if (blocks.length === 0) {
         return {
-          reply: "couldn't open that photo — try sending it again as a screenshot or jpeg.",
+          reply: sawUnsupported
+            ? "i can't read that file type — send a jpeg, png, or screenshot."
+            : "couldn't open that photo — try sending it again as a screenshot or jpeg.",
           tokenCount: 0,
         };
       }
-    } else if (args.imageUrl) {
-      // Format we can't handle at all (not jpeg/png/gif/webp/heic). Tell the user
-      // instead of silently dropping the image and letting the model hallucinate.
-      return {
-        reply: "i can't read that file type — send a jpeg, png, or screenshot.",
-        tokenCount: 0,
-      };
+      usingImage = true;
+      const fallbackCaption = blocks.length > 1
+        ? 'The user sent these photos with no caption — react to what you actually see across them, in your voice.'
+        : 'The user sent this photo with no caption — react to what you actually see in it, in your voice.';
+      lastContent = [
+        ...blocks,
+        { type: 'text', text: args.incomingText || fallbackCaption },
+      ];
     } else {
       lastContent = args.incomingText || 'I sent you a message.';
     }

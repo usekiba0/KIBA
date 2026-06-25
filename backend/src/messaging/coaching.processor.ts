@@ -849,8 +849,8 @@ export class CoachingProcessor {
         dbMessages,
         body !== '[image]' ? body : '',
         latestSummary?.summary,
-        mediaUrl ?? undefined,
-        mediaCt,
+        mediaUrls.slice(0, 4),
+        mediaContentTypes.slice(0, 4),
         this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
         visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
         visionPatterns,
@@ -1035,8 +1035,8 @@ export class CoachingProcessor {
       intakeText,
       ctx,
       handlers,
-      imageUrl,
-      imageContentType,
+      imageUrl ? [imageUrl] : undefined,
+      imageContentType ? [imageContentType] : undefined,
     );
 
     // ── Link delivery: explicit ask + safety-net ──────────────────────────
