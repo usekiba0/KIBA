@@ -60,6 +60,19 @@ describe('buildCheckinMessage', () => {
       expect(msg).not.toContain('Day 1 Monday');   // prefix stripped per goal
     }
   });
+
+  // The exact broken message #35 from the live Sam transcript: parenthesized
+  // weekday prefix leaked, plus em-dash + bullet, on a Thursday (localDow 4).
+  it('strips a parenthesized "Day N (Weekday):" prefix and cleans em-dashes/bullets (msg #35 fix)', () => {
+    const combined =
+      'Day 1 (Monday): Audit subscriber data—calculate CAC\nDay 1 (Monday): map the subscriber journey';
+    const msg = buildCheckinMessage('Sam', testProfile, combined, { localDow: 4 });
+    expect(msg).not.toMatch(/Day 1/i);     // no leaked day label
+    expect(msg).not.toContain('(Monday)'); // no leaked weekday
+    expect(msg).not.toContain('•');        // no bullet char
+    expect(msg).not.toMatch(/[–—]/);       // no em/en-dash
+    expect(msg).toContain('Audit subscriber data');
+  });
 });
 
 describe('humanizeTask', () => {
@@ -77,5 +90,11 @@ describe('humanizeTask', () => {
 
   it('leaves a plain task untouched', () => {
     expect(humanizeTask('Run 5km')).toBe('Run 5km');
+  });
+
+  it('strips a parenthesized weekday prefix and normalizes em-dashes', () => {
+    expect(humanizeTask('Day 1 (Monday): Audit subscriber data—calculate CAC'))
+      .toBe('Audit subscriber data, calculate CAC');
+    expect(humanizeTask('Day 3 [Wed]: ship the feature')).toBe('ship the feature');
   });
 });

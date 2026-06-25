@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { DailyTodo, DailyTodoSource, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { Goal } from '../data/entities/goal.entity';
 import { findAllGoals } from '../data/goal-selection';
+import { stripDayPrefix } from '../ai/prompts/checkin.prompt';
 import { structuredLog } from '../common/logger';
 
 /**
@@ -159,8 +160,9 @@ export class TodoService {
  */
 export function splitPlanDayIntoItems(entry: string): string[] {
   if (!entry) return [];
-  // Strip leading "Day N Weekday:" or "Day N:" prefix
-  const stripped = entry.replace(/^\s*day\s+\d+(?:\s+\w+)?\s*[:\-—]\s*/i, '').trim();
+  // Strip leading "Day N:", "Day N Weekday:", or "Day N (Weekday):" prefix.
+  // (parenthesized weekday previously leaked through and showed up in check-ins)
+  const stripped = stripDayPrefix(entry);
   if (!stripped) return [];
 
   // Split on sentence terminators. Comma-only lists ("eggs, bacon, toast") would

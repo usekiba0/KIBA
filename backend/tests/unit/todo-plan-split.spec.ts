@@ -37,6 +37,11 @@ describe('splitPlanDayIntoItems', () => {
     expect(splitPlanDayIntoItems('Day 1 Monday:')).toEqual([]);
   });
 
+  it('strips a parenthesized "Day N (Weekday):" prefix (the leak from msg #35)', () => {
+    const entry = 'Day 1 (Monday): Audit subscriber data. Map the journey.';
+    expect(splitPlanDayIntoItems(entry)).toEqual(['Audit subscriber data', 'Map the journey']);
+  });
+
   it('handles entries with no leading prefix', () => {
     const entry = 'Run 5K. Eat clean. Sleep 8 hours.';
     expect(splitPlanDayIntoItems(entry)).toEqual(['Run 5K', 'Eat clean', 'Sleep 8 hours']);

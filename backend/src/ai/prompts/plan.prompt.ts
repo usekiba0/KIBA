@@ -31,9 +31,11 @@ Return ONLY valid JSON in this exact shape — no explanation, no markdown:
 }
 
 Rules:
-- 3–5 milestones ordered by difficulty
+- 3-5 milestones ordered by difficulty
 - At least 4 weekly breakdown entries
 - Exactly 7 daily_tasks for the first week
-- Tasks must be specific and actionable — not "exercise more"
+- Prefix each daily task EXACTLY "Day N:" (e.g. "Day 1:", "Day 2:") — NO weekday name, NO parentheses like "(Monday)". The day number maps to a position, not a calendar day.
+- Tasks must be specific and actionable, not "exercise more"
+- Use plain ASCII punctuation only. NEVER use em-dashes or en-dashes (— –); they render as junk in a text message. Use a comma or a period instead.
 - Account for the user's typical failure moment (${profile.typical_failure_moment}) by making that day easier`;
 }

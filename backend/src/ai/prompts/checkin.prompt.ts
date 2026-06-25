@@ -56,13 +56,26 @@ export function buildCheckinMessage(
  * TodoService, and the full list is shown to the coaching model separately.
  */
 export function humanizeTask(task: string): string {
-  const stripped = task.replace(/^\s*day\s+\d+(?:\s+\w+)?\s*[:\-—]\s*/i, '').trim();
+  const stripped = stripDayPrefix(task);
   const firstClause = stripped
     .split(/(?<=[.!?])\s+|,\s+/)[0]
     .trim()
     .replace(/[.!?]+$/, '')
     .trim();
-  return firstClause.length >= 3 ? firstClause : stripped;
+  // Em/en-dashes are banned in outbound (they render as junk and read robotic) —
+  // the LLM-generated plan text sometimes contains them ("data—calculate CAC").
+  const clean = (firstClause.length >= 3 ? firstClause : stripped).replace(/\s*[–—]\s*/g, ', ').replace(/\s{2,}/g, ' ').trim();
+  return clean;
+}
+
+/**
+ * Strip the "Day N …:" label the LLM bakes into each plan task. Handles the bare
+ * form ("Day 1:"), a weekday ("Day 1 Monday:"), AND a parenthesized/bracketed
+ * weekday ("Day 1 (Monday):") — the parenthesized form leaked the whole label
+ * into a live check-in (it surfaced "Day 1 (Monday):" on a Thursday).
+ */
+export function stripDayPrefix(task: string): string {
+  return task.replace(/^\s*day\s+\d+(?:\s+[([]?\s*[a-z]+\s*[)\]]?)?\s*[:\-–—]\s*/i, '').trim();
 }
 
 /**
@@ -71,7 +84,7 @@ export function humanizeTask(task: string): string {
  * message, not one per goal (the "one combined check-in" decision).
  */
 function pickMultiTaskVariant(userName: string, actions: string[], dow: number | null): string {
-  const list = actions.map((a) => `• ${a}`).join('\n');
+  const list = actions.map((a) => `- ${a}`).join('\n');
   const isThuFri = dow === 4 || dow === 5;
   if (isThuFri) {
     const daysLeft = dow === 4 ? 'two days' : 'last day';
