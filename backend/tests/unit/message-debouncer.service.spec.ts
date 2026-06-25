@@ -63,15 +63,28 @@ describe('MessageDebouncerService', () => {
     expect((processCalls[0] as { body: string }).body).toBe('Bett Karibi');
   });
 
-  it('flushes an image burst at the faster 1.5s window', async () => {
+  it('flushes an image burst at the 3s image window', async () => {
     service.push(msg({
       text: 'check this', uniqueId: 'img1', dateSent: 1_000,
       mediaUrls: ['https://example.com/p.heic'], mediaContentTypes: ['image/heic'],
     }));
     jest.advanceTimersByTime(1500);
     await Promise.resolve();
+    expect(mockProcessor.process).not.toHaveBeenCalled(); // not at 1.5s anymore
+    jest.advanceTimersByTime(1500);
+    await Promise.resolve();
     expect(mockProcessor.process).toHaveBeenCalledTimes(1);
     expect((processCalls[0] as { numMedia: number }).numMedia).toBe(1);
+  });
+
+  it('batches multiple images arriving up to 3s apart into ONE reply (no per-image spam)', async () => {
+    service.push(msg({ uniqueId: 'i1', text: '', dateSent: 1, mediaUrls: ['a.jpg'], mediaContentTypes: ['image/jpeg'] }));
+    jest.advanceTimersByTime(2500); // second photo lands 2.5s later (within window)
+    service.push(msg({ uniqueId: 'i2', text: '', dateSent: 2, mediaUrls: ['b.jpg'], mediaContentTypes: ['image/jpeg'] }));
+    jest.advanceTimersByTime(3000);
+    await Promise.resolve();
+    expect(mockProcessor.process).toHaveBeenCalledTimes(1);
+    expect((processCalls[0] as { numMedia: number; mediaUrls: string[] }).numMedia).toBe(2);
   });
 
   it('sorts merged messages by dateSent so the image arriving late lands in order', async () => {
@@ -83,8 +96,8 @@ describe('MessageDebouncerService', () => {
       mediaUrls: ['https://example.com/photo.heic'], mediaContentTypes: ['image/heic'],
     }));
 
-    // Buffer has media -> flushes at the 1.5s image window.
-    jest.advanceTimersByTime(1500);
+    // Buffer has media -> flushes at the 3s image window.
+    jest.advanceTimersByTime(3000);
     await Promise.resolve();
 
     expect(mockProcessor.process).toHaveBeenCalledTimes(1);
@@ -125,7 +138,7 @@ describe('debounceDelayFor', () => {
   it('uses the 2s text window for a text-only burst', () => {
     expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: [] }])).toBe(2000);
   });
-  it('uses the faster 1.5s window when any message has media', () => {
-    expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: ['x'] }])).toBe(1500);
+  it('uses the 3s image window when any message has media', () => {
+    expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: ['x'] }])).toBe(3000);
   });
 });

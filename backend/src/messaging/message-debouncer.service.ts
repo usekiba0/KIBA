@@ -17,10 +17,13 @@ interface BufferState {
   timer: NodeJS.Timeout;
 }
 
-// IMAGE bursts: 1.5s is long enough to coalesce iMessage chunks ("Look where I"
-// / "At" / "the gym" land within ~300ms) and the trailing image webhook (often
-// 0.5–1s after its sibling text), but short enough to keep photo replies snappy.
-const IMAGE_DEBOUNCE_MS = 1500;
+// IMAGE bursts: 3s. People who send photos usually send SEVERAL (a few gym
+// shots, multiple screenshots), and each photo is its own webhook that can land
+// 1-3s after the last on mobile data — at 1.5s KIBA replied to each one
+// separately, which reads spammy/botty (Karibi 2026-06-25). The timer resets on
+// every new image, so the batch always waits for the last one; a ~3s pause
+// before reacting to a photo reads like natural "looking at it" time.
+const IMAGE_DEBOUNCE_MS = 3000;
 // TEXT bursts: 2s (top of the V4 doc's "1-2 second buffer", Rule 2). People send
 // a name then a correction, or a thought across 2-3 bubbles, with gaps a bit
 // longer than the image case — 2s reliably reads them together so KIBA never
