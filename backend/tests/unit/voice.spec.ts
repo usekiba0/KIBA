@@ -71,4 +71,13 @@ describe('humanizeVoice', () => {
   it('strips markdown and converts em-dashes together', () => {
     expect(humanizeVoice('**lock in** — proof when done')).toBe('lock in. proof when done');
   });
+
+  it('normalises unicode bullets (•) to dash bullets', () => {
+    expect(humanizeVoice('today:\n• run 5k\n• cold call 5')).toBe('today:\n- run 5k\n- cold call 5');
+  });
+
+  it('is idempotent — re-cleaning already-clean text changes nothing', () => {
+    const clean = humanizeVoice('two days left. today:\n- audit data, calculate CAC\nwhat time?');
+    expect(humanizeVoice(clean)).toBe(clean);
+  });
 });

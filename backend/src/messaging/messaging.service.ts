@@ -5,6 +5,7 @@ import { Queue } from 'bull';
 import * as twilio from 'twilio';
 import axios from 'axios';
 import { structuredLog } from '../common/logger';
+import { humanizeVoice } from './voice';
 
 @Injectable()
 export class MessagingService implements OnModuleInit {
@@ -58,19 +59,25 @@ export class MessagingService implements OnModuleInit {
    * static image and video is unreliable.
    */
   async send(to: string, body: string, mediaUrl?: string): Promise<void> {
+    // SINGLE outbound chokepoint sanitization. The coaching path already cleans
+    // via saveAndSend, but every DETERMINISTIC generator (check-in, night recap,
+    // weekly review, ghost, surprise, milestone, dunning) calls send() directly
+    // and would otherwise ship raw em-dashes/markdown to the phone. humanizeVoice
+    // is idempotent, so cleaning here never harms already-clean text.
+    const clean = humanizeVoice(body);
     const sendBlueKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const sendBlueSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
 
     if (this.sendBlueReady && sendBlueKeyId && sendBlueSecret) {
       try {
-        await this.sendViaSendBlue(to, body, sendBlueKeyId, sendBlueSecret, mediaUrl);
+        await this.sendViaSendBlue(to, clean, sendBlueKeyId, sendBlueSecret, mediaUrl);
         return;
       } catch (err) {
         this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
       }
     }
 
-    await this.sendViaTwilio(to, body, mediaUrl);
+    await this.sendViaTwilio(to, clean, mediaUrl);
   }
 
   async sendViaSendBlue(to: string, body: string, keyId: string, secret: string, mediaUrl?: string): Promise<void> {

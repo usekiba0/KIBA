@@ -48,8 +48,10 @@ function stripMarkdown(input: string): string {
   t = t.replace(/~~([^~]+)~~/g, '$1');
   // Markdown headings at line start: "## Title" -> "Title".
   t = t.replace(/^#{1,6}[ \t]+/gm, '');
-  // List markers the model may use (* or +) -> a plain dash bullet.
+  // List markers the model may use (*, +, or a unicode bullet •·‣▪) -> a plain
+  // dash bullet, which is how KIBA is told to format lists.
   t = t.replace(/^([ \t]*)[*+][ \t]+/gm, '$1- ');
+  t = t.replace(/[•·‣▪]\s*/g, '- ');
   // Any asterisk left over (unpaired emphasis, stray bullet) would still render
   // raw on a phone, so drop it. Multiplication math in texts is negligible here.
   t = t.replace(/\*/g, '');

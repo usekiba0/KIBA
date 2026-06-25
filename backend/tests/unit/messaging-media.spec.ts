@@ -37,6 +37,19 @@ describe('MessagingService media passthrough', () => {
     expect(payload).toMatchObject({ media_url: 'https://cdn.example.com/pin.png', content: 'pin our chat 📌' });
   });
 
+  it('sanitizes the body at the send chokepoint (em-dashes + bullets) — covers deterministic generators', () => {
+    return (async () => {
+      const svc = makeService({ SENDBLUE_API_KEY_ID: 'kid', SENDBLUE_API_SECRET_KEY: 'secret' });
+      await svc.onModuleInit();
+      // A deterministic generator (e.g. night recap) shipping an em-dash + bullet.
+      await svc.send('+15551234567', 'two days left — today:\n• audit data—calculate CAC');
+      const [, payload] = mockedAxios.post.mock.calls[0] as [string, { content: string }];
+      expect(payload.content).not.toMatch(/[•—–]/);
+      expect(payload.content).toContain('two days left. today:');
+      expect(payload.content).toContain('- audit data. calculate CAC');
+    })();
+  });
+
   it('omits media_url for a plain text send', async () => {
     const svc = makeService({ SENDBLUE_API_KEY_ID: 'kid', SENDBLUE_API_SECRET_KEY: 'secret' });
     await svc.onModuleInit();
