@@ -160,6 +160,25 @@ export const LINK_REQUEST_RE =
 export const EXPLAIN_REQUEST_RE =
   /\bexplain\b|\bhow\s+(?:are|r|u|you|would|will|do|does|can|exactly)\b[^?\n]{0,30}\bhelp\b|\bhow\s+does\s+(?:this|it)\b|\bwhat\s+(?:do|does|are|is|even)\b|\bwhat'?s\s+the\s+point\b|\bwhy\s+(?:should|would)\b|\bis\s+(?:this|it)\s+(?:worth|legit|real|gonna)\b|\bwdym\b/i;
 
+// Strong commitment phrases — the lead saying YES to the close challenge.
+const COMMITMENT_PHRASE_RE =
+  /\b(i'?m\s+in|im\s+in|i\s+am\s+in|count\s+me\s+in|sign\s+me\s+up|let'?s\s+(do\s+it|go|get\s+it|start|run\s+it|lock)|lets\s+(do\s+it|go|get\s+it|start|run\s+it|lock)|i'?m\s+(serious|ready|down)|im\s+(serious|ready|down)|lock\s+(me\s+)?in|locked\s+in)\b/i;
+// A bare affirmative as the WHOLE message ("yeah", "bet", "let's go") — a yes to
+// whatever was just asked. Only treated as commitment when the prior KIBA message
+// was the close/challenge (see lastIntakeMsgWasClose), so a "yeah" answering a
+// diagnostic question can't fire the link.
+const BARE_YES_RE =
+  /^(?:hell\s+)?(?:ye(?:s|a|ah|p|h)|yup|ya|sure|bet|aight|ok(?:ay)?|word|fr|deadass|100|absolutely|for\s+sure|do\s+it|done)[\s!.]*$/i;
+const CLOSE_CUE_RE =
+  /\byou\s+in\b|\bserious\b|\bfollow\s+through\b|\b\d+\s+days?\b|\block\s+(?:it|in|this|you)\b|\bor\s+nah\b|\bready\b|\bcommit\b|\byou\s+down\b/i;
+
+/** The lead is committing to start (a yes to the close). */
+export function isIntakeCommitment(text: string): boolean {
+  const t = (text ?? '').trim();
+  if (COMMITMENT_PHRASE_RE.test(t)) return true;
+  return BARE_YES_RE.test(t.replace(/[^\w\s']/g, ' ').replace(/\s+/g, ' ').trim());
+}
+
 /**
  * Intake turns with the full emotional build captured but no link sent before
  * the system force-sends one. Gives the AI the turn it completed the build plus
@@ -1074,26 +1093,23 @@ export class CoachingProcessor {
     } else if (
       !liveUser.payment_link_sent_at &&
       intakeBuildComplete(liveUser) &&
-      !askedToUnderstand
+      !askedToUnderstand &&
+      isIntakeCommitment(intakeText) &&
+      CLOSE_CUE_RE.test([...recentMessages].reverse().find((m) => m.role === MessageRole.AI)?.content ?? '')
     ) {
-      const stalledTurns = (user.intake_link_stall_turns ?? 0) + 1;
-      if (stalledTurns >= FORCE_LINK_AFTER_STALLED_TURNS) {
-        const forced = await this.sendPaymentLink(liveUser, userMessageId, {
-          requireFullIntake: true,
-        });
-        await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
-        structuredLog(this.logger, 'log', {
-          service: 'onboarding',
-          operation: 'payment_link_force_sent',
-          userId: user.id,
-          afterStalledTurns: stalledTurns,
-          ok: forced.ok,
-        });
-      } else {
-        await this.userRepo.update(user.id, { intake_link_stall_turns: stalledTurns });
-      }
-    } else if ((user.intake_link_stall_turns ?? 0) !== 0) {
-      await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
+      // The build is done, KIBA's last message was the close/challenge, and the
+      // lead just committed ("yeah, i'm in") — send the link if the model didn't.
+      // There is NO stall-counter auto-send anymore: with the V4 diagnostic the
+      // build completes EARLY, so the old "build complete + 2 stalled turns" rule
+      // fired a checkout link mid-diagnostic, out of nowhere (Karibi 2026-06-25,
+      // at "5k a month LMAO"). The link now only follows a real yes to the close.
+      const forced = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
+      structuredLog(this.logger, 'log', {
+        service: 'onboarding',
+        operation: 'payment_link_sent_on_commitment',
+        userId: user.id,
+        ok: forced.ok,
+      });
     }
 
     // If we just gave the sample-coaching reply (post-link), flip the flag so
