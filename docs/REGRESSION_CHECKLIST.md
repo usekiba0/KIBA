@@ -63,6 +63,7 @@ smoke checks against a test number.
 | B5 | Talk over 2 days (let a session expire), then reference yesterday | KIBA remembers yesterday's conversation and commitments (Layer 1 + Layer 2) |
 | B6 | As a user with NO city given, ask "what time is it" | KIBA asks for your city — never states a guessed time (RC‑2 deterministic short-circuit) |
 | B7 | New user gives a business goal | KIBA asks the business TYPE first, diagnoses, converges on one move, then asks the emotional driver — never fires "what makes you fold" (V4 Piece 1; also `scripts/sim-intake.ts`) |
+| B8 | Send a photo that ISN'T the day's proof (a logo, a random pic, with a question) | KIBA reacts to what's actually in the photo + answers the question — never repeats a canned "that doesn't look like 'Day 2: …'" rejection (`coaching.processor.ts` routes confident proof-mismatch to the vision reply; "logged" line strips the day prefix) |
 
 ---
 

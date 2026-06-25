@@ -57,6 +57,7 @@ import { isTimeQuery, formatLocalClock12h } from './local-time';
 import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone } from './world-time';
 import { isOffsetPlausibleForPhone } from './phone-timezone';
 import { detectQuestionLoop, detectRepeatedChoiceLoop, isLoopCallout } from './question-loop';
+import { humanizeTask } from '../ai/prompts/checkin.prompt';
 
 interface CoachingJob {
   from: string;
@@ -797,32 +798,17 @@ export class CoachingProcessor {
         where: { user_id: user.id, scheduled_date: today, status: TaskStatus.PENDING },
       });
 
-      if (task) {
-        // Actually LOOK at the proof. Lenient by design: we only refuse when the
-        // model is CONFIDENT the photo doesn't match the task (>= 0.8). Anything
-        // uncertain — or any infra failure (validateProofFromUrl fails open) — is
-        // accepted, because wrongly rejecting a real user's proof is far worse
-        // than occasionally letting a borderline one through.
-        const verdict = mediaUrl
-          ? await this.visionService.validateProofFromUrl(task.task_description, mediaUrl, mediaCt)
-          : { is_valid: true, confidence: 0, reason: '' };
+      // Validate proof leniently: accept unless the model is CONFIDENT (>=0.8)
+      // the photo doesn't match the task. Uncertain / infra failure fails OPEN
+      // (accept) — wrongly rejecting a real user's proof is far worse than letting
+      // a borderline one through.
+      let proofMatch: 'accept' | 'mismatch' = 'accept';
+      if (task && mediaUrl) {
+        const verdict = await this.visionService.validateProofFromUrl(task.task_description, mediaUrl, mediaCt);
+        if (!verdict.is_valid && verdict.confidence >= 0.8) proofMatch = 'mismatch';
+      }
 
-        if (!verdict.is_valid && verdict.confidence >= 0.8) {
-          structuredLog(this.logger, 'log', {
-            service: 'accountability',
-            operation: 'proof_rejected_low_match',
-            userId: user.id,
-            taskId: task.id,
-            confidence: verdict.confidence,
-          });
-          await this.saveAndSend(
-            user,
-            boundary.sessionId,
-            `hmm that doesn't look like "${task.task_description}" to me — send a quick shot of the actual thing and i'll log it 💪`,
-          );
-          return;
-        }
-
+      if (task && proofMatch === 'accept') {
         await this.proofService.submitProof({
           userId: user.id,
           taskId: task.id,
@@ -833,29 +819,44 @@ export class CoachingProcessor {
         await this.saveAndSend(
           user,
           boundary.sessionId,
-          `proof in ✓ "${task.task_description}" logged — score updated. 💪`,
+          `proof in ✓ "${humanizeTask(task.task_description)}" logged. score updated 💪`,
         );
-      } else {
-        // No pending task today — route to coaching AI with vision
-        const visionTodos = await this.todoService.ensureSeededForToday(user.id).catch(() => []);
-        const visionPatterns = {
-          ...derivePatternSignals(user),
-          loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
-        };
-        const { reply, tokenCount } = await this.coachingService.generateReply(
-          user,
-          dbMessages,
-          body !== '[image]' ? body : '',
-          latestSummary?.summary,
-          mediaUrl ?? undefined,
-          mediaCt,
-          this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
-          visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
-          visionPatterns,
-        );
-        await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
-        await this.saveAndSend(user, boundary.sessionId, reply);
+        return;
       }
+
+      // Either there's NO pending task, OR the photo confidently isn't the proof.
+      // Do NOT fire a canned "that doesn't look like X" rejection — it repeats
+      // verbatim (reads like a bot) and ignores what the user actually sent (a
+      // question, feedback, an unrelated photo, like a logo they want an opinion
+      // on). React to what's ACTUALLY in the photo via the vision coaching reply;
+      // KIBA has today's task in its todo context and can nudge about real proof
+      // naturally if it fits.
+      if (task && proofMatch === 'mismatch') {
+        structuredLog(this.logger, 'log', {
+          service: 'accountability',
+          operation: 'proof_unmatched_routed_to_vision',
+          userId: user.id,
+          taskId: task.id,
+        });
+      }
+      const visionTodos = await this.todoService.ensureSeededForToday(user.id).catch(() => []);
+      const visionPatterns = {
+        ...derivePatternSignals(user),
+        loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
+      };
+      const { reply, tokenCount } = await this.coachingService.generateReply(
+        user,
+        dbMessages,
+        body !== '[image]' ? body : '',
+        latestSummary?.summary,
+        mediaUrl ?? undefined,
+        mediaCt,
+        this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
+        visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
+        visionPatterns,
+      );
+      await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+      await this.saveAndSend(user, boundary.sessionId, reply);
       return;
     }
 
