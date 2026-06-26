@@ -195,22 +195,28 @@ export class StripeWebhookController {
           );
         }
 
-        // Retention nudge: a one-time "pin our chat" image so KIBA stays at the
-        // top of their messages. Static asset — same image for everyone — sent
-        // only if PIN_CHAT_IMAGE_URL is configured (a public HTTPS URL SendBlue/
-        // Twilio can fetch), so this is a safe no-op until the image is hosted.
+        // Retention nudge: a one-time "pin our chat" how-to so KIBA stays at the
+        // top of their messages. The media can be an image, GIF, or VIDEO — the
+        // send path passes the URL straight to SendBlue (media_url) / Twilio
+        // (mediaUrl), both of which handle video/GIF (Karibi 2026-06-27). Set
+        // PIN_CHAT_MEDIA_URL to a public HTTPS URL of the clip (falls back to the
+        // legacy PIN_CHAT_IMAGE_URL). No-op until one is configured. NOTE: keep it
+        // small — iMessage handles video natively, but Android/MMS (Twilio) caps
+        // size, so a short GIF or a compressed <~1MB mp4 is safest cross-platform.
         // Best-effort: a media-send failure must never block activation.
-        const pinImageUrl = this.config.get<string>('PIN_CHAT_IMAGE_URL');
-        if (pinImageUrl) {
+        const pinMediaUrl =
+          this.config.get<string>('PIN_CHAT_MEDIA_URL') ??
+          this.config.get<string>('PIN_CHAT_IMAGE_URL');
+        if (pinMediaUrl) {
           try {
             await this.messagingService.send(
               user.phone_number,
               'one more thing — pin our chat so i stay at the top and you never lose track of your day 📌 here\'s how:',
-              pinImageUrl,
+              pinMediaUrl,
             );
           } catch (err) {
             this.logger.warn(
-              `[StripeWebhook] pin-chat image send failed for ${user.id}: ${(err as Error).message}`,
+              `[StripeWebhook] pin-chat media send failed for ${user.id}: ${(err as Error).message}`,
             );
           }
         }
