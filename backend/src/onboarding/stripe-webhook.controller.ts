@@ -262,16 +262,19 @@ export class StripeWebhookController {
           await this.subRepo.save(sub);
           const user = await this.userRepo.findOne({ where: { id: sub.user_id } });
           if (user) {
-            await this.messagingQueue.add('send-message', {
-              to: user.phone_number,
-              body: `Your Kiba AI coaching is active! Text me anytime to start. 💪`,
-              type: 'subscription_active',
-            });
-
+            // NO activation SMS here — it was a DUPLICATE (Karibi 2026-06-26).
+            // Both onboarding paths already send exactly one activation message,
+            // and this event fires alongside each:
+            //   - SMS path: checkout.session.completed sends the KIBA-voice
+            //     "you're in. coaching mode unlocked…" (above).
+            //   - web-form path: OnboardingService.submit sends its own 'welcome'.
+            // Sending "your coaching is active 💪" on top of either was the
+            // back-to-back double text. We keep ONLY the scheduleCheckin safety net.
+            //
             // Safety net for the web-form path: OnboardingService.submit already
-            // calls scheduleCheckin synchronously, but if that call failed (Redis
-            // blip) we get a second chance here once Stripe confirms the sub.
-            // Idempotent via jobId.
+            // calls scheduleCheckin synchronously, but if that failed (Redis blip)
+            // we get a second chance here once Stripe confirms the sub. Idempotent
+            // via jobId.
             try {
               await this.checkinService.scheduleCheckin(user);
             } catch (err) {

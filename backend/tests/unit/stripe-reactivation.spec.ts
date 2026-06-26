@@ -53,7 +53,7 @@ describe('StripeWebhookController — checkout.session.completed subscription re
       stripeService, subRepo, userRepo, {} as any, profileRepo, goalRepo,
       messagingQueue, messagingService, checkinService, config, accountabilityQueue,
     );
-    return { controller, subRepo, userRepo, user, savedSubs, accountabilityQueue };
+    return { controller, subRepo, userRepo, user, savedSubs, accountabilityQueue, messagingQueue, checkinService };
   }
 
   const event = {
@@ -101,6 +101,22 @@ describe('StripeWebhookController — checkout.session.completed subscription re
 
     expect(user.status).toBe(UserStatus.TRIAL);
     expect(user.onboarding_stage).toBe(OnboardingStage.COMPLETE);
+  });
+
+  it('does NOT send a duplicate activation SMS on customer.subscription.created (keeps the check-in safety net)', async () => {
+    const existing = { id: 'subrow-1', user_id: 'user-1', stripe_subscription_id: 'sub_NEW', status: SubscriptionStatus.TRIALING };
+    const { controller, messagingQueue, checkinService } = setup(existing);
+
+    await (controller as any).processEvent({
+      type: 'customer.subscription.created',
+      data: { object: { id: 'sub_NEW' } },
+    });
+
+    // The robotic "your coaching is active 💪" duplicate is gone — each onboarding
+    // path already sends exactly one activation message.
+    expect(messagingQueue.add).not.toHaveBeenCalled();
+    // But the check-in scheduling safety net stays.
+    expect(checkinService.scheduleCheckin).toHaveBeenCalled();
   });
 
   it('schedules the day-7 price reveal and re-arms the flag at activation', async () => {
