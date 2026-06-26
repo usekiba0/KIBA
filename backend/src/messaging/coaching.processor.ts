@@ -51,7 +51,7 @@ import {
 import { resolveReminderFireAt, humanizeFireDelta } from './reminder-time';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
-import { humanizeVoice } from './voice';
+import { humanizeVoice, scrubIntakeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
 import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone } from './world-time';
@@ -171,6 +171,15 @@ const BARE_YES_RE =
   /^(?:hell\s+)?(?:ye(?:s|a|ah|p|h)|yup|ya|sure|bet|aight|ok(?:ay)?|word|fr|deadass|100|absolutely|for\s+sure|do\s+it|done)[\s!.]*$/i;
 const CLOSE_CUE_RE =
   /\byou\s+in\b|\bserious\b|\bfollow\s+through\b|\b\d+\s+days?\b|\block\s+(?:it|in|this|you)\b|\bor\s+nah\b|\bready\b|\bcommit\b|\byou\s+down\b/i;
+
+/**
+ * The framing line that ALWAYS precedes the checkout URL (Karibi 2026-06-26: the
+ * link kept landing first and the "free trial" framing came after — backwards).
+ * Sent as the `leadIn` to sendPaymentLink so the order is guaranteed: framing →
+ * link. Deliberately a challenge, NOT a subscription pitch — no price, no "free
+ * trial", no "cancel anytime". The price conversation happens on day 7.
+ */
+const CLOSE_LEAD_IN = 'bet. tap this and we start tonight:';
 
 /** The lead is committing to start (a yes to the close). */
 export function isIntakeCommitment(text: string): boolean {
@@ -989,6 +998,10 @@ export class CoachingProcessor {
     // Mutable copy we mutate as tool calls land so subsequent calls in the same
     // turn see the latest state.
     const liveUser = { ...user };
+    // Whether a link existed BEFORE this turn — lets us tell "the model/backstop
+    // just sent the link this turn" (suppress the trailing reply so nothing lands
+    // AFTER the URL) apart from a resend to someone who already had it.
+    const linkSentAtEntry = !!liveUser.payment_link_sent_at;
 
     const handlers = {
       saveIntakeField: async (input: {
@@ -998,7 +1011,12 @@ export class CoachingProcessor {
         return this.saveIntakeField(liveUser, input.field, input.value);
       },
       sendPaymentLink: async () => {
-        return this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
+        // Framing always precedes the URL (CLOSE_LEAD_IN), so even when the model
+        // fires the tool itself the link is never cold and never "free-trial"-framed.
+        return this.sendPaymentLink(liveUser, userMessageId, {
+          requireFullIntake: true,
+          leadIn: CLOSE_LEAD_IN,
+        });
       },
       // Trial users can set reminders too. Same deterministic resolution as the
       // coaching path — the server computes the fire time, never the model.
@@ -1082,7 +1100,10 @@ export class CoachingProcessor {
       liveUser.utc_offset_minutes !== undefined;
 
     if (!liveUser.payment_link_sent_at && askedForLink && hasMinimumForLink) {
-      const sent = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
+      const sent = await this.sendPaymentLink(liveUser, userMessageId, {
+        requireFullIntake: true,
+        leadIn: CLOSE_LEAD_IN,
+      });
       await this.userRepo.update(user.id, { intake_link_stall_turns: 0 });
       structuredLog(this.logger, 'log', {
         service: 'onboarding',
@@ -1103,7 +1124,10 @@ export class CoachingProcessor {
       // build completes EARLY, so the old "build complete + 2 stalled turns" rule
       // fired a checkout link mid-diagnostic, out of nowhere (Karibi 2026-06-25,
       // at "5k a month LMAO"). The link now only follows a real yes to the close.
-      const forced = await this.sendPaymentLink(liveUser, userMessageId, { requireFullIntake: true });
+      const forced = await this.sendPaymentLink(liveUser, userMessageId, {
+        requireFullIntake: true,
+        leadIn: CLOSE_LEAD_IN,
+      });
       structuredLog(this.logger, 'log', {
         service: 'onboarding',
         operation: 'payment_link_sent_on_commitment',
@@ -1112,13 +1136,27 @@ export class CoachingProcessor {
       });
     }
 
+    // If a link was sent THIS turn (model tool or either backstop), the close is
+    // complete: CLOSE_LEAD_IN framing + the URL already went out, in that order.
+    // Suppress the model's trailing reply so nothing lands AFTER the link — no
+    // "say done / 7 days free / $20" tail (Karibi 2026-06-26: framing must come
+    // before the link, and the price talk waits for day 7). A resend to someone
+    // who already had the link (linkSentAtEntry) keeps its reply.
+    if (!linkSentAtEntry && !!liveUser.payment_link_sent_at) {
+      return '';
+    }
+
+    // Strip the two intake tics Karibi keeps flagging — decorative emoji and the
+    // "love it, ..." filler opener — deterministically, on top of humanizeVoice.
+    const outReply = scrubIntakeVoice(reply);
+
     // If we just gave the sample-coaching reply (post-link), flip the flag so
     // the next turn falls into the PAYWALL phase.
-    if (user.payment_link_sent_at && !user.sample_coaching_given && reply.trim().length > 0) {
+    if (user.payment_link_sent_at && !user.sample_coaching_given && outReply.trim().length > 0) {
       await this.userRepo.update(user.id, { sample_coaching_given: true });
     }
 
-    if (reply.trim().length > 0) return reply;
+    if (outReply.trim().length > 0) return outReply;
     // Non-destructive fallback for the rare empty model reply. NEVER ask them to
     // restate a goal we already have — that "tell me your goal in one sentence"
     // mid-conversation reset (it forgets everything) was the #1 flow complaint
@@ -1581,6 +1619,10 @@ export class CoachingProcessor {
   }
 
   private async saveAndSend(user: User, sessionId: string, replyRaw: string) {
+    // An empty reply means the turn's outbound was already sent by another path
+    // (e.g. the intake close: CLOSE_LEAD_IN framing + the checkout URL). Nothing
+    // to add — don't send a blank text or persist an empty AI row.
+    if (!replyRaw || !replyRaw.trim()) return;
     // Deterministic voice cleanup (strip em-dashes etc.) before anything else,
     // so it applies to every AI reply — intake and coaching — regardless of how
     // the model phrased it.

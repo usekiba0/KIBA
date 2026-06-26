@@ -16,12 +16,29 @@ function ctx(overrides: Partial<IntakeContext> = {}): IntakeContext {
 }
 
 describe('buildIntakeSystemPrompt', () => {
-  it('quotes the configured trial length and price (never a hardcoded number)', () => {
+  it('frames the trial as the configured "N day lock in", never a "free trial" (Karibi 2026-06-26)', () => {
     const p = buildIntakeSystemPrompt(ctx({ trialDays: 14, priceDisplay: '$29/month' }));
-    expect(p).toContain('14 days free');
+    // Lock-in framing is config-driven (never a hardcoded number)...
+    expect(p).toContain('14 day lock in');
+    expect(p).not.toContain('7 day lock in');
+    // ...and the SaaS "free trial" framing is gone.
+    expect(p).not.toContain('14 days free');
+    expect(p).not.toContain('days free, then');
+    // Price is still quoted (config-driven) but ONLY for the "if they directly ask" rule.
     expect(p).toContain('$29/month');
-    expect(p).not.toContain('7 days free');
     expect(p).not.toContain('$20/month');
+  });
+
+  it('puts the framing BEFORE the link and holds the price until day 7 (Karibi 2026-06-26)', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' }, utcOffsetMinutes: -300 }));
+    // The close lead-in (framing) precedes the link, and the price waits for day 7.
+    expect(p).toMatch(/tap this and we start tonight/i);
+    expect(p).toMatch(/framing ALWAYS comes BEFORE the link/i);
+    expect(p).toMatch(/price conversation happens later, on day 7/i);
+    // The challenge is asked ONCE, no double-ask / wall-of-text at the close.
+    expect(p).toMatch(/ask ONCE, then STOP and WAIT/i);
+    // No decorative emoji in the sign-up flow.
+    expect(p).toMatch(/NO emojis in the sign-up flow/i);
   });
 
   it('holds money talk until the close in the BUILD phase', () => {
