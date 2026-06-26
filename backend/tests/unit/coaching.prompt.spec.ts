@@ -215,17 +215,18 @@ describe('buildSystemPrompt', () => {
     expect(() => buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0)).not.toThrow();
   });
 
-  it('stays within a sane size budget (char count < 25000)', () => {
+  it('stays within a sane size budget (char count < 26500)', () => {
     // The prompt has grown with deliberate capability expansion (tools, examples,
     // state-aware tone, answer-anything, vision engagement, memory/contradiction)
-    // — ~24k chars / ~6k tokens now. This guard just prevents unbounded
+    // — ~26k chars / ~6.5k tokens now. This guard just prevents unbounded
     // ballooning; still tiny vs the 200K/1M context window (and ~$0.005 of Haiku
     // input per message). Raised 22k→24k for the 2026-06-18 batch, 24k→25k for the
     // 2026-06-20 batch (dry-responder mirroring, strikes/recovery, no-zero-days).
     // Raised 25k->26k for the 2026-06-23 anti-loop batch (DON'T LOOP convergence
-    // rule: stop re-asking answered questions / interrogating during plan-building).
+    // rule). Raised 26k->26.5k for the 2026-06-27 sales-psychology batch (Duolingo
+    // loss-aversion retention lever: frame leaving as losing the score they built).
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(26000);
+    expect(prompt.length).toBeLessThan(26500);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {

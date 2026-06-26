@@ -98,12 +98,15 @@ export function buildTrialPriceReveal(ctx: {
 }): string {
   const tail = ctx.name?.trim() ? ` ${ctx.name.trim()}` : '';
   const goal = ctx.goal?.trim();
-  const onGoal = goal ? ` on ${goal}` : '';
+  const forGoal = goal ? ` for ${goal}` : '';
+  // Day-7 conversion copy from the Sales Psychology docs: social proof ("most
+  // people fall off by day 3 — you didn't") + the specific DoorDash cost
+  // comparison. Price lands here, after they've felt the product work.
   return (
-    `real talk${tail} — you've been locked in with me a full week${onGoal} now, ` +
-    `and you felt the difference. that's exactly why it works. ` +
-    `your trial wraps today, so keeping this going is ${ctx.priceDisplay}. ` +
-    `that's less than two doordash orders, and i'm still on you every single morning. ` +
+    `yo${tail}. 7 days straight. you actually did it, ` +
+    `most people fall off by day 3 and you didn't. ` +
+    `keeping me on you every morning${forGoal} is ${ctx.priceDisplay}. ` +
+    `that's less than two doordash orders you didn't place this week. ` +
     `you already know it's worth it.`
   );
 }

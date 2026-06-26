@@ -177,10 +177,17 @@ export class StripeWebhookController {
         // worker outage swallowing it silently. Lifecycle notifications elsewhere
         // in this controller (trial_will_end, payment_failed, etc.) stay on the
         // queue since they're tolerant to delays.
+        // Sales-psychology rule (Karibi 2026-06-27): do NOT celebrate the tap.
+        // No "you're in", no "coaching mode unlocked", no "let's go" — those read
+        // automated and break the vibe. Act like it was always going to happen and
+        // move straight into the plan, referencing their goal when we have it.
         try {
+          const goalShort = user.intake_data?.goal_description?.trim();
           await this.messagingService.send(
             user.phone_number,
-            "you're in. coaching mode unlocked — tell me what we're locking in today.",
+            goalShort
+              ? `alright. we're locked in on ${goalShort}. what's the first move today?`
+              : `alright. we're locked in. what's the first move today?`,
           );
         } catch (err) {
           this.logger.error(
@@ -316,9 +323,10 @@ export class StripeWebhookController {
             const user = await this.userRepo.findOne({ where: { id: sub.user_id } });
             if (user) {
               // KIBA voice confirmation (the day-7 reveal already framed the price).
+              // No celebration — just keep moving (sales-psychology rule).
               await this.messagingQueue.add('send-message', {
                 to: user.phone_number,
-                body: `and that's week one done. you're officially in. nothing changes on your end, i'm still on you every morning. let's keep building.`,
+                body: `that's week one in the books. nothing changes on your end, i'm still on you every morning. let's keep building.`,
                 type: 'trial_ended',
               });
             }
@@ -336,7 +344,7 @@ export class StripeWebhookController {
           if (user) {
             await this.messagingQueue.add('send-message', {
               to: user.phone_number,
-              body: `We couldn't process your Kiba AI payment. Please update your card to keep your coaching active.`,
+              body: `hey, your card didn't go through on my end. update it real quick so we don't lose your momentum.`,
               type: 'payment_failed',
             });
           }
@@ -364,7 +372,7 @@ export class StripeWebhookController {
             await this.userRepo.save(user);
             await this.messagingQueue.add('send-message', {
               to: user.phone_number,
-              body: `Your Kiba AI subscription has ended. Text us any time to reactivate. Take care! 👋`,
+              body: `alright, you're unsubscribed, no hard feelings. whenever you wanna lock back in just text me and i'll get you set right back up.`,
               type: 'subscription_cancelled',
             });
           }

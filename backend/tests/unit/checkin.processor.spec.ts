@@ -340,7 +340,7 @@ describe('buildTrialPriceReveal', () => {
     expect(msg).toContain('Alex');
     expect(msg).toContain('get to 100k');
     expect(msg).toContain('$20/month');
-    expect(msg).toMatch(/full week/i);
+    expect(msg).toMatch(/most people fall off by day 3/i); // social proof
     expect(msg).not.toMatch(/free trial/i);
   });
 

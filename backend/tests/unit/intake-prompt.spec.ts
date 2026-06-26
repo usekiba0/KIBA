@@ -29,6 +29,36 @@ describe('buildIntakeSystemPrompt', () => {
     expect(p).not.toContain('$20/month');
   });
 
+  // Sales Psychology Guide + V2 (Karibi 2026-06-27) — train KIBA to actually close.
+  it('teaches the core sales-psychology principles, applied naturally not scripted', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' } }));
+    expect(p).toMatch(/SALES PSYCHOLOGY/i);
+    // The named levers must be present.
+    expect(p).toMatch(/SELL THE MECHANISM, NOT THE OUTCOME/i);
+    expect(p).toMatch(/REMOVE SHAME FIRST/i);
+    expect(p).toMatch(/PAIN AMPLIFICATION/i);
+    expect(p).toMatch(/COMMITMENT STACKING/i);
+    expect(p).toMatch(/LOSS AVERSION/i);
+    expect(p).toMatch(/REAL URGENCY FROM THEIR OWN TIMELINE/i);
+    expect(p).toMatch(/SOCIAL PROOF WITH SPECIFICITY/i);
+    // Applied naturally, never as a script/checklist.
+    expect(p).toMatch(/NEVER scripted or listed out|never as a script/i);
+    // Fake urgency is explicitly banned.
+    expect(p).toMatch(/NEVER "limited time"|fake urgency/i);
+  });
+
+  it('reads personality and matches the sales tone (joker/driven/skeptic/hesitant/price-sensitive)', () => {
+    const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' } }));
+    expect(p).toMatch(/READ THEIR PERSONALITY/i);
+    expect(p).toMatch(/JOKER/);
+    expect(p).toMatch(/DRIVEN/);
+    expect(p).toMatch(/SKEPTIC/);
+    expect(p).toMatch(/HESITANT/);
+    expect(p).toMatch(/PRICE-SENSITIVE/);
+    // Humor for jokers is via words, not emoji (sign-up stays emoji-free).
+    expect(p).not.toMatch(/😎|🔥|😂|😭/);
+  });
+
   it('puts the framing BEFORE the link and holds the price until day 7 (Karibi 2026-06-26)', () => {
     const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' }, utcOffsetMinutes: -300 }));
     // The close lead-in (framing) precedes the link, and the price waits for day 7.
