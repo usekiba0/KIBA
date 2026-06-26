@@ -84,6 +84,30 @@ export function buildDunningNudge(
   }
 }
 
+/**
+ * The day-7 price reveal, in KIBA's voice (Karibi 2026-06-26). Fired once a few
+ * hours BEFORE the trial charges, so the price lands as the natural next step
+ * after a week of value — NOT a surprise bill and NOT a SaaS "your trial ends"
+ * notice. Personalised with their goal; price comes from STRIPE_PRICE_DISPLAY.
+ * Pure + exported for testing. humanizeVoice at send() handles the em-dash.
+ */
+export function buildTrialPriceReveal(ctx: {
+  name: string | null;
+  goal?: string | null;
+  priceDisplay: string;
+}): string {
+  const tail = ctx.name?.trim() ? ` ${ctx.name.trim()}` : '';
+  const goal = ctx.goal?.trim();
+  const onGoal = goal ? ` on ${goal}` : '';
+  return (
+    `real talk${tail} — you've been locked in with me a full week${onGoal} now, ` +
+    `and you felt the difference. that's exactly why it works. ` +
+    `your trial wraps today, so keeping this going is ${ctx.priceDisplay}. ` +
+    `that's less than two doordash orders, and i'm still on you every single morning. ` +
+    `you already know it's worth it.`
+  );
+}
+
 @Processor('accountability')
 export class CheckinProcessor {
   private readonly logger = new Logger(CheckinProcessor.name);
@@ -341,6 +365,38 @@ export class CheckinProcessor {
         { delay: nextDelay },
       );
     }
+  }
+
+  /**
+   * Day-7 price reveal (Karibi 2026-06-26). Scheduled once at activation to fire
+   * a few hours before the trial charges. Sends ONE KIBA-voice message that
+   * frames the price as the next step after a week of value. Guarded so it never
+   * pesters someone who churned, isn't activated, is in crisis, or already got it.
+   */
+  @Process('trial-price-reveal')
+  async handleTrialPriceReveal(job: Job<{ userId: string }>): Promise<void> {
+    const { userId } = job.data;
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) return;
+    if (user.status === UserStatus.CANCELLED) return; // churned during the trial
+    if (user.onboarding_stage !== OnboardingStage.COMPLETE) return; // never activated
+    if (user.crisis_hold) return; // don't push price during a crisis hold
+    if (user.trial_price_revealed_at) return; // already revealed (idempotent)
+
+    const priceDisplay = this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month');
+    const text = buildTrialPriceReveal({
+      name: user.name,
+      goal: user.intake_data?.goal_description ?? null,
+      priceDisplay,
+    });
+    await this.messagingService.send(user.phone_number, text);
+    await this.userRepo.update(userId, { trial_price_revealed_at: new Date() });
+
+    structuredLog(this.logger, 'log', {
+      service: 'onboarding',
+      operation: 'trial_price_reveal_sent',
+      userId,
+    });
   }
 
   /**

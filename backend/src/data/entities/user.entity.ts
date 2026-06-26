@@ -165,6 +165,13 @@ export class User {
   @Column({ type: 'smallint', default: 0 })
   intake_link_stall_turns: number;
 
+  // Day-7 price reveal (Karibi 2026-06-26): when the one-time KIBA-voice price
+  // message was sent (a few hours before the trial charges). NULL = not yet
+  // revealed; cleared at (re)activation so a re-subscribe re-arms. Idempotency
+  // guard for the `trial-price-reveal` accountability job.
+  @Column({ type: 'timestamptz', nullable: true })
+  trial_price_revealed_at: Date | null;
+
   @CreateDateColumn()
   registered_at: Date;
 

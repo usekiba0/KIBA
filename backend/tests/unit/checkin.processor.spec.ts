@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
-import { CheckinProcessor } from '../../src/accountability/checkin.processor';
+import { CheckinProcessor, buildTrialPriceReveal } from '../../src/accountability/checkin.processor';
 import { User, UserStatus, OnboardingStage } from '../../src/data/entities/user.entity';
 import { DailyTask, TaskStatus } from '../../src/data/entities/daily-task.entity';
 import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
@@ -271,5 +271,83 @@ describe('CheckinProcessor', () => {
       expect(mockMessagingService.send).not.toHaveBeenCalled();
       expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
     });
+  });
+
+  describe('handleTrialPriceReveal (day-7 price reveal)', () => {
+    const activeTrialUser = {
+      id: 'user-1',
+      phone_number: '+15551234567',
+      name: 'Alex',
+      status: UserStatus.TRIAL,
+      crisis_hold: false,
+      onboarding_stage: OnboardingStage.COMPLETE,
+      trial_price_revealed_at: null,
+      intake_data: { goal_description: 'scale my clothing brand' },
+    };
+
+    beforeEach(() => {
+      mockUserRepo.update = jest.fn().mockResolvedValue(undefined);
+    });
+
+    it('sends ONE KIBA-voice price message and marks it revealed', async () => {
+      mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser });
+
+      await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
+
+      expect(mockMessagingService.send).toHaveBeenCalledTimes(1);
+      const [phone, body] = mockMessagingService.send.mock.calls[0];
+      expect(phone).toBe('+15551234567');
+      expect(body).toContain('$20/month');
+      expect(body).toContain('scale my clothing brand');
+      expect(body).not.toMatch(/free trial/i); // never a SaaS framing
+      expect(mockUserRepo.update).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ trial_price_revealed_at: expect.any(Date) }),
+      );
+    });
+
+    it('is idempotent — skips if already revealed', async () => {
+      mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser, trial_price_revealed_at: new Date() });
+
+      await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
+
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+    });
+
+    it('skips a user who churned during the trial', async () => {
+      mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser, status: UserStatus.CANCELLED });
+
+      await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
+
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+    });
+
+    it('skips when not activated or in crisis hold', async () => {
+      mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser, onboarding_stage: OnboardingStage.PAYMENT_PENDING });
+      await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
+
+      mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser, crisis_hold: true });
+      await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
+
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('buildTrialPriceReveal', () => {
+  it('frames the price as the next step after a week, never a "free trial"', () => {
+    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month' });
+    expect(msg).toContain('Alex');
+    expect(msg).toContain('get to 100k');
+    expect(msg).toContain('$20/month');
+    expect(msg).toMatch(/full week/i);
+    expect(msg).not.toMatch(/free trial/i);
+  });
+
+  it('degrades gracefully with no name or goal', () => {
+    const msg = buildTrialPriceReveal({ name: null, goal: null, priceDisplay: '$29/month' });
+    expect(msg).toContain('$29/month');
+    expect(msg).not.toContain('undefined');
+    expect(msg).not.toContain(' on .'); // no dangling "on <empty>"
   });
 });

@@ -47,12 +47,13 @@ describe('StripeWebhookController — checkout.session.completed subscription re
     const messagingService: any = { send: jest.fn().mockResolvedValue({}) };
     const checkinService: any = { scheduleCheckin: jest.fn().mockResolvedValue({}) };
     const config: any = { get: () => undefined };
+    const accountabilityQueue: any = { add: jest.fn().mockResolvedValue({}) };
 
     const controller = new StripeWebhookController(
       stripeService, subRepo, userRepo, {} as any, profileRepo, goalRepo,
-      messagingQueue, messagingService, checkinService, config,
+      messagingQueue, messagingService, checkinService, config, accountabilityQueue,
     );
-    return { controller, subRepo, userRepo, user, savedSubs };
+    return { controller, subRepo, userRepo, user, savedSubs, accountabilityQueue };
   }
 
   const event = {
@@ -100,5 +101,20 @@ describe('StripeWebhookController — checkout.session.completed subscription re
 
     expect(user.status).toBe(UserStatus.TRIAL);
     expect(user.onboarding_stage).toBe(OnboardingStage.COMPLETE);
+  });
+
+  it('schedules the day-7 price reveal and re-arms the flag at activation', async () => {
+    const { controller, user, accountabilityQueue } = setup(null);
+
+    await (controller as any).processEvent(event);
+
+    // Flag cleared so a re-subscribe re-arms the reveal.
+    expect(user.trial_price_revealed_at).toBeNull();
+    // The reveal job is scheduled on the accountability queue, keyed on the sub id.
+    const call = accountabilityQueue.add.mock.calls.find((c: any[]) => c[0] === 'trial-price-reveal');
+    expect(call).toBeDefined();
+    expect(call[1]).toEqual({ userId: 'user-1' });
+    expect(call[2].jobId).toBe('trial-price-reveal:sub_NEW');
+    expect(call[2].delay).toBeGreaterThanOrEqual(0); // clamped to >=0 (fixture trial_end is in the past)
   });
 });

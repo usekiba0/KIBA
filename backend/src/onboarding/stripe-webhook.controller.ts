@@ -34,6 +34,7 @@ export class StripeWebhookController {
     private readonly messagingService: MessagingService,
     private readonly checkinService: CheckinService,
     private readonly config: ConfigService,
+    @InjectQueue('accountability') private readonly accountabilityQueue: Queue,
   ) {}
 
   @Post('stripe')
@@ -135,6 +136,9 @@ export class StripeWebhookController {
 
         user.onboarding_stage = OnboardingStage.COMPLETE;
         user.status = UserStatus.TRIAL;
+        // Re-arm the day-7 price reveal for THIS trial (a returning customer
+        // re-paying gets a fresh trial, so they get a fresh reveal).
+        user.trial_price_revealed_at = null;
         await this.userRepo.save(user);
 
         // Promote intake_data into the PsychologicalProfile row that coaching
@@ -221,6 +225,27 @@ export class StripeWebhookController {
           );
         }
 
+        // Day-7 price reveal (Karibi 2026-06-26): schedule ONE KIBA-voice message
+        // to land a few hours before the trial charges, so the price arrives as
+        // the natural next step after a week of value — not a surprise bill. Uses
+        // the real Stripe trial_end; jobId keyed on the sub id makes a re-delivered
+        // webhook a no-op. The handler re-checks status so a churned user is skipped.
+        if (sub?.trial_end) {
+          try {
+            const REVEAL_BEFORE_END_MS = 4 * 60 * 60 * 1000; // ~4h ahead of the charge
+            const delay = Math.max(0, sub.trial_end.getTime() - Date.now() - REVEAL_BEFORE_END_MS);
+            await this.accountabilityQueue.add(
+              'trial-price-reveal',
+              { userId: user.id },
+              { delay, jobId: `trial-price-reveal:${sub.stripe_subscription_id}` },
+            );
+          } catch (err) {
+            this.logger.error(
+              `[StripeWebhook] schedule trial-price-reveal failed for ${user.id}: ${(err as Error).message}`,
+            );
+          }
+        }
+
         structuredLog(this.logger, 'log', {
           service: 'stripe-webhook',
           operation: 'sms_onboarding_complete',
@@ -264,9 +289,12 @@ export class StripeWebhookController {
         if (sub) {
           const user = await this.userRepo.findOne({ where: { id: sub.user_id } });
           if (user) {
+            // KIBA voice, momentum only — NO price here. The price reveal is its
+            // own day-7 message (trial-price-reveal); pre-empting it with a SaaS
+            // "trial ends, no action needed" notice kills that moment.
             await this.messagingQueue.add('send-message', {
               to: user.phone_number,
-              body: `Your Kiba AI trial ends in 3 days. Your coaching continues automatically — no action needed!`,
+              body: `few days in and you're actually showing up. that's the hard part right there. keep it going, i'm locked in with you.`,
               type: 'trial_ending',
             });
           }
@@ -284,9 +312,10 @@ export class StripeWebhookController {
           if (wasTrialing && data.status === 'active') {
             const user = await this.userRepo.findOne({ where: { id: sub.user_id } });
             if (user) {
+              // KIBA voice confirmation (the day-7 reveal already framed the price).
               await this.messagingQueue.add('send-message', {
                 to: user.phone_number,
-                body: `Your free trial has ended and your Kiba AI coaching continues. Welcome to the team! 🎉`,
+                body: `and that's week one done. you're officially in. nothing changes on your end, i'm still on you every morning. let's keep building.`,
                 type: 'trial_ended',
               });
             }
