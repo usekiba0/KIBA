@@ -215,6 +215,36 @@ describe('buildSystemPrompt', () => {
     expect(() => buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0)).not.toThrow();
   });
 
+  // Regression guards for the 2026-06-29 behavioral fixes — this prompt is edited
+  // often and the size budget is the only other guard, so lock the rules in by
+  // presence so a future edit can't silently drop them.
+  it('keeps the don\'t-assume / don\'t-accuse rule', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0).toLowerCase();
+    expect(prompt).toMatch(/never assume the worst or accuse/);
+  });
+
+  it('keeps the after-a-miss circuit-breaker rule', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0).toLowerCase();
+    expect(prompt).toMatch(/circuit-breaker/);
+    expect(prompt).toMatch(/zero day/);
+  });
+
+  it('keeps proof depth: specific critique + meal-photo-before-eating', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0).toLowerCase();
+    expect(prompt).toMatch(/specific reaction to what's actually in it/);
+    expect(prompt).toMatch(/before they eat/);
+  });
+
+  it('keeps the long-term-goal-is-not-yes/no rule', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0).toLowerCase();
+    expect(prompt).toMatch(/never ask "did it happen\?" about it/);
+  });
+
+  it('keeps the vision read-signs / name-the-brand rule', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0).toLowerCase();
+    expect(prompt).toMatch(/name the place\/brand/);
+  });
+
   it('stays within a sane size budget (char count < 27500)', () => {
     // The prompt has grown with deliberate capability expansion (tools, examples,
     // state-aware tone, answer-anything, vision engagement, memory/contradiction)
