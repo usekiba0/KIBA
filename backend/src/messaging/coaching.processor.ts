@@ -637,6 +637,7 @@ export class CoachingProcessor {
         take: 20,
       });
       intakeHistory.reverse();
+      const genStart = Date.now();
       const reply = await this.handleIntakeMessage(
         user,
         intakeHistory,
@@ -646,7 +647,12 @@ export class CoachingProcessor {
         inboundIsImage ? (firstMediaUrl ?? undefined) : undefined,
         inboundIsImage ? resolvedMediaCt : undefined,
       );
+      const genMs = Date.now() - genStart;
       await this.saveAndSend(user, boundary.sessionId, reply);
+      structuredLog(this.logger, 'log', {
+        service: 'coaching', operation: 'turn_latency', userId: user.id,
+        path: 'intake', genMs, totalMs: Date.now() - turnStart,
+      });
       return;
     }
 
