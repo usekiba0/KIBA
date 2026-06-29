@@ -393,7 +393,7 @@ export class CoachingProcessor {
     // current session, and fetched newest-first then reversed to chronological.
     // A session reset (4h idle or message-count) no longer hands the model an
     // empty window; it keeps seeing the last COACHING_HISTORY_LIMIT real turns.
-    const [crisisResult, dbMessages, latestSummary] = await Promise.all([
+    const [crisisResult, dbMessages, latestSummary, seededTodos] = await Promise.all([
       this.crisisService.classify(body),
       this.messageRepo
         .find({
@@ -405,6 +405,11 @@ export class CoachingProcessor {
       boundary.isNewSession
         ? this.summaryRepo.findOne({ where: { user_id: user.id }, order: { created_at: 'DESC' } })
         : Promise.resolve(null),
+      // Seed today's plan todos HERE so the once-a-day seeding write overlaps the
+      // crisis-classify LLM call instead of blocking the reply on its own await
+      // later (latency, 2026-06-29). Idempotent — a cheap read on every turn after
+      // the first of the day; reused by both the vision and text reply paths below.
+      this.todoService.ensureSeededForToday(user.id).catch(() => []),
     ]);
 
     // SAFETY-CRITICAL: halt before any reply if crisis detected
@@ -869,7 +874,7 @@ export class CoachingProcessor {
           taskId: task.id,
         });
       }
-      const visionTodos = await this.todoService.ensureSeededForToday(user.id).catch(() => []);
+      const visionTodos = seededTodos; // seeded in Phase 1 (overlapped the crisis call)
       const visionPatterns = {
         ...derivePatternSignals(user),
         loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
@@ -890,13 +895,11 @@ export class CoachingProcessor {
       return;
     }
 
-    // Seed today's todos from the user's plan once per day, then pass the
-    // current list into the coaching reply so the AI stops asking
-    // "what's the workout?" when the answer's already in the action plan.
-    const todos = await this.todoService.ensureSeededForToday(user.id).catch((err) => {
-      this.logger.warn(`todo seed failed for ${user.id}: ${(err as Error).message}`);
-      return [];
-    });
+    // Today's todos were seeded in Phase 1 (parallel with the crisis call) so the
+    // reply isn't blocked on the per-day seeding write. Pass the list into the
+    // coaching reply so the AI stops asking "what's the workout?" when the answer's
+    // already in the action plan.
+    const todos = seededTodos;
 
     const patterns = {
       ...derivePatternSignals(user),
@@ -1636,15 +1639,22 @@ export class CoachingProcessor {
     // tokens never leak into history or the model's next-turn context.
     const stored = bubbles.length ? bubbles.join('\n') : reply.trim();
 
-    const aiMsg = await this.messageRepo.save({
-      user_id: user.id,
-      session_id: sessionId,
-      role: MessageRole.AI,
-      message_type: MessageType.TEXT,
-      content: stored,
-    });
-
-    await this.sessionCache.addMessage(user.id, 'assistant', stored);
+    // Persist the AI row + warm the session cache CONCURRENTLY with the send so
+    // those two writes don't sit in front of the user's first bubble (latency,
+    // 2026-06-29). Awaited before this function returns, so next-turn ordering is
+    // unaffected — only the perceived time-to-first-bubble drops.
+    const persist = this.messageRepo
+      .save({
+        user_id: user.id,
+        session_id: sessionId,
+        role: MessageRole.AI,
+        message_type: MessageType.TEXT,
+        content: stored,
+      })
+      .then(async (aiMsg) => {
+        await this.sessionCache.addMessage(user.id, 'assistant', stored);
+        return aiMsg;
+      });
 
     const toSend = bubbles.length ? bubbles : [reply.trim()].filter(Boolean);
     const delayMs = this.config.get<number>('MESSAGE_BUBBLE_DELAY_MS', 1200);
@@ -1656,6 +1666,8 @@ export class CoachingProcessor {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
+
+    const aiMsg = await persist;
 
     structuredLog(this.logger, 'log', {
       service: 'coaching',
