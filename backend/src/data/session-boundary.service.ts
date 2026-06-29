@@ -24,7 +24,12 @@ export interface SessionBoundary {
 @Injectable()
 export class SessionBoundaryService {
   private readonly logger = new Logger(SessionBoundaryService.name);
-  private readonly MESSAGE_COUNT_THRESHOLD = 30;
+  // Kept below COACHING_HISTORY_LIMIT (60) so the raw-history window always spans
+  // a full session plus its boundary — an active coaching back-and-forth used to
+  // churn a new session every 30 messages and lean on the async relationship
+  // digest too early, which read as "KIBA forgot what we just talked about"
+  // (RC-3). Raised 30→50 on 2026-06-29.
+  private readonly MESSAGE_COUNT_THRESHOLD = 50;
 
   constructor(
     @InjectRepository(ConversationSession) private readonly sessionRepo: Repository<ConversationSession>,

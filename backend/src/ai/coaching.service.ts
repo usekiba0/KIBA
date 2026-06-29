@@ -733,7 +733,15 @@ export class CoachingService {
     userId: string;
     operationLabel: string;
   }): Promise<{ reply: string; tokenCount: number }> {
-    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    const baseModel = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    // Photos need real OCR + brand/world knowledge — read the "Salata" sign off a
+    // storefront, know what a McDonald's is. Haiku's vision is too weak for that
+    // (it saw "a restaurant" but couldn't read the sign), so route image-bearing
+    // turns to a stronger vision model. Text-only turns stay on the cheaper base
+    // model so cost only rises on photo turns. (Karibi 2026-06-29 — vision feedback)
+    const visionModel = this.config.get<string>('AI_VISION_MODEL', 'claude-sonnet-4-6');
+    const hasImages = (args.imageUrls ?? []).length > 0;
+    const model = hasImages ? visionModel : baseModel;
 
     type MsgParam = Anthropic.Messages.MessageParam;
     const history: MsgParam[] = args.recentMessages.map((m) => ({

@@ -202,9 +202,11 @@ export const FORCE_LINK_AFTER_STALLED_TURNS = 2;
  * what was just said. KIBA sees the last N turns across days — "yesterday you said
  * you'd train the bot at 8:30" — instead of waking up a stranger every morning.
  * Bounded so the prompt stays cheap; older context is carried by the relationship
- * digest (Layer 2), not raw history.
+ * digest (Layer 2), not raw history. Set above the session message-count threshold
+ * (RC-3 hardening, 2026-06-29) so an active back-and-forth never loses raw context
+ * to a session boundary before the Layer-2 digest has absorbed it.
  */
-export const COACHING_HISTORY_LIMIT = 40;
+export const COACHING_HISTORY_LIMIT = 60;
 
 /**
  * The emotional build is "complete" once the functional minimum (name + goal +

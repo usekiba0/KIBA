@@ -4,7 +4,7 @@ import { Between, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
-import { DailyTodo, DailyTodoStatus } from '../data/entities/daily-todo.entity';
+import { DailyTodo, DailyTodoStatus, DailyTodoSource } from '../data/entities/daily-todo.entity';
 import { Proof, ProofValidationStatus } from '../data/entities/proof.entity';
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { MessagingService } from '../messaging/messaging.service';
@@ -166,9 +166,16 @@ export class RecapService implements OnApplicationBootstrap {
       this.scoreService.updateScore(user.id).then((s) => s.current_score).catch(() => null),
     ]);
 
+    // Done counts for any source — completing an auto-seeded plan task is real engagement.
     const done = todos.filter((t) => t.status === DailyTodoStatus.DONE).map((t) => t.content);
-    // Open = still not done by 9pm = dropped. Skipped is intentional — don't shame it.
-    const missed = todos.filter((t) => t.status === DailyTodoStatus.OPEN).map((t) => t.content);
+    // Only shame tasks the user actually engaged with: ones THEY added (USER) or the
+    // coach added mid-convo (AI). Auto-seeded PLAN tasks that are still OPEN were never
+    // agreed to — the user may never have seen them — so they are NOT counted as
+    // "missed". This stops the "you folded on everything" recap for ten goals the user
+    // never discussed (Bianca, 2026-06-29). Skipped is intentional — also excluded.
+    const missed = todos
+      .filter((t) => t.status === DailyTodoStatus.OPEN && t.source !== DailyTodoSource.PLAN)
+      .map((t) => t.content);
 
     const message = buildNightRecapMessage({
       userName: user.name ?? '',
