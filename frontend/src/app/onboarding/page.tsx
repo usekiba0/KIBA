@@ -83,7 +83,7 @@ export default function OnboardingPage() {
         <div className="success-card">
           <div className="success-icon">📱</div>
           <h2>You&apos;re in.</h2>
-          <p>Kiba will text you at <strong style={{ color: '#f0f9ff' }}>{form.checkin_time}</strong> every day starting tomorrow. Be ready to prove you did the work.</p>
+          <p>Kiba just texted you — <strong style={{ color: '#f0f9ff' }}>check your phone and reply now</strong> to get started. After that, daily check-ins at <strong style={{ color: '#f0f9ff' }}>{form.checkin_time}</strong>. Be ready to prove you did the work.</p>
           <div style={{ margin: '24px 0', padding: '20px', background: '#0d1e30', borderRadius: 12, border: '1px solid rgba(14,165,233,0.2)', textAlign: 'center' }}>
             <div style={{ fontSize: 13, color: '#3a6080', marginBottom: 8 }}>Kiba will reach you at</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: '#f0f9ff', letterSpacing: 1 }}>{form.phone_number}</div>
