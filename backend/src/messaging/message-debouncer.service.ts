@@ -24,12 +24,14 @@ interface BufferState {
 // every new image, so the batch always waits for the last one; a ~3s pause
 // before reacting to a photo reads like natural "looking at it" time.
 const IMAGE_DEBOUNCE_MS = 3000;
-// TEXT bursts: 2s (top of the V4 doc's "1-2 second buffer", Rule 2). People send
-// a name then a correction, or a thought across 2-3 bubbles, with gaps a bit
-// longer than the image case — 2s reliably reads them together so KIBA never
-// reacts to half ("Bett" before "Karibi" lands). A texting delay this size also
-// reads as natural typing, not slow.
-const TEXT_DEBOUNCE_MS = 2000;
+// TEXT bursts: 1.5s. Long enough to read a name-then-correction or a 2-3 bubble
+// thought as one message (the "Bett" before "Karibi" case — rapid bubbles land
+// well under 1.5s apart), short enough that a lone message (the common case)
+// isn't sitting in dead air. Trimmed from 2s on 2026-06-29 to cut perceived
+// latency (Karibi's "nearly instant" ask); if real bubble gaps prove longer and
+// KIBA starts reacting to half a message, nudge this back toward 2s. IMAGE stays
+// at 3s (multi-image-spam guard — photos land 1-3s apart on mobile data).
+const TEXT_DEBOUNCE_MS = 1500;
 
 /** Delay before flushing a buffer: image bursts flush fast, text bursts wait a
  * touch longer so quick-succession bubbles are read as one message. */

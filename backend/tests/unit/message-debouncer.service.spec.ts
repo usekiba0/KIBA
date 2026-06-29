@@ -1,7 +1,7 @@
 import { MessageDebouncerService, DebouncedMessage, debounceDelayFor } from '../../src/messaging/message-debouncer.service';
 
-// Text bursts flush at 2000ms (V4 Rule 2), image bursts at 1500ms. Use fake
-// timers so tests are deterministic and fast.
+// Text bursts flush at 1500ms (trimmed from 2000ms 2026-06-29 for latency),
+// image bursts at 3000ms. Use fake timers so tests are deterministic and fast.
 describe('MessageDebouncerService', () => {
   let processCalls: Array<unknown>;
   let service: MessageDebouncerService;
@@ -37,14 +37,14 @@ describe('MessageDebouncerService', () => {
     };
   }
 
-  it('flushes a single text message after the 2s text window', async () => {
+  it('flushes a single text message after the 1.5s text window', async () => {
     service.push(msg());
-    // Still buffered at the old 1.5s mark — text now waits the full 2s.
-    jest.advanceTimersByTime(1500);
+    // Still buffered just before the window.
+    jest.advanceTimersByTime(1400);
     await Promise.resolve();
     expect(mockProcessor.process).not.toHaveBeenCalled();
 
-    jest.advanceTimersByTime(500);
+    jest.advanceTimersByTime(100);
     await Promise.resolve();
     expect(mockProcessor.process).toHaveBeenCalledTimes(1);
     expect((processCalls[0] as { body: string }).body).toBe('hello');
@@ -135,8 +135,8 @@ describe('MessageDebouncerService', () => {
 });
 
 describe('debounceDelayFor', () => {
-  it('uses the 2s text window for a text-only burst', () => {
-    expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: [] }])).toBe(2000);
+  it('uses the 1.5s text window for a text-only burst', () => {
+    expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: [] }])).toBe(1500);
   });
   it('uses the 3s image window when any message has media', () => {
     expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: ['x'] }])).toBe(3000);
