@@ -3,7 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
 import { RecapService } from '../../src/accountability/recap.service';
 import { User, UserStatus, OnboardingStage } from '../../src/data/entities/user.entity';
-import { DailyTodo, DailyTodoStatus } from '../../src/data/entities/daily-todo.entity';
+import { DailyTodo, DailyTodoStatus, DailyTodoSource } from '../../src/data/entities/daily-todo.entity';
 import { Proof } from '../../src/data/entities/proof.entity';
 import { Message } from '../../src/data/entities/message.entity';
 import { ScoreService } from '../../src/accountability/score.service';
@@ -112,6 +112,29 @@ describe('RecapService.fire', () => {
 
     expect(messaging.send).not.toHaveBeenCalled();
     expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays silent when the day was only untouched auto-seeded plan tasks (no false "you folded")', async () => {
+    // Bianca case: ~10 PLAN tasks auto-seeded, none agreed to, all still OPEN.
+    todoRepo.find.mockResolvedValue([
+      { content: 'Buy containers and prep ingredients', status: DailyTodoStatus.OPEN, source: DailyTodoSource.PLAN },
+      { content: 'Eat breakfast at your set time', status: DailyTodoStatus.OPEN, source: DailyTodoSource.PLAN },
+    ] as DailyTodo[]);
+    await service.fire('user-1');
+
+    expect(messaging.send).not.toHaveBeenCalled();
+    expect(queue.add).toHaveBeenCalledTimes(1); // reschedule only
+  });
+
+  it('still shames tasks the user actually committed to (USER source counts as missed)', async () => {
+    todoRepo.find.mockResolvedValue([
+      { content: 'cold call 5 leads', status: DailyTodoStatus.OPEN, source: DailyTodoSource.USER },
+    ] as DailyTodo[]);
+    await service.fire('user-1');
+
+    expect(messaging.send).toHaveBeenCalledTimes(1);
+    const [, body] = messaging.send.mock.calls[0];
+    expect(body).toContain('❌ cold call 5 leads');
   });
 
   it('suppresses tonight’s send for a crisis-hold user, keeping cadence', async () => {

@@ -202,9 +202,11 @@ export const FORCE_LINK_AFTER_STALLED_TURNS = 2;
  * what was just said. KIBA sees the last N turns across days — "yesterday you said
  * you'd train the bot at 8:30" — instead of waking up a stranger every morning.
  * Bounded so the prompt stays cheap; older context is carried by the relationship
- * digest (Layer 2), not raw history.
+ * digest (Layer 2), not raw history. Set above the session message-count threshold
+ * (RC-3 hardening, 2026-06-29) so an active back-and-forth never loses raw context
+ * to a session boundary before the Layer-2 digest has absorbed it.
  */
-export const COACHING_HISTORY_LIMIT = 40;
+export const COACHING_HISTORY_LIMIT = 60;
 
 /**
  * The emotional build is "complete" once the functional minimum (name + goal +
@@ -294,6 +296,10 @@ export class CoachingProcessor {
     // resetting" bug). See common/phone.ts.
     const from = normalizePhoneNumber(data.from);
     const messageHandle = data.messageHandle ?? null;
+    // Latency instrumentation: time from processing-start (debounce already
+    // elapsed) to the reply being sent, plus the model-generation slice, so we can
+    // see where the controllable latency actually goes before tuning it (2026-06-29).
+    const turnStart = Date.now();
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Carrier shortcodes (e.g. +195686 from Citi) get misrouted to our SendBlue
@@ -391,7 +397,7 @@ export class CoachingProcessor {
     // current session, and fetched newest-first then reversed to chronological.
     // A session reset (4h idle or message-count) no longer hands the model an
     // empty window; it keeps seeing the last COACHING_HISTORY_LIMIT real turns.
-    const [crisisResult, dbMessages, latestSummary] = await Promise.all([
+    const [crisisResult, dbMessages, latestSummary, seededTodos] = await Promise.all([
       this.crisisService.classify(body),
       this.messageRepo
         .find({
@@ -403,6 +409,11 @@ export class CoachingProcessor {
       boundary.isNewSession
         ? this.summaryRepo.findOne({ where: { user_id: user.id }, order: { created_at: 'DESC' } })
         : Promise.resolve(null),
+      // Seed today's plan todos HERE so the once-a-day seeding write overlaps the
+      // crisis-classify LLM call instead of blocking the reply on its own await
+      // later (latency, 2026-06-29). Idempotent — a cheap read on every turn after
+      // the first of the day; reused by both the vision and text reply paths below.
+      this.todoService.ensureSeededForToday(user.id).catch(() => []),
     ]);
 
     // SAFETY-CRITICAL: halt before any reply if crisis detected
@@ -626,6 +637,7 @@ export class CoachingProcessor {
         take: 20,
       });
       intakeHistory.reverse();
+      const genStart = Date.now();
       const reply = await this.handleIntakeMessage(
         user,
         intakeHistory,
@@ -635,7 +647,12 @@ export class CoachingProcessor {
         inboundIsImage ? (firstMediaUrl ?? undefined) : undefined,
         inboundIsImage ? resolvedMediaCt : undefined,
       );
+      const genMs = Date.now() - genStart;
       await this.saveAndSend(user, boundary.sessionId, reply);
+      structuredLog(this.logger, 'log', {
+        service: 'coaching', operation: 'turn_latency', userId: user.id,
+        path: 'intake', genMs, totalMs: Date.now() - turnStart,
+      });
       return;
     }
 
@@ -867,11 +884,12 @@ export class CoachingProcessor {
           taskId: task.id,
         });
       }
-      const visionTodos = await this.todoService.ensureSeededForToday(user.id).catch(() => []);
+      const visionTodos = seededTodos; // seeded in Phase 1 (overlapped the crisis call)
       const visionPatterns = {
         ...derivePatternSignals(user),
         loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
       };
+      const genStart = Date.now();
       const { reply, tokenCount } = await this.coachingService.generateReply(
         user,
         dbMessages,
@@ -883,18 +901,21 @@ export class CoachingProcessor {
         visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
         visionPatterns,
       );
+      const genMs = Date.now() - genStart;
       await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
       await this.saveAndSend(user, boundary.sessionId, reply);
+      structuredLog(this.logger, 'log', {
+        service: 'coaching', operation: 'turn_latency', userId: user.id,
+        path: 'vision', genMs, totalMs: Date.now() - turnStart, tokenCount,
+      });
       return;
     }
 
-    // Seed today's todos from the user's plan once per day, then pass the
-    // current list into the coaching reply so the AI stops asking
-    // "what's the workout?" when the answer's already in the action plan.
-    const todos = await this.todoService.ensureSeededForToday(user.id).catch((err) => {
-      this.logger.warn(`todo seed failed for ${user.id}: ${(err as Error).message}`);
-      return [];
-    });
+    // Today's todos were seeded in Phase 1 (parallel with the crisis call) so the
+    // reply isn't blocked on the per-day seeding write. Pass the list into the
+    // coaching reply so the AI stops asking "what's the workout?" when the answer's
+    // already in the action plan.
+    const todos = seededTodos;
 
     const patterns = {
       ...derivePatternSignals(user),
@@ -902,6 +923,7 @@ export class CoachingProcessor {
     };
 
     // Phase 2: coaching reply (DB context already fetched in Phase 1)
+    const genStart = Date.now();
     const { reply, tokenCount } = await this.coachingService.generateReply(
       user,
       dbMessages,
@@ -913,8 +935,13 @@ export class CoachingProcessor {
       todos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
       patterns,
     );
+    const genMs = Date.now() - genStart;
     await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
     await this.saveAndSend(user, boundary.sessionId, reply);
+    structuredLog(this.logger, 'log', {
+      service: 'coaching', operation: 'turn_latency', userId: user.id,
+      path: 'text', genMs, totalMs: Date.now() - turnStart, tokenCount,
+    });
   }
 
   /**
@@ -1634,15 +1661,22 @@ export class CoachingProcessor {
     // tokens never leak into history or the model's next-turn context.
     const stored = bubbles.length ? bubbles.join('\n') : reply.trim();
 
-    const aiMsg = await this.messageRepo.save({
-      user_id: user.id,
-      session_id: sessionId,
-      role: MessageRole.AI,
-      message_type: MessageType.TEXT,
-      content: stored,
-    });
-
-    await this.sessionCache.addMessage(user.id, 'assistant', stored);
+    // Persist the AI row + warm the session cache CONCURRENTLY with the send so
+    // those two writes don't sit in front of the user's first bubble (latency,
+    // 2026-06-29). Awaited before this function returns, so next-turn ordering is
+    // unaffected — only the perceived time-to-first-bubble drops.
+    const persist = this.messageRepo
+      .save({
+        user_id: user.id,
+        session_id: sessionId,
+        role: MessageRole.AI,
+        message_type: MessageType.TEXT,
+        content: stored,
+      })
+      .then(async (aiMsg) => {
+        await this.sessionCache.addMessage(user.id, 'assistant', stored);
+        return aiMsg;
+      });
 
     const toSend = bubbles.length ? bubbles : [reply.trim()].filter(Boolean);
     const delayMs = this.config.get<number>('MESSAGE_BUBBLE_DELAY_MS', 1200);
@@ -1654,6 +1688,8 @@ export class CoachingProcessor {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
+
+    const aiMsg = await persist;
 
     structuredLog(this.logger, 'log', {
       service: 'coaching',

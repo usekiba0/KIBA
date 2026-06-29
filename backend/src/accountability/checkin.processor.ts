@@ -41,13 +41,15 @@ export function localDateString(offsetMinutes: number | null, now: number = Date
 
 /**
  * Follow-up sequence for leads who got a payment link but haven't paid.
- * Three nudges total. The first fires ~2.5h after the link (scheduled by
- * CoachingProcessor.sendPaymentLink); these are the delays BEFORE the next one:
- *   nudge 0 → nudge 1: ~22h later (~next day, ~24h after the link)
- *   nudge 1 → nudge 2: ~48h later (~2-3 days after the link, final)
+ * ONE nudge total. The client's directive is that the payment link is not
+ * spammed — it goes out at checkout, then a single ~2.5h follow-up (scheduled by
+ * CoachingProcessor.sendPaymentLink) and that's it. We used to drip three
+ * link-resends (2.5h / ~24h / ~2-3d); Karibi 2026-06-29 wants the link sent once,
+ * resent only on request. Delays kept for the (now-unused) tail in case we ever
+ * re-enable a longer sequence — MAX_DUNNING_NUDGES gates how many actually fire.
  */
 const NUDGE_NEXT_DELAY_MS = [22 * 60 * 60 * 1000, 48 * 60 * 60 * 1000];
-const MAX_DUNNING_NUDGES = 3;
+const MAX_DUNNING_NUDGES = 1;
 
 /**
  * Build a follow-up nudge in KIBA's voice, personalised with what the lead told
