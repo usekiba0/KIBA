@@ -296,6 +296,10 @@ export class CoachingProcessor {
     // resetting" bug). See common/phone.ts.
     const from = normalizePhoneNumber(data.from);
     const messageHandle = data.messageHandle ?? null;
+    // Latency instrumentation: time from processing-start (debounce already
+    // elapsed) to the reply being sent, plus the model-generation slice, so we can
+    // see where the controllable latency actually goes before tuning it (2026-06-29).
+    const turnStart = Date.now();
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Carrier shortcodes (e.g. +195686 from Citi) get misrouted to our SendBlue
@@ -879,6 +883,7 @@ export class CoachingProcessor {
         ...derivePatternSignals(user),
         loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
       };
+      const genStart = Date.now();
       const { reply, tokenCount } = await this.coachingService.generateReply(
         user,
         dbMessages,
@@ -890,8 +895,13 @@ export class CoachingProcessor {
         visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
         visionPatterns,
       );
+      const genMs = Date.now() - genStart;
       await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
       await this.saveAndSend(user, boundary.sessionId, reply);
+      structuredLog(this.logger, 'log', {
+        service: 'coaching', operation: 'turn_latency', userId: user.id,
+        path: 'vision', genMs, totalMs: Date.now() - turnStart, tokenCount,
+      });
       return;
     }
 
@@ -907,6 +917,7 @@ export class CoachingProcessor {
     };
 
     // Phase 2: coaching reply (DB context already fetched in Phase 1)
+    const genStart = Date.now();
     const { reply, tokenCount } = await this.coachingService.generateReply(
       user,
       dbMessages,
@@ -918,8 +929,13 @@ export class CoachingProcessor {
       todos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
       patterns,
     );
+    const genMs = Date.now() - genStart;
     await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
     await this.saveAndSend(user, boundary.sessionId, reply);
+    structuredLog(this.logger, 'log', {
+      service: 'coaching', operation: 'turn_latency', userId: user.id,
+      path: 'text', genMs, totalMs: Date.now() - turnStart, tokenCount,
+    });
   }
 
   /**
