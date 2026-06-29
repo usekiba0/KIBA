@@ -215,7 +215,7 @@ describe('buildSystemPrompt', () => {
     expect(() => buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0)).not.toThrow();
   });
 
-  it('stays within a sane size budget (char count < 27000)', () => {
+  it('stays within a sane size budget (char count < 27500)', () => {
     // The prompt has grown with deliberate capability expansion (tools, examples,
     // state-aware tone, answer-anything, vision engagement, memory/contradiction)
     // — ~26k chars / ~6.5k tokens now. This guard just prevents unbounded
@@ -227,9 +227,11 @@ describe('buildSystemPrompt', () => {
     // loss-aversion retention lever: frame leaving as losing the score they built).
     // Raised 26.5k->27k for the 2026-06-29 batch (don't-assume/accuse + don't-claim-a-
     // contradicting-behavior; after-a-miss zero-day redirect + stress circuit-breaker)
-    // — net small after trimming a redundant identity-language example.
+    // — net small after trimming a redundant identity-language example. Raised
+    // 27k->27.5k same day for proof depth (specific critique on proof, meal-photo-
+    // before-eating, lift-video form check, post-activity acknowledge-AND-pivot).
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(27000);
+    expect(prompt.length).toBeLessThan(27500);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
