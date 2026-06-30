@@ -181,6 +181,55 @@ export function resolvePlaceTimezone(place: string | null | undefined): { zone: 
   return z ? { zone: z.zone, label: z.label } : null;
 }
 
+/**
+ * Live UTC offset (minutes) for an IANA zone at a given instant, DST-aware via
+ * Intl. e.g. America/New_York → -240 in summer (EDT), -300 in winter (EST).
+ * This is the fix for frozen `utc_offset_minutes`, which is correct at capture
+ * but drifts 1h for half the year after the next DST transition. Returns null
+ * on an unknown/invalid zone so callers fall back to the stored integer.
+ */
+export function offsetMinutesForZone(nowUtc: Date, zone: string): number | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).formatToParts(nowUtc);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '0';
+    let hour = parseInt(get('hour'), 10);
+    if (hour === 24) hour = 0; // some runtimes emit "24" for midnight
+    const asIfUtc = Date.UTC(
+      parseInt(get('year'), 10),
+      parseInt(get('month'), 10) - 1,
+      parseInt(get('day'), 10),
+      hour,
+      parseInt(get('minute'), 10),
+      parseInt(get('second'), 10),
+    );
+    return Math.round((asIfUtc - nowUtc.getTime()) / 60_000);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The user's effective UTC offset right now: derived LIVE from their IANA zone
+ * when we have one (DST-correct), else the frozen `utc_offset_minutes` captured
+ * earlier, else null. Single source of truth for every time-of-use read.
+ */
+export function resolveOffsetMinutes(
+  ianaTimezone: string | null | undefined,
+  fallbackOffsetMinutes: number | null | undefined,
+  nowUtc: Date = new Date(),
+): number | null {
+  if (ianaTimezone) {
+    const live = offsetMinutesForZone(nowUtc, ianaTimezone);
+    if (live != null) return live;
+  }
+  return fallbackOffsetMinutes ?? null;
+}
+
 /** Current wall-clock in an IANA zone as "5:03pm" (DST-aware via Intl). null on bad zone. */
 export function formatTimeInZone(nowUtc: Date, zone: string): string | null {
   try {

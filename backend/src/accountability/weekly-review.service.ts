@@ -8,6 +8,7 @@ import { DailyTodo, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { Proof, ProofValidationStatus } from '../data/entities/proof.entity';
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { MessagingService } from '../messaging/messaging.service';
+import { resolveOffsetMinutes } from '../messaging/world-time';
 import { SessionBoundaryService } from '../data/session-boundary.service';
 import { ScoreService } from './score.service';
 import { computeWeeklyDelayMs } from './schedule-time.util';
@@ -69,7 +70,7 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
     let scheduled = 0;
     let skipped = 0;
     for (const user of users) {
-      if (user.utc_offset_minutes === null || user.utc_offset_minutes === undefined) {
+      if (resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes) == null) {
         skipped++;
         continue;
       }
@@ -91,9 +92,10 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
   }
 
   async scheduleReview(user: User): Promise<void> {
-    if (user.utc_offset_minutes === null || user.utc_offset_minutes === undefined) return;
+    const offset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
+    if (offset == null) return;
 
-    const delay = computeWeeklyDelayMs(REVIEW_WEEKDAY, REVIEW_LOCAL_TIME, user.utc_offset_minutes);
+    const delay = computeWeeklyDelayMs(REVIEW_WEEKDAY, REVIEW_LOCAL_TIME, offset);
     // Deterministic jobId per user per target minute — Bull rejects duplicates,
     // so boot bootstrap, hourly safety re-arm and the self-reschedule can all
     // call this without producing redundant reviews.
@@ -114,7 +116,7 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) return;
 
     if (!user.crisis_hold) {
-      const offset = user.utc_offset_minutes ?? null;
+      const offset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
       const localDate = localDateString(offset);
       const claim = await this.userRepo
         .createQueryBuilder()

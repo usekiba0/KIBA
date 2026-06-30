@@ -54,7 +54,7 @@ import { splitBubbles } from './bubbles';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
-import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone } from './world-time';
+import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone, resolveOffsetMinutes } from './world-time';
 import { isOffsetPlausibleForPhone } from './phone-timezone';
 import { detectQuestionLoop, detectRepeatedChoiceLoop, isLoopCallout } from './question-loop';
 import { humanizeTask } from '../ai/prompts/checkin.prompt';
@@ -508,23 +508,25 @@ export class CoachingProcessor {
     // no media so a photo + "what time is it" caption still routes to vision, and
     // on a known offset so we never guess a timezone — without one, fall through
     // and the AI asks the user for their city.
-    if (numMedia === 0 && isTimeQuery(body) && user.utc_offset_minutes != null) {
-      const clock = formatLocalClock12h(new Date(), user.utc_offset_minutes);
-      structuredLog(this.logger, 'log', {
-        service: 'messaging',
-        operation: 'time_query_answered',
-        userId: user.id,
-        channel,
-      });
-      await this.saveAndSend(user, boundary.sessionId, `it's ${clock} your time.`);
-      return;
-    }
-
-    // Same question, no known timezone (RC-2). NEVER let the model answer — it
-    // fabricates ("it's 3:13pm" when it's 10:05pm). Ask for their city
-    // deterministically; the city->offset parser below captures it and the next
-    // "what time is it" is answered exactly. Covers intake and coaching alike.
-    if (numMedia === 0 && isTimeQuery(body) && user.utc_offset_minutes == null) {
+    if (numMedia === 0 && isTimeQuery(body)) {
+      // DST-correct live offset from the IANA zone when we have one, else the
+      // frozen integer. null = no timezone known yet.
+      const clockOffset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
+      if (clockOffset != null) {
+        const clock = formatLocalClock12h(new Date(), clockOffset);
+        structuredLog(this.logger, 'log', {
+          service: 'messaging',
+          operation: 'time_query_answered',
+          userId: user.id,
+          channel,
+        });
+        await this.saveAndSend(user, boundary.sessionId, `it's ${clock} your time.`);
+        return;
+      }
+      // No known timezone (RC-2). NEVER let the model answer — it fabricates
+      // ("it's 3:13pm" when it's 10:05pm). Ask for their city deterministically;
+      // the city->offset parser below captures it and the next "what time is it"
+      // is answered exactly. Covers intake and coaching alike.
       structuredLog(this.logger, 'log', {
         service: 'messaging',
         operation: 'time_query_no_offset_ask_city',
@@ -1020,18 +1022,28 @@ export class CoachingProcessor {
         // Persist the city NAME too (not just the derived offset) so the coaching
         // prompt can use it and catch contradictions ("since when are you in X?").
         const cityName = parseCity(body);
+        // Capture the IANA zone too (DST-correct year-round) when the city is one
+        // world-time knows; falls back to the frozen offset otherwise. Karibi 2026-06-30.
+        const cityZone = resolvePlaceTimezone(cityName)?.zone ?? null;
         const intakeWithCity: IntakeData = { ...(user.intake_data ?? {}) };
         if (cityName && !intakeWithCity.city) intakeWithCity.city = cityName;
         await this.userRepo.update(user.id, {
           utc_offset_minutes: cityOffset,
+          ...(cityZone ? { iana_timezone: cityZone } : {}),
           intake_data: intakeWithCity,
         });
-        user = { ...user, utc_offset_minutes: cityOffset, intake_data: intakeWithCity };
+        user = {
+          ...user,
+          utc_offset_minutes: cityOffset,
+          ...(cityZone ? { iana_timezone: cityZone } : {}),
+          intake_data: intakeWithCity,
+        };
         structuredLog(this.logger, 'log', {
           service: 'onboarding',
           operation: 'tz_captured_from_city',
           userId: user.id,
           utcOffsetMinutes: cityOffset,
+          ianaTimezone: cityZone ?? undefined,
           city: cityName ?? undefined,
         });
         this.flagOffsetPhoneMismatch(user.id, user.phone_number, cityOffset, 'city');
@@ -1055,7 +1067,7 @@ export class CoachingProcessor {
     const ctx = {
       name: user.name,
       intakeData: (user.intake_data ?? {}) as IntakeData,
-      utcOffsetMinutes: user.utc_offset_minutes ?? null,
+      utcOffsetMinutes: resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes),
       nowUtc: new Date(),
       paymentLinkSent: !!user.payment_link_sent_at,
       sampleCoachingGiven: !!user.sample_coaching_given,

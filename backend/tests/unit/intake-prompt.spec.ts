@@ -62,7 +62,9 @@ describe('buildIntakeSystemPrompt', () => {
   it('puts the framing BEFORE the link and holds the price until day 7 (Karibi 2026-06-26)', () => {
     const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' }, utcOffsetMinutes: -300 }));
     // The close lead-in (framing) precedes the link, and the price waits for day 7.
-    expect(p).toMatch(/tap this and we start tonight/i);
+    expect(p).toMatch(/tap this and we'?re locked in/i);
+    // Close copy must be time-neutral, not hardcoded "tonight" (Karibi 2026-06-30).
+    expect(p).not.toMatch(/we start tonight/i);
     expect(p).toMatch(/framing ALWAYS comes BEFORE the link/i);
     expect(p).toMatch(/price conversation happens later, on day 7/i);
     // The challenge is asked ONCE, no double-ask / wall-of-text at the close.
