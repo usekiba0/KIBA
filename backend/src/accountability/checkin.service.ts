@@ -6,6 +6,7 @@ import { Queue } from 'bull';
 import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
 import { structuredLog } from '../common/logger';
 import { computeLocalDelayMs } from './schedule-time.util';
+import { resolveOffsetMinutes } from '../messaging/world-time';
 
 @Injectable()
 export class CheckinService implements OnApplicationBootstrap {
@@ -136,9 +137,25 @@ export class CheckinService implements OnApplicationBootstrap {
   async scheduleCheckin(user: User): Promise<any> {
     if (!user.checkin_time) return undefined;
 
+    // DST-correct live offset from the IANA zone when known, else the frozen
+    // integer. Without a real offset, computeDelayMs targets 09:00 UTC — landing
+    // the "morning" check-in at ~2pm (PKT) or ~1am (LA). Skip until we know their
+    // timezone (mirrors recap / surprise / weekly-review, which also no-op on a
+    // null offset). The next inbound captures the city → offset and reschedules.
+    // Karibi 2026-06-30.
+    const offset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
+    if (offset == null) {
+      structuredLog(this.logger, 'log', {
+        service: 'accountability',
+        operation: 'checkin_skipped_no_offset',
+        userId: user.id,
+      });
+      return undefined;
+    }
+
     // Pass the user's offset so the delay targets THEIR 09:00, not server UTC 09:00.
     // Without this, US-Eastern users were getting check-ins at 04:00–05:00 local.
-    const delay = this.computeDelayMs(user.checkin_time, user.utc_offset_minutes ?? 0);
+    const delay = this.computeDelayMs(user.checkin_time, offset);
 
     // Deterministic jobId per user per target minute. Bull rejects duplicate
     // jobIds, so the function becomes safe to call from multiple paths

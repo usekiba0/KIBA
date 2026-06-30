@@ -132,6 +132,14 @@ export class User {
   @Column({ type: 'smallint', nullable: true })
   utc_offset_minutes: number | null;
 
+  // IANA timezone id (e.g. "America/Chicago") captured alongside the offset when
+  // we know the user's city. Preferred over utc_offset_minutes for all
+  // time-of-use reads because it's DST-correct year-round — the frozen integer
+  // drifts 1h after each DST transition. Null until a recognized city is named;
+  // consumers fall back to utc_offset_minutes. (Karibi 2026-06-30)
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  iana_timezone: string | null;
+
   @Index()
   @Column({ type: 'enum', enum: OnboardingStage, default: OnboardingStage.COMPLETE })
   onboarding_stage: OnboardingStage;

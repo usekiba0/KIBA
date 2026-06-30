@@ -6,6 +6,7 @@ import { Queue } from 'bull';
 import { ScheduledReminder, ScheduledReminderStatus, ReminderRecurrence } from '../data/entities/scheduled-reminder.entity';
 import { User } from '../data/entities/user.entity';
 import { MessagingService } from '../messaging/messaging.service';
+import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
 
 // 2-minute floor: SendBlue queue + iMessage delivery has 30-90s of inherent
@@ -28,8 +29,13 @@ export interface DailyRecurrence {
   rule: ReminderRecurrence.DAILY;
   /** Local clock the user wants the reminder at, "HH:MM" 24h. */
   localTime: string;
-  /** Snapshot of user.utc_offset_minutes at creation time. */
+  /** Snapshot of user.utc_offset_minutes at creation time (DST fallback). */
   offsetMinutes: number;
+  /**
+   * User's IANA zone at creation. When set, each occurrence recomputes the live
+   * offset from it so the reminder doesn't drift 1h across a DST transition.
+   */
+  ianaTimezone?: string | null;
   /**
    * Set internally when the worker re-enqueues a recurring occurrence so every
    * row in the chain shares the same parent_id. Tool callers leave this unset
@@ -124,6 +130,7 @@ export class ScheduleService {
       recurrence_rule: rec?.rule ?? null,
       recurrence_local_time: rec?.localTime ?? null,
       recurrence_offset_minutes: rec?.offsetMinutes ?? null,
+      recurrence_iana_timezone: rec?.ianaTimezone ?? null,
       recurrence_parent_id: rec?.parentId ?? null,
     });
 
@@ -206,10 +213,17 @@ export class ScheduleService {
         reminder.recurrence_offset_minutes !== null
       ) {
         try {
+          // Recompute the offset LIVE from the zone (DST-correct) when we have
+          // one, else use the frozen snapshot. This is what keeps a "daily 7am"
+          // at 7am across a DST flip instead of drifting to 6am/8am.
+          const occurrenceOffset = resolveOffsetMinutes(
+            reminder.recurrence_iana_timezone,
+            reminder.recurrence_offset_minutes,
+          ) ?? reminder.recurrence_offset_minutes;
           const nextFire = nextDailyFireAt(
             new Date(),
             reminder.recurrence_local_time,
-            reminder.recurrence_offset_minutes,
+            occurrenceOffset,
           );
           await this.enqueue({
             userId: reminder.user_id,
@@ -221,6 +235,7 @@ export class ScheduleService {
               rule: ReminderRecurrence.DAILY,
               localTime: reminder.recurrence_local_time,
               offsetMinutes: reminder.recurrence_offset_minutes,
+              ianaTimezone: reminder.recurrence_iana_timezone,
               parentId: reminder.recurrence_parent_id ?? reminderId,
             },
           });

@@ -13,6 +13,10 @@ function makeUser(overrides: Partial<User> = {}): User {
     coaching_focus: null as any,
     goals: null as any,
     checkin_time: '09:00',
+    // Offset known (UTC) so scheduling proceeds; null-offset users are skipped
+    // by design (H1, Karibi 2026-06-30) and covered by a dedicated test below.
+    utc_offset_minutes: 0,
+    iana_timezone: null,
     height_cm: null,
     weight_kg: null,
     age: null,
@@ -72,6 +76,21 @@ describe('CheckinService', () => {
       const user = makeUser({ checkin_time: '08:00' });
       const job = await service.scheduleCheckin(user);
       expect(job).toBeDefined();
+    });
+
+    it('skips scheduling when the timezone is unknown (no UTC fallback) — H1', async () => {
+      const user = makeUser({ checkin_time: '09:00', utc_offset_minutes: null as any, iana_timezone: null });
+      const job = await service.scheduleCheckin(user);
+      expect(mockQueue.add).not.toHaveBeenCalled();
+      expect(job).toBeUndefined();
+    });
+
+    it('uses the IANA zone offset when present even if the frozen integer is stale', async () => {
+      // Winter: America/New_York is EST (-300). A stale summer integer (-240)
+      // must not be used — the live zone wins. We only assert it schedules.
+      const user = makeUser({ checkin_time: '09:00', utc_offset_minutes: -240, iana_timezone: 'America/New_York' });
+      await service.scheduleCheckin(user);
+      expect(mockQueue.add).toHaveBeenCalledTimes(1);
     });
   });
 
