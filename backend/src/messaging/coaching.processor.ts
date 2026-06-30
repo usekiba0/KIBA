@@ -558,9 +558,40 @@ export class CoachingProcessor {
           { user_id: user.id, status: SubscriptionStatus.TRIALING },
         ],
       });
-      if (entitledSub) {
+
+      // A local entitled sub means the webhook already ran but the stage flip
+      // lagged. If there's NO local sub yet but they were sent a checkout link,
+      // the webhook itself may simply not have landed — verify with Stripe
+      // directly off the stored checkout session. Without this, a user who just
+      // paid (KIBA "knows" via Stripe) keeps getting re-pitched the link in the
+      // intake PAYWALL phase ("tap the link and confirm you're in") until the
+      // webhook catches up — the exact FOMO-to-a-paid-user bug (Karibi 2026-06-30).
+      let entitled = !!entitledSub;
+      let healSource: 'local_sub' | 'stripe_session' = 'local_sub';
+      if (!entitled && user.payment_link_sent_at && user.stripe_checkout_session_id) {
+        try {
+          const session = await this.stripeService.getCheckoutSession(
+            user.stripe_checkout_session_id,
+          );
+          // 'complete' = checkout finished (subscription + trial created). For a
+          // trial there's no immediate charge, so payment_status is
+          // 'no_payment_required' — gate on session status, not payment_status.
+          if (session.status === 'complete') {
+            entitled = true;
+            healSource = 'stripe_session';
+          }
+        } catch (err) {
+          // Stripe hiccup must never block the live reply — fall through to the
+          // normal intake path (worst case: the webhook heals it momentarily).
+          this.logger.warn(
+            `[StageSelfHeal] Stripe session lookup failed for ${user.id}: ${(err as Error).message}`,
+          );
+        }
+      }
+
+      if (entitled) {
         this.logger.warn(
-          `[StageSelfHeal] entitled sub but stage=${user.onboarding_stage} for ${user.id} — promoting to COMPLETE`,
+          `[StageSelfHeal] paid (${healSource}) but stage=${user.onboarding_stage} for ${user.id} — promoting to COMPLETE`,
         );
         user.onboarding_stage = OnboardingStage.COMPLETE;
         await this.userRepo.update(user.id, { onboarding_stage: OnboardingStage.COMPLETE });
@@ -568,6 +599,7 @@ export class CoachingProcessor {
           service: 'messaging',
           operation: 'stage_self_heal_to_complete',
           userId: user.id,
+          source: healSource,
         });
       }
     }
@@ -815,6 +847,14 @@ export class CoachingProcessor {
       const isImage = inboundIsImage;
       const isAudio = mediaCt.startsWith('audio/');
       const isVideo = mediaCt.startsWith('video/');
+      // A GIF is reaction media (Giphy/Tenor/meme), not a photo of real work.
+      // Anthropic vision only reads one frozen frame of it, so treating it like
+      // a proof photo both (a) auto-logs a meme as completed-task proof — proof
+      // validation fails OPEN, so a reaction would award a score — and (b) makes
+      // the model describe a single ambiguous frame, then contradict itself
+      // ("why you looking at me like that" → "nah what gif?"). Branch it out of
+      // proof, and ground the reply so it reacts coherently. (Karibi 2026-06-30)
+      const isGif = mediaCt === 'image/gif';
 
       // Non-image media: voice notes / video / unknown blobs route here. We
       // can't run vision on audio bytes (that's how the "couldn't read that
@@ -848,12 +888,12 @@ export class CoachingProcessor {
       // (accept) — wrongly rejecting a real user's proof is far worse than letting
       // a borderline one through.
       let proofMatch: 'accept' | 'mismatch' = 'accept';
-      if (task && mediaUrl) {
+      if (task && mediaUrl && !isGif) {
         const verdict = await this.visionService.validateProofFromUrl(task.task_description, mediaUrl, mediaCt);
         if (!verdict.is_valid && verdict.confidence >= 0.8) proofMatch = 'mismatch';
       }
 
-      if (task && proofMatch === 'accept') {
+      if (task && proofMatch === 'accept' && !isGif) {
         await this.proofService.submitProof({
           userId: user.id,
           taskId: task.id,
@@ -889,11 +929,19 @@ export class CoachingProcessor {
         ...derivePatternSignals(user),
         loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
       };
+      const caption = body !== '[image]' ? body : '';
+      // Ground the model that a reaction GIF arrived so it reacts naturally and
+      // never denies seeing it / asks them to resend (it only gets one frame).
+      const incomingText = isGif
+        ? [caption, '(the user sent a reaction GIF — react to it like a text from a friend; never say you can\'t see it or ask them to send it again)']
+            .filter(Boolean)
+            .join(' ')
+        : caption;
       const genStart = Date.now();
       const { reply, tokenCount } = await this.coachingService.generateReply(
         user,
         dbMessages,
-        body !== '[image]' ? body : '',
+        incomingText,
         latestSummary?.summary,
         mediaUrls.slice(0, 4),
         mediaContentTypes.slice(0, 4),

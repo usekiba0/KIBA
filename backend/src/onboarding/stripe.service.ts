@@ -112,4 +112,8 @@ export class StripeService {
   async expireCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
     return this.stripe.checkout.sessions.expire(sessionId);
   }
+
+  async getCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+    return this.stripe.checkout.sessions.retrieve(sessionId);
+  }
 }
