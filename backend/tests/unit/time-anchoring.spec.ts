@@ -1,6 +1,7 @@
 import { buildCheckinMessage } from '../../src/ai/prompts/checkin.prompt';
 import { formatHistoryStamp, timeOfDayLabel } from '../../src/messaging/local-time';
 import { offsetMinutesForZone, resolveOffsetMinutes } from '../../src/messaging/world-time';
+import { nextDailyFireAt } from '../../src/accountability/schedule.service';
 
 describe('time-of-day anchoring (Karibi 2026-06-30)', () => {
   describe('timeOfDayLabel', () => {
@@ -75,6 +76,19 @@ describe('time-of-day anchoring (Karibi 2026-06-30)', () => {
     });
     it('returns null when neither a zone nor an offset is known', () => {
       expect(resolveOffsetMinutes(null, null, winter)).toBeNull();
+    });
+
+    it('recurring "daily 7am" recomputes from the zone so it does not drift across DST', () => {
+      // Created in summer as -240 (EDT). Re-enqueuing in winter must use the live
+      // -300 (EST) so 7am local stays 7am, not 6am.
+      const winterMorning = new Date('2026-01-15T05:00:00Z'); // 00:00 EST
+      const liveOffset = resolveOffsetMinutes('America/New_York', -240, winterMorning);
+      expect(liveOffset).toBe(-300);
+      const fixed = nextDailyFireAt(winterMorning, '07:00', liveOffset!);
+      expect(fixed.getUTCHours()).toBe(12); // 07:00 EST == 12:00 UTC ✓
+      // With the STALE summer offset it would fire at 11:00 UTC = 06:00 EST (1h early).
+      const drifted = nextDailyFireAt(winterMorning, '07:00', -240);
+      expect(drifted.getUTCHours()).toBe(11);
     });
   });
 

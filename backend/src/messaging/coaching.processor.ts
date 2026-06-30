@@ -1114,7 +1114,7 @@ export class CoachingProcessor {
         message: string;
         recurrence?: { rule: 'daily'; local_time: string } | null;
       }) => {
-        const offset = liveUser.utc_offset_minutes ?? null;
+        const offset = resolveOffsetMinutes(liveUser.iana_timezone, liveUser.utc_offset_minutes);
         const now = Date.now();
         const resolved = resolveReminderFireAt(input, offset, now);
         if (!resolved.ok) return { ok: false as const, error: resolved.error };
@@ -1135,6 +1135,7 @@ export class CoachingProcessor {
                 rule: ReminderRecurrence.DAILY,
                 localTime: input.recurrence.local_time,
                 offsetMinutes: offset as number,
+                ianaTimezone: liveUser.iana_timezone,
               }
             : null,
         });
@@ -1558,7 +1559,8 @@ export class CoachingProcessor {
     messageHandle: string | null = null,
   ) {
     const userId = user.id;
-    const userOffsetMinutes = user.utc_offset_minutes;
+    // DST-correct live offset from the IANA zone when known, else the frozen integer.
+    const userOffsetMinutes = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
     const handlers: CoachingToolHandlers = {
       scheduleReminder: async (input: {
         fire_at_iso?: string;
@@ -1593,6 +1595,7 @@ export class CoachingProcessor {
                 rule: ReminderRecurrence.DAILY,
                 localTime: input.recurrence.local_time,
                 offsetMinutes: userOffsetMinutes as number,
+                ianaTimezone: user.iana_timezone,
               }
             : null,
         });

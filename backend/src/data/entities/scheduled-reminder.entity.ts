@@ -61,6 +61,12 @@ export class ScheduledReminder {
   @Column({ type: 'integer', nullable: true })
   recurrence_offset_minutes: number | null;
 
+  // IANA zone snapshotted at creation. When set, each occurrence recomputes the
+  // offset LIVE from this zone so a "daily 7am" stays at 7am across DST flips
+  // instead of drifting 1h (recurrence_offset_minutes is the fallback). Karibi 2026-06-30.
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  recurrence_iana_timezone: string | null;
+
   // First row in a recurring chain points to itself (set after insert). Each
   // re-enqueued occurrence carries the same parent_id so `cancel(parent_id)`
   // can stop a whole series in one call.
