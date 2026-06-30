@@ -89,6 +89,23 @@ export interface TimeContext {
   userOffsetMinutes: number | null;
 }
 
+/**
+ * Deterministic time-of-day label from the user's local clock. The model
+ * otherwise infers day/night from the CONVERSATION (an older late-night
+ * exchange still in history) and tells the user to "go to sleep" at noon —
+ * Karibi 2026-06-30. This anchors the framing to the real clock.
+ */
+function timeOfDayLabel(nowUtc: Date, offsetMinutes: number): string {
+  const localMin =
+    (((nowUtc.getUTCHours() * 60 + nowUtc.getUTCMinutes() + offsetMinutes) % 1440) + 1440) % 1440;
+  const h = Math.floor(localMin / 60);
+  if (h >= 5 && h < 12) return 'morning';
+  if (h >= 12 && h < 17) return 'the afternoon';
+  if (h >= 17 && h < 21) return 'the evening';
+  if (h >= 21 && h <= 23) return 'night';
+  return 'the middle of the night (the user should be asleep)';
+}
+
 function formatTimeContext(ctx: TimeContext): string {
   const utcIso = ctx.nowUtc.toISOString();
   if (ctx.userOffsetMinutes === null) {
@@ -96,6 +113,7 @@ function formatTimeContext(ctx: TimeContext): string {
       'CURRENT TIME:',
       `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
       '- USER TIMEZONE: unknown — ask the user before scheduling anything time-specific. NEVER guess or compute what time it is for them; ask.',
+      "- TIME OF DAY: unknown — do NOT assume it's day or night. Do NOT tell them to go to sleep / wake up, say goodnight/good morning, or reference a morning wake-up. Older messages in this thread are NOT a clue to the current time.",
       '',
     ].join('\n');
   }
@@ -114,6 +132,7 @@ function formatTimeContext(ctx: TimeContext): string {
     'CURRENT TIME:',
     `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
     `- USER LOCAL CLOCK: ${localPretty} — user offset is UTC${sign}${h}:${m}`,
+    `- TIME OF DAY: it is currently ${timeOfDayLabel(ctx.nowUtc, ctx.userOffsetMinutes)} for the user. Greet and frame by THIS. Do NOT tell them to go to sleep, say goodnight, or reference a morning/7am wake-up unless the local clock above is actually night or the middle of the night. CRITICAL: IGNORE the time implied by OLDER messages in this thread (a late-night exchange from a previous day is NOT now) — the USER LOCAL CLOCK line is the ONLY source of truth for what time it is.`,
     '- when the user asks what time it is for them (or you reference their local time), COPY the time from the USER LOCAL CLOCK line above EXACTLY — digit for digit. Do NOT add "around"/"about", do NOT round, do NOT subtract for "how long this took", do NOT compute or do timezone math in your head — you get it wrong every time. The value on that line is already their current local time. Just copy it.',
     '',
     'SCHEDULING — DO NOT DO TIME MATH. let the schedule_reminder tool do it:',

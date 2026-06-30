@@ -431,6 +431,37 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('UTC-08:00');
     });
 
+    it('anchors time-of-day to the clock so it never tells a midday user to sleep (Karibi 2026-06-30)', () => {
+      // 12:05pm local (UTC+5, 07:05 UTC) — the noon "go to sleep" bug.
+      const nowUtc = new Date('2026-05-18T07:05:00Z');
+      const prompt = buildSystemPrompt(
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
+        { nowUtc, userOffsetMinutes: 300 },
+      );
+      expect(prompt).toContain('TIME OF DAY: it is currently the afternoon');
+      expect(prompt).toMatch(/do NOT tell them to go to sleep/i);
+      expect(prompt).toMatch(/ONLY source of truth/i);
+    });
+
+    it('does not assert day or night when the offset is unknown', () => {
+      const prompt = buildSystemPrompt(
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
+        { nowUtc: new Date('2026-05-18T10:00:00Z'), userOffsetMinutes: null },
+      );
+      expect(prompt).toContain('TIME OF DAY: unknown');
+      expect(prompt).toMatch(/do NOT assume it's day or night/i);
+    });
+
     it('omits time section when no context provided', () => {
       const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
       // "CURRENT TIME" appears in CAPABILITIES prose referencing the section, so
