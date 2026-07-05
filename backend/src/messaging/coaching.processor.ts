@@ -54,7 +54,7 @@ import { splitBubbles } from './bubbles';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
-import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone } from './world-time';
+import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone, resolveOffsetMinutes } from './world-time';
 import { isOffsetPlausibleForPhone } from './phone-timezone';
 import { detectQuestionLoop, detectRepeatedChoiceLoop, isLoopCallout } from './question-loop';
 import { humanizeTask } from '../ai/prompts/checkin.prompt';
@@ -508,23 +508,25 @@ export class CoachingProcessor {
     // no media so a photo + "what time is it" caption still routes to vision, and
     // on a known offset so we never guess a timezone — without one, fall through
     // and the AI asks the user for their city.
-    if (numMedia === 0 && isTimeQuery(body) && user.utc_offset_minutes != null) {
-      const clock = formatLocalClock12h(new Date(), user.utc_offset_minutes);
-      structuredLog(this.logger, 'log', {
-        service: 'messaging',
-        operation: 'time_query_answered',
-        userId: user.id,
-        channel,
-      });
-      await this.saveAndSend(user, boundary.sessionId, `it's ${clock} your time.`);
-      return;
-    }
-
-    // Same question, no known timezone (RC-2). NEVER let the model answer — it
-    // fabricates ("it's 3:13pm" when it's 10:05pm). Ask for their city
-    // deterministically; the city->offset parser below captures it and the next
-    // "what time is it" is answered exactly. Covers intake and coaching alike.
-    if (numMedia === 0 && isTimeQuery(body) && user.utc_offset_minutes == null) {
+    if (numMedia === 0 && isTimeQuery(body)) {
+      // DST-correct live offset from the IANA zone when we have one, else the
+      // frozen integer. null = no timezone known yet.
+      const clockOffset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
+      if (clockOffset != null) {
+        const clock = formatLocalClock12h(new Date(), clockOffset);
+        structuredLog(this.logger, 'log', {
+          service: 'messaging',
+          operation: 'time_query_answered',
+          userId: user.id,
+          channel,
+        });
+        await this.saveAndSend(user, boundary.sessionId, `it's ${clock} your time.`);
+        return;
+      }
+      // No known timezone (RC-2). NEVER let the model answer — it fabricates
+      // ("it's 3:13pm" when it's 10:05pm). Ask for their city deterministically;
+      // the city->offset parser below captures it and the next "what time is it"
+      // is answered exactly. Covers intake and coaching alike.
       structuredLog(this.logger, 'log', {
         service: 'messaging',
         operation: 'time_query_no_offset_ask_city',
@@ -558,9 +560,40 @@ export class CoachingProcessor {
           { user_id: user.id, status: SubscriptionStatus.TRIALING },
         ],
       });
-      if (entitledSub) {
+
+      // A local entitled sub means the webhook already ran but the stage flip
+      // lagged. If there's NO local sub yet but they were sent a checkout link,
+      // the webhook itself may simply not have landed — verify with Stripe
+      // directly off the stored checkout session. Without this, a user who just
+      // paid (KIBA "knows" via Stripe) keeps getting re-pitched the link in the
+      // intake PAYWALL phase ("tap the link and confirm you're in") until the
+      // webhook catches up — the exact FOMO-to-a-paid-user bug (Karibi 2026-06-30).
+      let entitled = !!entitledSub;
+      let healSource: 'local_sub' | 'stripe_session' = 'local_sub';
+      if (!entitled && user.payment_link_sent_at && user.stripe_checkout_session_id) {
+        try {
+          const session = await this.stripeService.getCheckoutSession(
+            user.stripe_checkout_session_id,
+          );
+          // 'complete' = checkout finished (subscription + trial created). For a
+          // trial there's no immediate charge, so payment_status is
+          // 'no_payment_required' — gate on session status, not payment_status.
+          if (session.status === 'complete') {
+            entitled = true;
+            healSource = 'stripe_session';
+          }
+        } catch (err) {
+          // Stripe hiccup must never block the live reply — fall through to the
+          // normal intake path (worst case: the webhook heals it momentarily).
+          this.logger.warn(
+            `[StageSelfHeal] Stripe session lookup failed for ${user.id}: ${(err as Error).message}`,
+          );
+        }
+      }
+
+      if (entitled) {
         this.logger.warn(
-          `[StageSelfHeal] entitled sub but stage=${user.onboarding_stage} for ${user.id} — promoting to COMPLETE`,
+          `[StageSelfHeal] paid (${healSource}) but stage=${user.onboarding_stage} for ${user.id} — promoting to COMPLETE`,
         );
         user.onboarding_stage = OnboardingStage.COMPLETE;
         await this.userRepo.update(user.id, { onboarding_stage: OnboardingStage.COMPLETE });
@@ -568,6 +601,7 @@ export class CoachingProcessor {
           service: 'messaging',
           operation: 'stage_self_heal_to_complete',
           userId: user.id,
+          source: healSource,
         });
       }
     }
@@ -815,6 +849,14 @@ export class CoachingProcessor {
       const isImage = inboundIsImage;
       const isAudio = mediaCt.startsWith('audio/');
       const isVideo = mediaCt.startsWith('video/');
+      // A GIF is reaction media (Giphy/Tenor/meme), not a photo of real work.
+      // Anthropic vision only reads one frozen frame of it, so treating it like
+      // a proof photo both (a) auto-logs a meme as completed-task proof — proof
+      // validation fails OPEN, so a reaction would award a score — and (b) makes
+      // the model describe a single ambiguous frame, then contradict itself
+      // ("why you looking at me like that" → "nah what gif?"). Branch it out of
+      // proof, and ground the reply so it reacts coherently. (Karibi 2026-06-30)
+      const isGif = mediaCt === 'image/gif';
 
       // Non-image media: voice notes / video / unknown blobs route here. We
       // can't run vision on audio bytes (that's how the "couldn't read that
@@ -848,12 +890,12 @@ export class CoachingProcessor {
       // (accept) — wrongly rejecting a real user's proof is far worse than letting
       // a borderline one through.
       let proofMatch: 'accept' | 'mismatch' = 'accept';
-      if (task && mediaUrl) {
+      if (task && mediaUrl && !isGif) {
         const verdict = await this.visionService.validateProofFromUrl(task.task_description, mediaUrl, mediaCt);
         if (!verdict.is_valid && verdict.confidence >= 0.8) proofMatch = 'mismatch';
       }
 
-      if (task && proofMatch === 'accept') {
+      if (task && proofMatch === 'accept' && !isGif) {
         await this.proofService.submitProof({
           userId: user.id,
           taskId: task.id,
@@ -889,11 +931,19 @@ export class CoachingProcessor {
         ...derivePatternSignals(user),
         loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
       };
+      const caption = body !== '[image]' ? body : '';
+      // Ground the model that a reaction GIF arrived so it reacts naturally and
+      // never denies seeing it / asks them to resend (it only gets one frame).
+      const incomingText = isGif
+        ? [caption, '(the user sent a reaction GIF — react to it like a text from a friend; never say you can\'t see it or ask them to send it again)']
+            .filter(Boolean)
+            .join(' ')
+        : caption;
       const genStart = Date.now();
       const { reply, tokenCount } = await this.coachingService.generateReply(
         user,
         dbMessages,
-        body !== '[image]' ? body : '',
+        incomingText,
         latestSummary?.summary,
         mediaUrls.slice(0, 4),
         mediaContentTypes.slice(0, 4),
@@ -972,18 +1022,28 @@ export class CoachingProcessor {
         // Persist the city NAME too (not just the derived offset) so the coaching
         // prompt can use it and catch contradictions ("since when are you in X?").
         const cityName = parseCity(body);
+        // Capture the IANA zone too (DST-correct year-round) when the city is one
+        // world-time knows; falls back to the frozen offset otherwise. Karibi 2026-06-30.
+        const cityZone = resolvePlaceTimezone(cityName)?.zone ?? null;
         const intakeWithCity: IntakeData = { ...(user.intake_data ?? {}) };
         if (cityName && !intakeWithCity.city) intakeWithCity.city = cityName;
         await this.userRepo.update(user.id, {
           utc_offset_minutes: cityOffset,
+          ...(cityZone ? { iana_timezone: cityZone } : {}),
           intake_data: intakeWithCity,
         });
-        user = { ...user, utc_offset_minutes: cityOffset, intake_data: intakeWithCity };
+        user = {
+          ...user,
+          utc_offset_minutes: cityOffset,
+          ...(cityZone ? { iana_timezone: cityZone } : {}),
+          intake_data: intakeWithCity,
+        };
         structuredLog(this.logger, 'log', {
           service: 'onboarding',
           operation: 'tz_captured_from_city',
           userId: user.id,
           utcOffsetMinutes: cityOffset,
+          ianaTimezone: cityZone ?? undefined,
           city: cityName ?? undefined,
         });
         this.flagOffsetPhoneMismatch(user.id, user.phone_number, cityOffset, 'city');
@@ -1007,7 +1067,7 @@ export class CoachingProcessor {
     const ctx = {
       name: user.name,
       intakeData: (user.intake_data ?? {}) as IntakeData,
-      utcOffsetMinutes: user.utc_offset_minutes ?? null,
+      utcOffsetMinutes: resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes),
       nowUtc: new Date(),
       paymentLinkSent: !!user.payment_link_sent_at,
       sampleCoachingGiven: !!user.sample_coaching_given,
@@ -1054,7 +1114,7 @@ export class CoachingProcessor {
         message: string;
         recurrence?: { rule: 'daily'; local_time: string } | null;
       }) => {
-        const offset = liveUser.utc_offset_minutes ?? null;
+        const offset = resolveOffsetMinutes(liveUser.iana_timezone, liveUser.utc_offset_minutes);
         const now = Date.now();
         const resolved = resolveReminderFireAt(input, offset, now);
         if (!resolved.ok) return { ok: false as const, error: resolved.error };
@@ -1075,6 +1135,7 @@ export class CoachingProcessor {
                 rule: ReminderRecurrence.DAILY,
                 localTime: input.recurrence.local_time,
                 offsetMinutes: offset as number,
+                ianaTimezone: liveUser.iana_timezone,
               }
             : null,
         });
@@ -1498,7 +1559,8 @@ export class CoachingProcessor {
     messageHandle: string | null = null,
   ) {
     const userId = user.id;
-    const userOffsetMinutes = user.utc_offset_minutes;
+    // DST-correct live offset from the IANA zone when known, else the frozen integer.
+    const userOffsetMinutes = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
     const handlers: CoachingToolHandlers = {
       scheduleReminder: async (input: {
         fire_at_iso?: string;
@@ -1533,6 +1595,7 @@ export class CoachingProcessor {
                 rule: ReminderRecurrence.DAILY,
                 localTime: input.recurrence.local_time,
                 offsetMinutes: userOffsetMinutes as number,
+                ianaTimezone: user.iana_timezone,
               }
             : null,
         });

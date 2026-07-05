@@ -8,6 +8,7 @@ import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { AntiGhostState, GhostState } from '../data/entities/anti-ghost-state.entity';
 import { MessagingService } from '../messaging/messaging.service';
+import { resolveOffsetMinutes } from '../messaging/world-time';
 import {
   buildSurpriseMessage,
   pickSurpriseFlavor,
@@ -155,7 +156,7 @@ export class SurpriseService {
     if (user.status === UserStatus.CANCELLED) return false;
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) return false;
     if (user.crisis_hold) return false;
-    if (user.utc_offset_minutes === null || user.utc_offset_minutes === undefined) return false;
+    if (resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes) == null) return false;
 
     // Fully-dormant users (no activity in 14 days) need ghost-reengagement,
     // not surprises. Don't pile a "scale of 1-10" on top of a dead inbox.
@@ -175,7 +176,7 @@ export class SurpriseService {
    */
   private pickWeeklySlots(user: User): Date[] {
     const count = SURPRISES_PER_WEEK_MIN + Math.floor(Math.random() * (SURPRISES_PER_WEEK_MAX - SURPRISES_PER_WEEK_MIN + 1));
-    const offsetMin = user.utc_offset_minutes ?? 0;
+    const offsetMin = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes) ?? 0;
 
     // Find the next Monday in user-local time. We're running on Sunday evening
     // by convention but accept any day of week for the planning call.

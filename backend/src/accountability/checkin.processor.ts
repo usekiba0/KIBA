@@ -23,6 +23,7 @@ import { RecapService } from './recap.service';
 import { WeeklyReviewService } from './weekly-review.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { CoachingService } from '../ai/coaching.service';
+import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
@@ -157,7 +158,7 @@ export class CheckinProcessor {
       // re-enqueue the same target minute at fire time. We CLAIM the user-local
       // day with a single conditional UPDATE — only one job per local day wins;
       // the rest skip the send (but still re-enqueue tomorrow below).
-      const offset = user.utc_offset_minutes ?? null;
+      const offset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
       const localDate = localDateString(offset);
       const claim = await this.userRepo
         .createQueryBuilder()
@@ -189,9 +190,14 @@ export class CheckinProcessor {
         const localDow = offset !== null
           ? new Date(Date.now() + offset * 60_000).getUTCDay()
           : null;
+        // Local hour at send time so the greeting word matches the real clock
+        // (a PM check-in time no longer opens with "morning"). Karibi 2026-06-30.
+        const localHour = offset !== null
+          ? new Date(Date.now() + offset * 60_000).getUTCHours()
+          : null;
         const message = task
-          ? buildCheckinMessage(safeName, profile, task.task_description, { localDow })
-          : buildCheckinMessage(safeName, profile, null, { localDow });
+          ? buildCheckinMessage(safeName, profile, task.task_description, { localDow, localHour })
+          : buildCheckinMessage(safeName, profile, null, { localDow, localHour });
 
         // CRITICAL: wrap send so a Twilio/SendBlue throw can't kill the
         // re-enqueue chain below. We lost cadence for every prod user this way —
@@ -467,7 +473,9 @@ export class CheckinProcessor {
   @Process('ghost-escalate')
   async handleGhostEscalate(job: Job<{ userId: string; taskId: string; level: 2 | 3 | 4 | 5 | 6 }>): Promise<void> {
     const { userId, taskId, level } = job.data;
-    await this.antiGhostService.onEscalate(userId, taskId, level);
+    // Pass the executing job id so onEscalate can drop superseded/orphaned
+    // chains (only the job matching state.current_job_id proceeds).
+    await this.antiGhostService.onEscalate(userId, taskId, level, String(job.id));
   }
 
   /**

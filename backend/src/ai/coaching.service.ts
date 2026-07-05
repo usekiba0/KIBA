@@ -18,6 +18,8 @@ import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt'
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
 import { CorrectionService } from '../data/correction.service';
+import { formatHistoryStamp } from '../messaging/local-time';
+import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
 /** Coaching-mode tools (post-payment). */
@@ -551,9 +553,13 @@ export class CoachingService {
     ]);
 
     const knowledgeTexts = knowledge.map((k) => k.content);
+    // Prefer the DST-correct live offset from the user's IANA zone; fall back to
+    // the frozen integer. Computed once and reused for the clock + history stamps.
+    const nowUtc = new Date();
+    const liveOffset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes, nowUtc);
     const timeContext = {
-      nowUtc: new Date(),
-      userOffsetMinutes: user.utc_offset_minutes ?? null,
+      nowUtc,
+      userOffsetMinutes: liveOffset,
     };
     const userName = user.name ?? 'friend';
     // Whole weeks since signup — gates the week-2 embarrassment elicitation.
@@ -611,6 +617,7 @@ export class CoachingService {
       dispatch,
       userId: user.id,
       operationLabel: 'coaching_reply',
+      userOffsetMinutes: liveOffset,
     });
   }
 
@@ -642,6 +649,7 @@ export class CoachingService {
       dispatch,
       userId: user.id,
       operationLabel: 'intake_reply',
+      userOffsetMinutes: resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes),
     });
   }
 
@@ -732,6 +740,8 @@ export class CoachingService {
     dispatch?: (block: Anthropic.Messages.ToolUseBlock) => Promise<unknown>;
     userId: string;
     operationLabel: string;
+    /** User's UTC offset — when set, history is stamped with local send-times. */
+    userOffsetMinutes?: number | null;
   }): Promise<{ reply: string; tokenCount: number }> {
     const baseModel = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
     // Photos need real OCR + brand/world knowledge — read the "Salata" sign off a
@@ -744,10 +754,16 @@ export class CoachingService {
     const model = hasImages ? visionModel : baseModel;
 
     type MsgParam = Anthropic.Messages.MessageParam;
-    const history: MsgParam[] = args.recentMessages.map((m) => ({
-      role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
-      content: m.content,
-    }));
+    // Stamp each past message with when it was sent (user-local) so the model
+    // can tell an old late-night message from a current one — see formatHistoryStamp.
+    const historyNow = new Date();
+    const history: MsgParam[] = args.recentMessages.map((m) => {
+      const stamp = formatHistoryStamp(m.created_at, args.userOffsetMinutes, historyNow);
+      return {
+        role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
+        content: stamp ? `[${stamp}] ${m.content}` : m.content,
+      };
+    });
 
     // Multi-image: people send several photos at once (a few angles, a couple of
     // screenshots). Claude sees them all in one message, so KIBA reacts to the

@@ -39,6 +39,50 @@ export function formatLocalClockPretty(nowUtc: Date, offsetMinutes: number): str
   return `${hh12}:${mm} ${period}, ${DAYS[local.getUTCDay()]} ${MONTHS[local.getUTCMonth()]} ${local.getUTCDate()}`;
 }
 
+/**
+ * Deterministic time-of-day label from the user's local clock. The model
+ * otherwise infers day/night from the CONVERSATION (an older late-night
+ * exchange still in history) and tells the user to "go to sleep" at noon —
+ * Karibi 2026-06-30. This anchors the framing to the real clock.
+ */
+export function timeOfDayLabel(nowUtc: Date, offsetMinutes: number): string {
+  const localMin =
+    (((nowUtc.getUTCHours() * 60 + nowUtc.getUTCMinutes() + offsetMinutes) % 1440) + 1440) % 1440;
+  const h = Math.floor(localMin / 60);
+  if (h >= 5 && h < 12) return 'morning';
+  if (h >= 12 && h < 17) return 'the afternoon';
+  if (h >= 17 && h < 21) return 'the evening';
+  if (h >= 21 && h <= 23) return 'night';
+  return 'the middle of the night (the user should be asleep)';
+}
+
+/**
+ * Compact recency stamp for a HISTORICAL message — "today 2:04am",
+ * "yesterday 11:30pm", "Sun Jun 21 9:00am". The model is handed up to ~60
+ * cross-day messages with no metadata, so it reads last night's "it's 2am, go
+ * to sleep" as if it were now. Prefixing each past message with when it was
+ * sent (in the user's local day) gives deterministic recency grounding so the
+ * model stops inferring "now" from stale content. Returns null when the offset
+ * is unknown — we can't place the message in the user's day. (Karibi 2026-06-30)
+ */
+export function formatHistoryStamp(
+  msgUtc: Date,
+  offsetMinutes: number | null | undefined,
+  nowUtc: Date,
+): string | null {
+  if (offsetMinutes == null) return null;
+  const local = toLocal(msgUtc, offsetMinutes);
+  const nowLocal = toLocal(nowUtc, offsetMinutes);
+  const clock = formatLocalClock12h(msgUtc, offsetMinutes);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const msgDay = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  const nowDay = Date.UTC(nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate());
+  const delta = Math.round((nowDay - msgDay) / dayMs);
+  if (delta <= 0) return `today ${clock}`;
+  if (delta === 1) return `yesterday ${clock}`;
+  return `${DAYS[local.getUTCDay()].slice(0, 3)} ${MONTHS[local.getUTCMonth()]} ${local.getUTCDate()} ${clock}`;
+}
+
 // Whole-message intent for "what time is it" and its common phrasings, built to
 // tolerate the typos people actually send over SMS ("what tme os it",
 // "whts the time", "wat tym is it"). Anchored to the ENTIRE message (optional

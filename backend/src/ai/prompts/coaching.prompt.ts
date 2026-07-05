@@ -2,7 +2,7 @@ import {
   PsychologicalProfile,
   PressurePreference,
 } from '../../data/entities/psychological-profile.entity';
-import { formatLocalClockPretty } from '../../messaging/local-time';
+import { formatLocalClockPretty, timeOfDayLabel } from '../../messaging/local-time';
 
 interface UserContext {
   id: string;
@@ -96,6 +96,7 @@ function formatTimeContext(ctx: TimeContext): string {
       'CURRENT TIME:',
       `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
       '- USER TIMEZONE: unknown — ask the user before scheduling anything time-specific. NEVER guess or compute what time it is for them; ask.',
+      "- TIME OF DAY: unknown — do NOT assume it's day or night. Do NOT tell them to go to sleep / wake up, say goodnight/good morning, or reference a morning wake-up. Older messages in this thread are NOT a clue to the current time.",
       '',
     ].join('\n');
   }
@@ -114,6 +115,8 @@ function formatTimeContext(ctx: TimeContext): string {
     'CURRENT TIME:',
     `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
     `- USER LOCAL CLOCK: ${localPretty} — user offset is UTC${sign}${h}:${m}`,
+    `- TIME OF DAY: it is currently ${timeOfDayLabel(ctx.nowUtc, ctx.userOffsetMinutes)} for the user. Greet and frame by THIS. Do NOT tell them to go to sleep, say goodnight, or reference a morning/7am wake-up unless the local clock above is actually night or the middle of the night. CRITICAL: IGNORE the time implied by OLDER messages in this thread (a late-night exchange from a previous day is NOT now) — the USER LOCAL CLOCK line is the ONLY source of truth for what time it is.`,
+    '- past messages are prefixed with when they were sent, e.g. "[yesterday 11pm]" — metadata so you know what is recent; anything stamped before today is NOT now. NEVER put a [bracketed time] in your OWN reply.',
     '- when the user asks what time it is for them (or you reference their local time), COPY the time from the USER LOCAL CLOCK line above EXACTLY — digit for digit. Do NOT add "around"/"about", do NOT round, do NOT subtract for "how long this took", do NOT compute or do timezone math in your head — you get it wrong every time. The value on that line is already their current local time. Just copy it.',
     '',
     'SCHEDULING — DO NOT DO TIME MATH. let the schedule_reminder tool do it:',
@@ -483,6 +486,7 @@ EXAMPLES — match this rhythm, not the words:
   user: like 11pm
   KIBA: 😭 you have gym at 7am.
   KIBA: go to sleep.
+  (only because the user just said it's 11pm AND the clock confirms it's late — never tell someone to sleep / say good morning off an OLD message or a guess; read the TIME OF DAY line.)
 
   user: yo you know who funny mike is
   KIBA: yeah, the youtuber. blew up off vine then family vlogs and pranks.[pause]why, what's the connection?

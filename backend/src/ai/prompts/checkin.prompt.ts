@@ -3,6 +3,18 @@ import { PsychologicalProfile } from '../../data/entities/psychological-profile.
 export interface CheckinContext {
   /** User's local day-of-week (Sun=0..Sat=6). Drives Thu/Fri end-of-week push. */
   localDow?: number | null;
+  /** User's local hour (0-23) at send time. Picks the greeting word so a PM
+   * check-in time doesn't open with "morning" (Karibi 2026-06-30). */
+  localHour?: number | null;
+}
+
+/** Greeting word for the actual local hour — never hardcode "morning". */
+function greeting(localHour?: number | null): string {
+  if (localHour == null) return 'morning';
+  if (localHour >= 5 && localHour < 12) return 'morning';
+  if (localHour >= 12 && localHour < 17) return 'afternoon';
+  if (localHour >= 17 && localHour < 22) return 'evening';
+  return 'hey'; // late night / pre-dawn — stay neutral, don't say "morning"
 }
 
 /**
@@ -22,6 +34,7 @@ export function buildCheckinMessage(
   ctx: CheckinContext = {},
 ): string {
   const isThuFri = ctx.localDow === 4 || ctx.localDow === 5;
+  const greet = greeting(ctx.localHour);
 
   // Multi-goal: TaskService stores one combined DailyTask whose description is
   // each goal's action for today, newline-separated. Render those as a single
@@ -33,16 +46,16 @@ export function buildCheckinMessage(
     .filter((l) => l.length > 0);
   if (lines.length > 1) {
     const actions = lines.map(humanizeTask).filter((a) => a.length > 0);
-    if (actions.length > 1) return pickMultiTaskVariant(userName, actions, ctx.localDow ?? null);
+    if (actions.length > 1) return pickMultiTaskVariant(userName, actions, ctx.localDow ?? null, greet);
   }
 
   const task = taskDescription ? humanizeTask(taskDescription) : null;
   if (task) {
     if (isThuFri) return pickEndOfWeekTaskVariant(userName, task, ctx.localDow as 4 | 5);
-    return pickTaskVariant(userName, task, profile);
+    return pickTaskVariant(userName, task, profile, greet);
   }
-  if (isThuFri) return pickEndOfWeekNoTaskVariant(userName, ctx.localDow as 4 | 5);
-  return pickNoTaskVariant(userName);
+  if (isThuFri) return pickEndOfWeekNoTaskVariant(userName, ctx.localDow as 4 | 5, greet);
+  return pickNoTaskVariant(userName, greet);
 }
 
 /**
@@ -83,7 +96,7 @@ export function stripDayPrefix(task: string): string {
  * action for today and asks them to lock in a time for all of them — one
  * message, not one per goal (the "one combined check-in" decision).
  */
-function pickMultiTaskVariant(userName: string, actions: string[], dow: number | null): string {
+function pickMultiTaskVariant(userName: string, actions: string[], dow: number | null, greet: string): string {
   const list = actions.map((a) => `- ${a}`).join('\n');
   const isThuFri = dow === 4 || dow === 5;
   if (isThuFri) {
@@ -91,9 +104,9 @@ function pickMultiTaskVariant(userName: string, actions: string[], dow: number |
     return `${daysLeft} left in the week.\ntoday:\n${list}\nwhat time for each? don't coast into the weekend.`;
   }
   const variants = [
-    `morning. today's moves:\n${list}\nwhat time you hitting each?`,
+    `${greet}. today's moves:\n${list}\nwhat time you hitting each?`,
     `up ${userName}. on the board today:\n${list}\nwhen's each happening?`,
-    `morning ${userName}.\n${list}\nlock in a time for all of these.`,
+    `${greet} ${userName}.\n${list}\nlock in a time for all of these.`,
   ];
   return variants[Math.floor(Math.random() * variants.length)];
 }
@@ -108,11 +121,11 @@ function pickEndOfWeekTaskVariant(userName: string, task: string, dow: 4 | 5): s
   return variants[Math.floor(Math.random() * variants.length)];
 }
 
-function pickEndOfWeekNoTaskVariant(userName: string, dow: 4 | 5): string {
+function pickEndOfWeekNoTaskVariant(userName: string, dow: 4 | 5, greet: string): string {
   const daysLeft = dow === 4 ? 'two days' : 'last day';
   const variants = [
     `${daysLeft} left in the week.\nwhere are you actually at vs where you said you'd be?`,
-    `morning ${userName}. ${daysLeft} left.\nwhat are you doing with today?`,
+    `${greet} ${userName}. ${daysLeft} left.\nwhat are you doing with today?`,
   ];
   return variants[Math.floor(Math.random() * variants.length)];
 }
@@ -121,6 +134,7 @@ function pickTaskVariant(
   userName: string,
   task: string,
   profile: PsychologicalProfile | null,
+  greet: string,
 ): string {
   // Reference profile material only when it reads natural — most days the
   // simple version hits harder than a forced callback.
@@ -128,10 +142,10 @@ function pickTaskVariant(
   const useFigure = figure && !['nobody', 'no one', 'none', 'n/a'].includes(figure.toLowerCase());
 
   const variants = [
-    `morning. "${task}" is on the list.\nwhat time?`,
+    `${greet}. "${task}" is on the list.\nwhat time?`,
     `up. ${task} — what time today. be specific.`,
     `${task} today.\nwhat time you locking in?`,
-    `morning ${userName}.\n${task} — what's the plan?`,
+    `${greet} ${userName}.\n${task} — what's the plan?`,
   ];
 
   // Occasionally lean on the comparison figure — spec says reference personal
@@ -143,10 +157,10 @@ function pickTaskVariant(
   return variants[Math.floor(Math.random() * variants.length)];
 }
 
-function pickNoTaskVariant(userName: string): string {
+function pickNoTaskVariant(userName: string, greet: string): string {
   const variants = [
     `no tasks today.\nhow's everything going?`,
-    `morning ${userName}. rest day — use it right.`,
+    `${greet} ${userName}. rest day — use it right.`,
     'what are you doing with today?',
     'no tasks on the board.\nhow you actually feeling?',
   ];
