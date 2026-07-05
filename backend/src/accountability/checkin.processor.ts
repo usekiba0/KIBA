@@ -473,7 +473,9 @@ export class CheckinProcessor {
   @Process('ghost-escalate')
   async handleGhostEscalate(job: Job<{ userId: string; taskId: string; level: 2 | 3 | 4 | 5 | 6 }>): Promise<void> {
     const { userId, taskId, level } = job.data;
-    await this.antiGhostService.onEscalate(userId, taskId, level);
+    // Pass the executing job id so onEscalate can drop superseded/orphaned
+    // chains (only the job matching state.current_job_id proceeds).
+    await this.antiGhostService.onEscalate(userId, taskId, level, String(job.id));
   }
 
   /**

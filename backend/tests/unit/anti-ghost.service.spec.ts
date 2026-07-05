@@ -113,6 +113,20 @@ describe('AntiGhostService', () => {
         expect.objectContaining({ current_job_id: 'job-123' })
       );
     });
+
+    // Regression: a user who ghosts several mornings in a row must NOT spawn a
+    // second escalation chain each day. Each new chain used to orphan the prior
+    // one (state only tracks the latest job id) and the orphans kept firing —
+    // that stacked up as 4-5 pings in one morning. When already mid-ghost, a
+    // fresh miss is a no-op: no strike, no message, no new escalation job.
+    it('does NOT start a second chain when already mid-ghost', async () => {
+      mockStateRepo.findOne.mockResolvedValue(makeState(GhostState.GHOST_2));
+      await service.onMissedCheckin(userId, taskId);
+      expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+      expect(mockQueue.add).not.toHaveBeenCalled();
+      expect(mockStateRepo.save).not.toHaveBeenCalled();
+    });
   });
 
   describe('onEscalate', () => {
@@ -137,6 +151,32 @@ describe('AntiGhostService', () => {
         expect.objectContaining({ state: GhostState.GHOST_3 })
       );
       expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
+    });
+
+    // Orphan-drain: an escalate job whose id no longer matches the live
+    // current_job_id is a superseded chain (legacy multi-chain user, or a user
+    // who already replied and had current_job_id cleared). It must die silently
+    // — no ping, no state write, no re-schedule.
+    it('drops an orphaned escalate job whose id != current_job_id', async () => {
+      const state = makeState(GhostState.GHOST_2);
+      state.current_job_id = 'live-chain-job';
+      mockStateRepo.findOne.mockResolvedValue(state);
+      await service.onEscalate(userId, taskId, 3, 'orphan-chain-job');
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+      expect(mockStateRepo.save).not.toHaveBeenCalled();
+      expect(mockQueue.add).not.toHaveBeenCalled();
+    });
+
+    // The chain the state points at proceeds normally when the ids match.
+    it('proceeds when the executing job id matches current_job_id', async () => {
+      const state = makeState(GhostState.GHOST_2);
+      state.current_job_id = 'live-chain-job';
+      mockStateRepo.findOne.mockResolvedValue(state);
+      await service.onEscalate(userId, taskId, 3, 'live-chain-job');
+      expect(mockMessagingService.send).toHaveBeenCalled();
+      expect(mockStateRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ state: GhostState.GHOST_3 })
+      );
     });
   });
 
