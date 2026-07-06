@@ -754,13 +754,21 @@ export class CoachingService {
     const model = hasImages ? visionModel : baseModel;
 
     type MsgParam = Anthropic.Messages.MessageParam;
-    // Stamp each past message with when it was sent (user-local) so the model
+    // Stamp each past USER message with when it was sent (user-local) so the model
     // can tell an old late-night message from a current one — see formatHistoryStamp.
+    // Only user turns are stamped: stamping KIBA's own prior replies taught the model
+    // (few-shot from its own history) that assistant replies begin with "[today 8:31pm]",
+    // and it echoed that bracket into outbound texts. Assistant turns gain nothing from a
+    // stamp, so we never add one there. (Karibi 2026-07-06 — "[today 8:31pm]" leak)
     const historyNow = new Date();
     const history: MsgParam[] = args.recentMessages.map((m) => {
-      const stamp = formatHistoryStamp(m.created_at, args.userOffsetMinutes, historyNow);
+      const role = m.role === 'user' ? ('user' as const) : ('assistant' as const);
+      const stamp =
+        role === 'user'
+          ? formatHistoryStamp(m.created_at, args.userOffsetMinutes, historyNow)
+          : null;
       return {
-        role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
+        role,
         content: stamp ? `[${stamp}] ${m.content}` : m.content,
       };
     });
@@ -927,6 +935,14 @@ export class CoachingService {
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
     });
+
+    // Belt-and-suspenders for the "[today 8:31pm]" leak: even with only user turns
+    // stamped, strip any history-stamp the model still parrots at the very start of
+    // its reply. Matches ONLY the stamp shape ([today ...] / [yesterday ...]) so real
+    // brackets survive. Loops to catch a doubled stamp. (Karibi 2026-07-06)
+    const STAMP_LEAK = /^\s*\[\s*(?:today|yesterday)\b[^\]]*\]\s*/i;
+    while (STAMP_LEAK.test(finalReply)) finalReply = finalReply.replace(STAMP_LEAK, '');
+    finalReply = finalReply.trim();
 
     return { reply: finalReply, tokenCount: totalInputTokens + totalOutputTokens };
   }

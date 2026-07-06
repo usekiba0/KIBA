@@ -201,6 +201,52 @@ describe('CoachingService', () => {
     expect(result.reply).toBe('okay 50k, halfway there. which one is closer?');
   });
 
+  // "[today 8:31pm]" leak regression (Karibi 2026-07-06): the history stamp
+  // ("[yesterday 11pm]") is read-only metadata, but it was applied to KIBA's OWN
+  // prior replies too. That taught the model (few-shot from its own turns) that an
+  // assistant reply begins with a bracketed time, and it echoed "[today 8:31pm]"
+  // into outbound texts. Fix = only stamp user turns + strip any leaked stamp.
+  describe('history timestamp stamp', () => {
+    const nov = new Date('2026-07-06T02:00:00Z');
+    const recent = [
+      { role: MessageRole.AI, content: 'yeah you do', created_at: new Date('2026-07-06T01:30:00Z') },
+      { role: MessageRole.USER, content: 'ok', created_at: new Date('2026-07-06T01:45:00Z') },
+    ] as any[];
+
+    it('stamps user turns but never the assistant\'s own prior replies', async () => {
+      mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'pick one.' }], usage: { input_tokens: 10, output_tokens: 5 } });
+      await (service as any).runChat({
+        systemPrompt: 'sys', recentMessages: recent, incomingText: 'hey',
+        userOffsetMinutes: -300, userId: 'u1', operationLabel: 'test',
+      });
+      const sent = mockCreate.mock.calls[0][0];
+      const asst = sent.messages.find((m: any) => m.role === 'assistant' && m.content === 'yeah you do');
+      const usr = sent.messages.find((m: any) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('ok'));
+      // assistant turn carries NO bracket; user turn IS stamped.
+      expect(asst.content).toBe('yeah you do');
+      expect(usr.content).toMatch(/^\[[^\]]+\] ok$/);
+      void nov;
+    });
+
+    it('strips a leaked leading timestamp the model still parrots into its reply', async () => {
+      mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: '[today 8:31pm] nah not right now. pick one.' }], usage: { input_tokens: 10, output_tokens: 5 } });
+      const result = await (service as any).runChat({
+        systemPrompt: 'sys', recentMessages: [], incomingText: 'hey',
+        userOffsetMinutes: -300, userId: 'u1', operationLabel: 'test',
+      });
+      expect(result.reply).toBe('nah not right now. pick one.');
+    });
+
+    it('leaves a genuine leading bracket that is not a stamp alone', async () => {
+      mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: '[gym] locked. what time?' }], usage: { input_tokens: 10, output_tokens: 5 } });
+      const result = await (service as any).runChat({
+        systemPrompt: 'sys', recentMessages: [], incomingText: 'hey',
+        userOffsetMinutes: -300, userId: 'u1', operationLabel: 'test',
+      });
+      expect(result.reply).toBe('[gym] locked. what time?');
+    });
+  });
+
   // RC-1 regression: the coaching dispatch used to gate on fire_at_iso and
   // silently reject every delay_minutes / local_clock reminder the model sent
   // (the schema tells it to PREFER those), making the model improvise "system's
