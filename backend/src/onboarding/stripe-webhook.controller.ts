@@ -120,6 +120,8 @@ export class StripeWebhookController {
               trial_start: trialStart,
               trial_end: trialEnd,
               current_period_end: periodEnd,
+              // Real money vs test-mode — drives the dashboard's real MRR.
+              livemode: event.livemode,
             });
           } else {
             // Returning customer re-paying: relink + reactivate the existing row.
@@ -130,6 +132,7 @@ export class StripeWebhookController {
             sub.trial_start = trialStart;
             sub.trial_end = trialEnd;
             sub.current_period_end = periodEnd;
+            sub.livemode = event.livemode;
           }
           await this.subRepo.save(sub);
         }
@@ -272,6 +275,7 @@ export class StripeWebhookController {
         const sub = await this.subRepo.findOne({ where: { stripe_subscription_id: data.id } });
         if (sub) {
           sub.status = SubscriptionStatus.TRIALING;
+          sub.livemode = event.livemode;
           await this.subRepo.save(sub);
           const user = await this.userRepo.findOne({ where: { id: sub.user_id } });
           if (user) {
@@ -323,6 +327,7 @@ export class StripeWebhookController {
         if (sub) {
           const wasTrialing = sub.status === SubscriptionStatus.TRIALING;
           sub.status = data.status as SubscriptionStatus;
+          sub.livemode = event.livemode;
           if (data.current_period_end) sub.current_period_end = new Date(data.current_period_end * 1000);
           await this.subRepo.save(sub);
           if (wasTrialing && data.status === 'active') {

@@ -14,7 +14,7 @@ interface AdminUser { id: string; name: string; phone_number: string; coaching_f
 interface CoachSettings { coach_alert_phone: string; coach_alert_email: string; }
 interface Message { id: string; session_id: string; role: 'user' | 'ai'; content: string; media_url: string | null; media_content_type: string | null; created_at: string; token_count: number | null; flagged: boolean; flag_reason: string | null; message_type: string; is_checkin_prompt: boolean; is_proof_submission: boolean; }
 interface UserSubDetail { subscription: { stripe_customer_id: string; stripe_subscription_id: string; plan: string; status: string; trial_start: string; trial_end: string; current_period_end: string | null; created_at: string; } | null; stats: { total_messages: number; user_messages: number; ai_messages: number; flagged_messages: number; total_tokens_used: number; first_message_at: string | null; last_message_at: string | null; }; }
-interface DashStats { total_users: number; active_users: number; trial_users: number; paused_users: number; cancelled_users: number; crisis_hold_count: number; active_subs: number; trialing_subs: number; past_due_subs: number; cancelled_subs: number; trial_to_paid_count: number; mrr_cents: number; arr_cents: number; messages_last_24h: number; messages_last_7d: number; flagged_messages_total: number; open_alerts: number; acknowledged_alerts: number; alerts_last_30d: number; }
+interface DashStats { total_users: number; active_users: number; trial_users: number; paused_users: number; cancelled_users: number; crisis_hold_count: number; active_subs: number; trialing_subs: number; past_due_subs: number; cancelled_subs: number; trial_to_paid_count: number; mrr_cents: number; arr_cents: number; stripe_live_mode: boolean; paying_subs: number; test_mode_subs: number; messages_last_24h: number; messages_last_7d: number; flagged_messages_total: number; open_alerts: number; acknowledged_alerts: number; alerts_last_30d: number; }
 interface CrisisAlert { id: string; user_id: string; user_name: string; user_phone: string; detection_method: string; confidence_score: number | null; coach_alerted: boolean; coach_alerted_at: string | null; coach_alert_channel: string | null; holding_message_sent: boolean; status: AlertStatus; resolved_by: string | null; resolved_at: string | null; created_at: string; }
 interface Correction { id: string; user_id: string; triggering_message_id: string | null; correction_text: string; ai_analysis: string | null; ai_validity_score: number | null; ai_suggested_knowledge: string | null; status: CorrectionStatus; knowledge_id: string | null; admin_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string; }
 interface Knowledge { id: string; title: string; content: string; source_correction_id: string | null; active: boolean; created_by: string; created_at: string; updated_at: string; }
@@ -445,10 +445,22 @@ export default function AdminPage() {
 
               {/* Hero row — Revenue */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
-                <StatCard label="MRR" value={money(dashStats.mrr_cents)} sub="monthly recurring revenue" highlight={dashStats.mrr_cents > 0 ? 'green' : undefined} large />
+                <StatCard
+                  label="MRR"
+                  value={money(dashStats.mrr_cents)}
+                  sub={
+                    dashStats.stripe_live_mode === false
+                      ? 'TEST MODE — $0 real revenue'
+                      : dashStats.test_mode_subs > 0
+                        ? `real revenue · ${dashStats.test_mode_subs} test/excluded sub${dashStats.test_mode_subs === 1 ? '' : 's'} not counted`
+                        : 'monthly recurring revenue'
+                  }
+                  highlight={dashStats.mrr_cents > 0 ? 'green' : undefined}
+                  large
+                />
                 <StatCard label="ARR" value={money(dashStats.arr_cents)} sub="annual run rate" large />
                 <StatCard label="Total Users" value={dashStats.total_users} sub="all time" large />
-                <StatCard label="Paid Subscribers" value={dashStats.active_subs} sub="active billing" highlight={dashStats.active_subs > 0 ? 'green' : undefined} large />
+                <StatCard label="Paid Subscribers" value={dashStats.paying_subs} sub={dashStats.test_mode_subs > 0 ? `live billing · ${dashStats.active_subs} active rows` : 'active billing'} highlight={dashStats.paying_subs > 0 ? 'green' : undefined} large />
               </div>
 
               {/* Users + Subscriptions row */}
