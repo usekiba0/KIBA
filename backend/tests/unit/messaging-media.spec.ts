@@ -70,3 +70,51 @@ describe('MessagingService media passthrough', () => {
     );
   });
 });
+
+describe('MessagingService duplicate-send guard (Karibi 2026-07-08)', () => {
+  const LONG = "aight locked. may 29th is the window. finish the game and lock in the link when you're done.";
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedAxios.post.mockResolvedValue({ data: { status: 'QUEUED', message_handle: 'h1' } } as any);
+  });
+
+  it('suppresses an identical long message to the same number within the window', async () => {
+    const svc = makeService({ SENDBLUE_API_KEY_ID: 'kid', SENDBLUE_API_SECRET_KEY: 'secret' });
+    await svc.onModuleInit();
+
+    await svc.send('+15551234567', LONG);
+    await svc.send('+15551234567', LONG); // duplicate
+
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('still sends the same text to a DIFFERENT number', async () => {
+    const svc = makeService({ SENDBLUE_API_KEY_ID: 'kid', SENDBLUE_API_SECRET_KEY: 'secret' });
+    await svc.onModuleInit();
+
+    await svc.send('+15551111111', LONG);
+    await svc.send('+15552222222', LONG);
+
+    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not suppress distinct bubbles in one burst', async () => {
+    const svc = makeService({ SENDBLUE_API_KEY_ID: 'kid', SENDBLUE_API_SECRET_KEY: 'secret' });
+    await svc.onModuleInit();
+
+    await svc.send('+15551234567', 'first distinct bubble that is plenty long here');
+    await svc.send('+15551234567', 'second distinct bubble that is also plenty long');
+
+    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('never suppresses short confirmations (below the length gate)', async () => {
+    const svc = makeService({ SENDBLUE_API_KEY_ID: 'kid', SENDBLUE_API_SECRET_KEY: 'secret' });
+    await svc.onModuleInit();
+
+    await svc.send('+15551234567', 'ok');
+    await svc.send('+15551234567', 'ok');
+
+    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+  });
+});
