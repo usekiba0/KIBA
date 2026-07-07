@@ -349,7 +349,7 @@ describe('CoachingService', () => {
       id: 'm1', session_id: 's1', user_id: 'user-1',
       role: MessageRole.USER, message_type: MessageType.TEXT,
       content: 'I ran 1K yesterday', media_url: null,
-      media_content_type: null, twilio_sid: null, token_count: null,
+      media_content_type: null, twilio_sid: null, provider_message_id: null, token_count: null,
       is_checkin_prompt: false, is_proof_submission: false,
       flagged: false, flag_reason: null, created_at: new Date(),
     }];
