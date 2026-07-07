@@ -15,6 +15,7 @@ import { TaskService } from '../../src/accountability/task.service';
 import { SurpriseService } from '../../src/accountability/surprise.service';
 import { RecapService } from '../../src/accountability/recap.service';
 import { WeeklyReviewService } from '../../src/accountability/weekly-review.service';
+import { ScoreService } from '../../src/accountability/score.service';
 import { StripeService } from '../../src/onboarding/stripe.service';
 import { CoachingService } from '../../src/ai/coaching.service';
 import { ConfigService } from '@nestjs/config';
@@ -92,6 +93,7 @@ describe('CheckinProcessor', () => {
   let mockSurpriseService: any;
   let mockRecapService: any;
   let mockWeeklyReviewService: any;
+  let mockScoreService: any;
   let mockQueue: any;
   let mockStripeService: any;
 
@@ -119,6 +121,9 @@ describe('CheckinProcessor', () => {
     mockSurpriseService = { fire: jest.fn(), scheduleWeek: jest.fn() };
     mockRecapService = { fire: jest.fn(), scheduleAllRecaps: jest.fn(), scheduleRecap: jest.fn() };
     mockWeeklyReviewService = { fire: jest.fn(), scheduleAllReviews: jest.fn(), scheduleReview: jest.fn() };
+    // Default: the trial user showed up all week, so the price reveal celebrates.
+    // Individual tests override this to exercise the ghost / partial tiers.
+    mockScoreService = { countExecutionDays: jest.fn().mockResolvedValue(7) };
     mockQueue = { add: jest.fn().mockResolvedValue({ id: 'missed-job-1' }) };
     mockStripeService = { createCustomer: jest.fn(), createCheckoutSession: jest.fn() };
     const mockConfig = { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') };
@@ -138,6 +143,7 @@ describe('CheckinProcessor', () => {
         { provide: SurpriseService, useValue: mockSurpriseService },
         { provide: RecapService, useValue: mockRecapService },
         { provide: WeeklyReviewService, useValue: mockWeeklyReviewService },
+        { provide: ScoreService, useValue: mockScoreService },
         { provide: StripeService, useValue: mockStripeService },
         { provide: ConfigService, useValue: mockConfig },
         // Win-back nudges are now LLM-generated; return null so the deterministic
@@ -306,6 +312,19 @@ describe('CheckinProcessor', () => {
       );
     });
 
+    it('does NOT congratulate a user who ghosted the trial', async () => {
+      mockScoreService.countExecutionDays.mockResolvedValue(0);
+      mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser });
+
+      await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
+
+      expect(mockScoreService.countExecutionDays).toHaveBeenCalledWith('user-1', expect.any(Number));
+      const body: string = mockMessagingService.send.mock.calls[0][1];
+      expect(body).not.toMatch(/you actually did it/i);
+      expect(body).not.toMatch(/most people fall off by day 3/i);
+      expect(body).toContain('scale my clothing brand'); // still personalised + sells
+    });
+
     it('is idempotent — skips if already revealed', async () => {
       mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser, trial_price_revealed_at: new Date() });
 
@@ -335,19 +354,46 @@ describe('CheckinProcessor', () => {
 });
 
 describe('buildTrialPriceReveal', () => {
-  it('frames the price as the next step after a week, never a "free trial"', () => {
-    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month' });
+  it('celebrates + drops the social proof for a user who actually showed up', () => {
+    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 7 });
     expect(msg).toContain('Alex');
     expect(msg).toContain('get to 100k');
     expect(msg).toContain('$20/month');
-    expect(msg).toMatch(/most people fall off by day 3/i); // social proof
+    expect(msg).toMatch(/most people fall off by day 3/i); // social proof, earned
+    expect(msg).toMatch(/7 days/i);
     expect(msg).not.toMatch(/free trial/i);
   });
 
+  it('NEVER claims a streak for a user who ghosted the trial (Karibi 2026-07-07)', () => {
+    const msg = buildTrialPriceReveal({ name: 'Karibi', goal: 'scale my business', priceDisplay: '$20/month', executionDays: 0 });
+    // The false-praise regression: no "you actually did it", no "fall off by day 3",
+    // no fabricated day count.
+    expect(msg).not.toMatch(/you actually did it/i);
+    expect(msg).not.toMatch(/most people fall off by day 3/i);
+    expect(msg).not.toMatch(/days straight/i);
+    expect(msg).not.toMatch(/\bshowed up\b/i);
+    // Still sells: names the goal + price, honest about the ghosting.
+    expect(msg).toContain('scale my business');
+    expect(msg).toContain('$20/month');
+  });
+
+  it('defaults to the honest (non-praise) copy when no execution signal is given', () => {
+    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month' });
+    expect(msg).not.toMatch(/you actually did it/i);
+    expect(msg).not.toMatch(/most people fall off by day 3/i);
+  });
+
+  it('uses an honest partial-week frame for light engagement (1-3 days)', () => {
+    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 2 });
+    expect(msg).toMatch(/2 days/i);
+    expect(msg).not.toMatch(/most people fall off by day 3/i); // didn't earn the boast
+    expect(msg).toContain('$20/month');
+  });
+
   it('degrades gracefully with no name or goal', () => {
-    const msg = buildTrialPriceReveal({ name: null, goal: null, priceDisplay: '$29/month' });
+    const msg = buildTrialPriceReveal({ name: null, goal: null, priceDisplay: '$29/month', executionDays: 7 });
     expect(msg).toContain('$29/month');
     expect(msg).not.toContain('undefined');
-    expect(msg).not.toContain(' on .'); // no dangling "on <empty>"
+    expect(msg).not.toContain(' for .'); // no dangling "for <empty>"
   });
 });

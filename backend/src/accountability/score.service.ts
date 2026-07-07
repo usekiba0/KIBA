@@ -82,6 +82,37 @@ export class ScoreService {
     return saved;
   }
 
+  /**
+   * How many distinct local days in the last `sinceDays` the user ACTUALLY
+   * executed — a completed task or an accepted proof both count as "showed up
+   * that day". Used to gate praise copy (e.g. the day-7 price reveal) so KIBA
+   * never congratulates a streak that never happened (Karibi 2026-07-07: ghosted
+   * the whole trial, still got "7 days straight, you actually did it"). A task
+   * and its own proof on the same day collapse to one via the day-key Set.
+   */
+  async countExecutionDays(userId: string, sinceDays: number): Promise<number> {
+    const since = new Date();
+    since.setDate(since.getDate() - sinceDays);
+    since.setHours(0, 0, 0, 0);
+
+    const [tasks, proofs] = await Promise.all([
+      this.taskRepo.find({ where: { user_id: userId } }),
+      this.proofRepo.find({ where: { user_id: userId, validation_status: ProofValidationStatus.ACCEPTED } }),
+    ]);
+
+    const dayKey = (d: Date | string): string => new Date(d).toISOString().slice(0, 10);
+    const days = new Set<string>();
+    for (const t of tasks) {
+      if (t.status === TaskStatus.COMPLETED && new Date(t.scheduled_date) >= since) {
+        days.add(dayKey(t.scheduled_date));
+      }
+    }
+    for (const p of proofs) {
+      if (new Date(p.created_at) >= since) days.add(dayKey(p.created_at));
+    }
+    return days.size;
+  }
+
   private calcResponseTimeScore(tasks: DailyTask[], proofs: Proof[]): number {
     const proofMap = new Map(proofs.map(p => [p.task_id, p]));
     const responseTimes: number[] = [];
