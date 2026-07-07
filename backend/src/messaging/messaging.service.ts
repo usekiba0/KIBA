@@ -13,6 +13,17 @@ export class MessagingService implements OnModuleInit {
   private readonly twilioClient: twilio.Twilio;
   private sendBlueReady = false;
 
+  // Last-resort duplicate-send guard. Regardless of the trigger (a re-processed
+  // inbound webhook, a retried job, a SendBlue→Twilio fallback that both landed,
+  // or the model repeating itself), never deliver the SAME text to the SAME
+  // number twice inside a short window (Karibi 2026-07-08 — identical message
+  // sent twice). Keyed on recipient+body; only guards messages long enough that
+  // a legit exact repeat is implausible, so short confirmations ("ok", "done")
+  // are never suppressed. In-memory, so it protects within a single instance.
+  private readonly recentSends = new Map<string, number>();
+  private static readonly SEND_DEDUP_WINDOW_MS = 90_000;
+  private static readonly SEND_DEDUP_MIN_LEN = 25;
+
   /** The six iMessage tapbacks SendBlue accepts. */
   static readonly VALID_REACTIONS = ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question'] as const;
 
@@ -65,6 +76,30 @@ export class MessagingService implements OnModuleInit {
     // and would otherwise ship raw em-dashes/markdown to the phone. humanizeVoice
     // is idempotent, so cleaning here never harms already-clean text.
     const clean = humanizeVoice(body);
+
+    // Duplicate-send guard: drop an identical message to the same number sent
+    // within the window. Prunes expired keys on the way through so the map can't
+    // grow unbounded. Media sends are never suppressed (a repeated caption with a
+    // new attachment is legitimate).
+    if (!mediaUrl && clean.length >= MessagingService.SEND_DEDUP_MIN_LEN) {
+      const now = Date.now();
+      for (const [k, ts] of this.recentSends) {
+        if (now - ts >= MessagingService.SEND_DEDUP_WINDOW_MS) this.recentSends.delete(k);
+      }
+      const key = `${to}::${clean}`;
+      const last = this.recentSends.get(key);
+      if (last !== undefined && now - last < MessagingService.SEND_DEDUP_WINDOW_MS) {
+        structuredLog(this.logger, 'warn', {
+          service: 'messaging',
+          operation: 'duplicate_send_suppressed',
+          to,
+          bodyPreview: clean.slice(0, 60),
+        });
+        return;
+      }
+      this.recentSends.set(key, now);
+    }
+
     const sendBlueKeyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const sendBlueSecret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
 

@@ -31,7 +31,26 @@ export function splitBubbles(reply: string): string[] {
   if (parts.length > MAX_BUBBLES) {
     const head = parts.slice(0, MAX_BUBBLES - 1);
     const tail = parts.slice(MAX_BUBBLES - 1).join(' ');
-    return [...head, tail];
+    return dedupeBubbles([...head, tail]);
   }
-  return parts;
+  return dedupeBubbles(parts);
+}
+
+/**
+ * Drop repeated bubbles so KIBA never sends the same text twice in one burst.
+ * The model sometimes degenerates and emits its whole reply twice (often with a
+ * [pause] between), which otherwise ships as two identical back-to-back messages
+ * (Karibi 2026-07-08). Compares on a normalized form (case/whitespace-folded) so
+ * a near-verbatim repeat is caught too; preserves first-seen order.
+ */
+export function dedupeBubbles(bubbles: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const b of bubbles) {
+    const key = b.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(b);
+  }
+  return out;
 }
