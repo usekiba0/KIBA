@@ -10,7 +10,7 @@ import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job, Queue } from 'bull';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, QueryFailedError } from 'typeorm';
 import {
   User,
   OnboardingStage,
@@ -51,6 +51,7 @@ import {
 import { resolveReminderFireAt, humanizeFireDelta } from './reminder-time';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
+import { referencesRecentPhoto, findRecentInboundImage } from './image-recall';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
@@ -380,17 +381,39 @@ export class CoachingProcessor {
     const boundary = await this.sessionBoundary.checkAndHandle(user.id);
     await this.sessionBoundary.recordMessage(boundary.sessionId);
 
-    // Save inbound message with real session_id
-    const inboundMsg = await this.messageRepo.save({
-      user_id: user.id,
-      session_id: boundary.sessionId,
-      role: MessageRole.USER,
-      message_type: numMedia > 0 ? MessageType.MMS : MessageType.TEXT,
-      content: body,
-      media_url: mediaUrls[0] ?? null,
-      media_content_type: mediaContentTypes[0] ?? null,
-      twilio_sid: twilioSid,
-    });
+    // Save inbound message with real session_id. The unique twilio_sid /
+    // provider_message_id columns make this the ATOMIC, cross-instance dedup
+    // point: a re-delivered webhook (SMS SID or iMessage message_handle already
+    // seen) fails the insert with 23505, and we abort before generating a second
+    // reply. Belt-and-suspenders over the debouncer's in-memory guard, which
+    // can't dedupe across instances (Karibi 2026-07-08 — duplicate replies).
+    let inboundMsg: Message;
+    try {
+      inboundMsg = await this.messageRepo.save({
+        user_id: user.id,
+        session_id: boundary.sessionId,
+        role: MessageRole.USER,
+        message_type: numMedia > 0 ? MessageType.MMS : MessageType.TEXT,
+        content: body,
+        media_url: mediaUrls[0] ?? null,
+        media_content_type: mediaContentTypes[0] ?? null,
+        twilio_sid: twilioSid,
+        provider_message_id: messageHandle,
+      });
+    } catch (err) {
+      if (err instanceof QueryFailedError && (err as unknown as { code?: string }).code === '23505') {
+        structuredLog(this.logger, 'log', {
+          service: 'messaging',
+          operation: 'duplicate_inbound_suppressed',
+          from,
+          channel,
+          twilioSid,
+          messageHandle,
+        });
+        return;
+      }
+      throw err;
+    }
 
     // Phase 1: crisis check + DB fetches in parallel (crisis never waits for DB)
     // LAYER 1 — cross-session memory: history is scoped to the USER, not the
@@ -972,6 +995,26 @@ export class CoachingProcessor {
       loopingOnQuestion: isLoopingOnQuestion(dbMessages, body),
     };
 
+    // Photo recall: the model only sees images on the CURRENT turn, so a
+    // text-only follow-up about a photo the user sent a message ago ("you see
+    // the pic i sent?") otherwise gets "i don't see a photo in this thread."
+    // When the text refers to a photo, re-attach the most recent inbound image
+    // from the last 30 min so KIBA can actually look at it. (Karibi 2026-07-08)
+    let recallUrls: string[] | undefined;
+    let recallCts: string[] | undefined;
+    if (referencesRecentPhoto(body)) {
+      const recalled = findRecentInboundImage(dbMessages, Date.now(), 30 * 60_000);
+      if (recalled) {
+        recallUrls = [recalled.url];
+        recallCts = [recalled.contentType];
+        structuredLog(this.logger, 'log', {
+          service: 'messaging',
+          operation: 'image_recall_reattached',
+          userId: user.id,
+        });
+      }
+    }
+
     // Phase 2: coaching reply (DB context already fetched in Phase 1)
     const genStart = Date.now();
     const { reply, tokenCount } = await this.coachingService.generateReply(
@@ -979,8 +1022,8 @@ export class CoachingProcessor {
       dbMessages,
       body,
       latestSummary?.summary,
-      undefined,
-      undefined,
+      recallUrls,
+      recallCts,
       this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
       todos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
       patterns,

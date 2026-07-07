@@ -41,6 +41,15 @@ export class Message {
   @Column({ type: 'varchar', length: 50, nullable: true })
   twilio_sid: string | null;
 
+  // Provider inbound id (SendBlue/iMessage message_handle). The cross-instance
+  // idempotency key: the inbound row is saved before any reply, and this unique
+  // column makes a re-delivered webhook fail the insert instead of spawning a
+  // second reply. SMS already had this via twilio_sid; iMessage had no equivalent
+  // (Karibi 2026-07-08 — duplicate replies). NULL for AI rows / legacy inbounds.
+  @Index({ unique: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  provider_message_id: string | null;
+
   @Column({ type: 'integer', nullable: true })
   token_count: number | null;
 
