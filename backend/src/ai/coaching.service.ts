@@ -22,6 +22,7 @@ import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/paym
 import { CorrectionService } from '../data/correction.service';
 import { formatHistoryStamp } from '../messaging/local-time';
 import { resolveOffsetMinutes } from '../messaging/world-time';
+import { buildDateFactsBlock, correctTimeClaims } from './time-claim-guard';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
 /** Coaching-mode tools (post-payment). */
@@ -613,6 +614,11 @@ export class CoachingService {
       user.relationship_memory ?? null,
     );
 
+    // Prevention: pre-compute the gap to any date the user named so the model
+    // reads the answer instead of doing (wrong) date math (Karibi 2026-07-08).
+    const dateFacts = buildDateFactsBlock(incomingText, nowUtc, liveOffset);
+    const finalSystemPrompt = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
+
     const tools = toolHandlers
       ? [
           SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, CANCEL_REMINDER_TOOL,
@@ -627,7 +633,7 @@ export class CoachingService {
       : undefined;
 
     return this.runChat({
-      systemPrompt,
+      systemPrompt: finalSystemPrompt,
       recentMessages,
       incomingText,
       imageUrls,
@@ -654,12 +660,17 @@ export class CoachingService {
     imageContentTypes?: string[],
   ): Promise<{ reply: string; tokenCount: number }> {
     const systemPrompt = buildIntakeSystemPrompt(ctx);
+    const intakeOffset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
+    // Prevention: hand the model the exact gap to any date the user named (e.g.
+    // "before May 29") so it never computes it wrong (Karibi 2026-07-08).
+    const dateFacts = buildDateFactsBlock(incomingText, ctx.nowUtc ?? new Date(), intakeOffset);
+    const finalSystemPrompt = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
     const tools = [SAVE_INTAKE_FIELD_TOOL, SEND_PAYMENT_LINK_TOOL, SCHEDULE_REMINDER_TOOL];
     const dispatch = (block: Anthropic.Messages.ToolUseBlock) =>
       this.dispatchIntakeTool(block, toolHandlers, user.id);
 
     return this.runChat({
-      systemPrompt,
+      systemPrompt: finalSystemPrompt,
       recentMessages,
       incomingText,
       imageUrls,
@@ -668,7 +679,7 @@ export class CoachingService {
       dispatch,
       userId: user.id,
       operationLabel: 'intake_reply',
-      userOffsetMinutes: resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes),
+      userOffsetMinutes: intakeOffset,
     });
   }
 
@@ -962,6 +973,27 @@ export class CoachingService {
     const STAMP_LEAK = /^\s*\[\s*(?:today|yesterday)\b[^\]]*\]\s*/i;
     while (STAMP_LEAK.test(finalReply)) finalReply = finalReply.replace(STAMP_LEAK, '');
     finalReply = finalReply.trim();
+
+    // HARD CHECK on any date/time claim before it goes out. The model can't be
+    // trusted to count months to a date — if it states a gap that's provably
+    // wrong vs a date in context, rewrite the number deterministically (no model
+    // call, no latency). Conservative: only acts on a single unambiguous date
+    // and a clear miss. (Karibi 2026-07-08: "May 29 is like 5 months out.")
+    const guard = correctTimeClaims(
+      finalReply,
+      args.incomingText ?? '',
+      new Date(),
+      args.userOffsetMinutes ?? null,
+    );
+    if (guard.corrections.length > 0) {
+      finalReply = guard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'time_claim_corrected',
+        userId: args.userId,
+        corrections: guard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
 
     return { reply: finalReply, tokenCount: totalInputTokens + totalOutputTokens };
   }
