@@ -149,3 +149,46 @@ export class ScoreService {
     return Math.min(1, streak / 7);
   }
 }
+
+/**
+ * Current consecutive-completed-days streak ending today, from a task list.
+ * A day with no task OR a non-completed task breaks the streak — EXCEPT today
+ * with no task yet (that's a pending day, not a break). Multiple tasks on one
+ * day collapse to one day (any COMPLETED that day = the day counts).
+ *
+ * Pure + exported so the coaching prompt can inject the REAL streak as ground
+ * truth instead of letting the model infer/fabricate a "X days straight"
+ * (Karibi 2026-07-07: got "7 days straight, you actually did it" after ghosting
+ * the whole trial). Mirrors ProofService.computeCurrentStreak.
+ */
+export function currentStreakFromTasks(
+  tasks: Array<{ scheduled_date: Date | string; status: TaskStatus }>,
+  now: number = Date.now(),
+): number {
+  if (tasks.length === 0) return 0;
+
+  const byDate = new Map<string, TaskStatus>();
+  for (const t of tasks) {
+    const key = new Date(t.scheduled_date).toISOString().slice(0, 10);
+    const existing = byDate.get(key);
+    if (t.status === TaskStatus.COMPLETED || !existing) byDate.set(key, t.status);
+  }
+
+  let streak = 0;
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  for (let d = 0; d < 60; d++) {
+    const day = new Date(today);
+    day.setDate(today.getDate() - d);
+    const key = day.toISOString().slice(0, 10);
+    const status = byDate.get(key);
+    if (status === TaskStatus.COMPLETED) {
+      streak++;
+    } else {
+      // Today with no task yet is a pending day, not a break.
+      if (d === 0 && status === undefined) continue;
+      break;
+    }
+  }
+  return streak;
+}

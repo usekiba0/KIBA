@@ -362,6 +362,44 @@ describe('buildSystemPrompt', () => {
     });
   });
 
+  describe('streak ground-truth guardrail (Karibi 2026-07-07 false-praise)', () => {
+    const basePatterns = {
+      weakestDow: null,
+      weakestDowMisses: 0,
+      recurringExcuse: null,
+      recurringExcuseCount: 0,
+      lastMilestoneHit: 0,
+      loopingOnQuestion: false,
+    };
+    const withPatterns = (extra: object) =>
+      buildSystemPrompt(
+        mockUser as any, mockProfile as any, 72, 0,
+        undefined, undefined, undefined, undefined,
+        { ...basePatterns, ...extra } as any,
+      );
+
+    it('injects the REAL streak number and tells the model to cite only it', () => {
+      const prompt = withPatterns({ currentStreak: 3 });
+      expect(prompt).toContain('Current streak: 3 consecutive days');
+      expect(prompt.toLowerCase()).toMatch(/use this number only|never round up or invent/);
+    });
+
+    it('singular day for a 1-day streak', () => {
+      expect(withPatterns({ currentStreak: 1 })).toContain('Current streak: 1 consecutive day ');
+    });
+
+    it('for streak 0, forbids claiming a streak / congratulating a run that did not happen', () => {
+      const prompt = withPatterns({ currentStreak: 0 });
+      expect(prompt).toMatch(/Current streak: 0 — they are NOT on a streak/);
+      expect(prompt.toLowerCase()).toMatch(/do not say "x days straight"/);
+    });
+
+    it('defaults to the no-streak guardrail when currentStreak is absent (safe direction)', () => {
+      const prompt = withPatterns({}); // no currentStreak field
+      expect(prompt).toMatch(/Current streak: 0 — they are NOT on a streak/);
+    });
+  });
+
   describe('curated knowledge injection', () => {
     it('injects each entry as a bullet under a labeled section', () => {
       const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0, undefined, [

@@ -147,6 +147,13 @@ export interface PatternSignals {
   /** Highest streak milestone already celebrated (0 if none). */
   lastMilestoneHit: number;
   /**
+   * REAL current streak: consecutive days ending today with a completed task
+   * (0 = not on a streak). Injected as ground truth so KIBA cites the true
+   * number and never fabricates "X days straight" for someone who didn't earn
+   * it (Karibi 2026-07-07). Defaults to 0 (the safe, no-praise direction).
+   */
+  currentStreak?: number;
+  /**
    * Derived in the processor: KIBA has been asking near-identical questions turn
    * after turn (or the user explicitly called out the loop). Surfaces a hard
    * "stop asking, lock it in" steer so a model mid-circle breaks out.
@@ -187,8 +194,17 @@ function formatPatternSignals(p: PatternSignals): string {
   const behavioral = lines.length
     ? ['', 'BEHAVIORAL SIGNALS (derived — use only when the moment calls for it):', ...lines]
     : [];
-  if (urgent.length === 0 && behavioral.length === 0) return '';
-  return [...urgent, ...behavioral].join('\n');
+
+  // ALWAYS-ON ground truth. The model must cite THIS streak and never invent a
+  // "X days straight" (Karibi 2026-07-07: KIBA told a user who ghosted the whole
+  // trial "7 days straight, you actually did it"). streak 0 = no praise, period.
+  const streak = Math.max(0, Math.floor(p.currentStreak ?? 0));
+  const streakFact = streak > 0
+    ? `- Current streak: ${streak} consecutive day${streak === 1 ? '' : 's'} with a completed task. If you reference a streak or day count, use THIS number only — never round up or invent one.`
+    : `- Current streak: 0 — they are NOT on a streak right now. Do NOT say "X days straight", "you're locked in", or congratulate a run that didn't happen. If they've gone quiet or skipped, name it honestly instead of praising.`;
+  const factBlock = ['', 'HARD FACTS (ground truth — cite only these numbers, never fabricate a streak or win):', streakFact];
+
+  return [...urgent, ...factBlock, ...behavioral].join('\n');
 }
 
 function ordinal(n: number): string {

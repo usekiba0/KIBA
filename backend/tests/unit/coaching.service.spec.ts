@@ -7,6 +7,7 @@ import { Message, MessageRole, MessageType } from '../../src/data/entities/messa
 import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
 import { ExecutionScore } from '../../src/data/entities/execution-score.entity';
 import { Strike } from '../../src/data/entities/strike.entity';
+import { DailyTask } from '../../src/data/entities/daily-task.entity';
 import { CorrectionService } from '../../src/data/correction.service';
 
 // Partial mock — cast because User has many columns coaching never reads.
@@ -43,6 +44,7 @@ describe('CoachingService', () => {
   let mockProfileRepo: any;
   let mockScoreRepo: any;
   let mockStrikeRepo: any;
+  let mockTaskRepo: any;
 
   beforeEach(async () => {
     mockCreate = jest.fn().mockResolvedValue({
@@ -58,6 +60,7 @@ describe('CoachingService', () => {
     };
     mockScoreRepo = { findOne: jest.fn().mockResolvedValue(testScore) };
     mockStrikeRepo = { count: jest.fn().mockResolvedValue(2) };
+    mockTaskRepo = { find: jest.fn().mockResolvedValue([]) };
     const mockUserRepo = {
       findOne: jest.fn().mockResolvedValue(testUser),
       update: jest.fn().mockResolvedValue({}),
@@ -73,6 +76,7 @@ describe('CoachingService', () => {
         { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
         { provide: getRepositoryToken(ExecutionScore), useValue: mockScoreRepo },
         { provide: getRepositoryToken(Strike), useValue: mockStrikeRepo },
+        { provide: getRepositoryToken(DailyTask), useValue: mockTaskRepo },
         { provide: CorrectionService, useValue: mockCorrectionService },
         {
           provide: ConfigService,

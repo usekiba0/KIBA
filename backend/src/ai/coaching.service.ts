@@ -13,7 +13,9 @@ import { Message } from '../data/entities/message.entity';
 import { PsychologicalProfile, PressurePreference } from '../data/entities/psychological-profile.entity';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { Strike } from '../data/entities/strike.entity';
-import { buildSystemPrompt } from './prompts/coaching.prompt';
+import { DailyTask } from '../data/entities/daily-task.entity';
+import { currentStreakFromTasks } from '../accountability/score.service';
+import { buildSystemPrompt, PatternSignals } from './prompts/coaching.prompt';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
@@ -349,6 +351,8 @@ export class CoachingService {
     private readonly scoreRepo: Repository<ExecutionScore>,
     @InjectRepository(Strike)
     private readonly strikeRepo: Repository<Strike>,
+    @InjectRepository(DailyTask)
+    private readonly taskRepo: Repository<DailyTask>,
     private readonly correctionService: CorrectionService,
   ) {
     this.client = createAnthropicClient(config);
@@ -534,7 +538,7 @@ export class CoachingService {
       loopingOnQuestion?: boolean;
     },
   ): Promise<{ reply: string; tokenCount: number }> {
-    const [profile, latestScore, strikeCount, knowledge] = await Promise.all([
+    const [profile, latestScore, strikeCount, knowledge, recentTasks] = await Promise.all([
       // SMS-first onboarding never created a profile row — lazy-create from
       // intake_data so the coaching prompt always has structured psych context
       // (and the AI never falls back to the no-profile generic prompt).
@@ -550,7 +554,11 @@ export class CoachingService {
         },
       }),
       this.correctionService.getActiveKnowledge(),
+      // Last 60 days of tasks → the REAL current streak, injected as ground truth
+      // so the model never fabricates "X days straight" (Karibi 2026-07-07).
+      this.taskRepo.find({ where: { user_id: user.id }, order: { scheduled_date: 'DESC' }, take: 60 }),
     ]);
+    const currentStreak = currentStreakFromTasks(recentTasks);
 
     const knowledgeTexts = knowledge.map((k) => k.content);
     // Prefer the DST-correct live offset from the user's IANA zone; fall back to
@@ -579,6 +587,17 @@ export class CoachingService {
       // Layer 3 — durable "never forget" facts (append-only anchor list).
       facts: intake.notes && intake.notes.length ? intake.notes : null,
     };
+    // Fold the REAL streak into the pattern signals so it always reaches the
+    // prompt as ground truth, even if the caller passed no other signals.
+    const patternsWithStreak: PatternSignals = {
+      weakestDow: patterns?.weakestDow ?? null,
+      weakestDowMisses: patterns?.weakestDowMisses ?? 0,
+      recurringExcuse: patterns?.recurringExcuse ?? null,
+      recurringExcuseCount: patterns?.recurringExcuseCount ?? 0,
+      lastMilestoneHit: patterns?.lastMilestoneHit ?? 0,
+      loopingOnQuestion: patterns?.loopingOnQuestion,
+      currentStreak,
+    };
     const systemPrompt = buildSystemPrompt(
       { id: user.id, name: userName, phone_number: user.phone_number },
       profile,
@@ -588,7 +607,7 @@ export class CoachingService {
       knowledgeTexts,
       timeContext,
       todos,
-      patterns,
+      patternsWithStreak,
       weeksIn,
       knownFacts,
       user.relationship_memory ?? null,
