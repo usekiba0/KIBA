@@ -1,5 +1,5 @@
 import { IntakeData, OnboardingVariant } from '../../data/entities/user.entity';
-import { formatLocalClockPretty, timeOfDayLabel } from '../../messaging/local-time';
+import { formatLocalClockPretty, timeOfDayLabel, formatDateWithYear } from '../../messaging/local-time';
 
 export interface IntakeContext {
   /** What we know already — may be empty for a first-time texter */
@@ -187,12 +187,20 @@ export function buildIntakeSystemPrompt(ctx: IntakeContext): string {
   // line referenced by the TIMEZONE section ("compute from the CURRENT TIME
   // context") used to be missing entirely, so the model invented the time. The
   // value here is already the user's CURRENT local clock — copy it, never compute.
+  // TODAY'S DATE — ALWAYS injected (does not need their timezone). Without it the
+  // model guesses the current month and botches deadline math: it told a July
+  // user that May 29 was "like 5 months out" (Karibi 2026-07-08). Deadline math
+  // MUST be counted from this date, never estimated.
+  const dateLine = ctx.nowUtc
+    ? `- TODAY'S DATE: ${formatDateWithYear(ctx.nowUtc, ctx.utcOffsetMinutes ?? null)}. when they name a future date or deadline (e.g. "by May 29", "before summer", a trip), count how far away it is FROM TODAY'S DATE — never estimate the gap or guess the current month. if which year they mean is unclear, assume the NEXT time that date comes around. if a date they name has already passed this year, it's next year.\n`
+    : '';
   const timeBlock =
     ctx.nowUtc && ctx.utcOffsetMinutes !== null
-      ? `CURRENT TIME:\n- USER LOCAL CLOCK (already their current local time — when they ask what time it is, copy this EXACTLY, digit for digit; do NOT add "around", round, or do any math): ${formatLocalClockPretty(ctx.nowUtc, ctx.utcOffsetMinutes)}\n- TIME OF DAY: it is currently ${timeOfDayLabel(ctx.nowUtc, ctx.utcOffsetMinutes)} for the user — frame by THIS, not by what older messages imply. Do NOT say "tonight"/"this morning"/"go to sleep" unless the clock above actually says so.\n- past messages may be prefixed with when they were sent, e.g. "[yesterday 11pm]" — that is metadata for recency; never put a [bracketed time] in your OWN reply.\n\n`
+      ? `CURRENT TIME:\n${dateLine}- USER LOCAL CLOCK (already their current local time — when they ask what time it is, copy this EXACTLY, digit for digit; do NOT add "around", round, or do any math): ${formatLocalClockPretty(ctx.nowUtc, ctx.utcOffsetMinutes)}\n- TIME OF DAY: it is currently ${timeOfDayLabel(ctx.nowUtc, ctx.utcOffsetMinutes)} for the user — frame by THIS, not by what older messages imply. Do NOT say "tonight"/"this morning"/"go to sleep" unless the clock above actually says so.\n- past messages may be prefixed with when they were sent, e.g. "[yesterday 11pm]" — that is metadata for recency; never put a [bracketed time] in your OWN reply.\n\n`
       : // RC-2: no timezone yet. The model used to invent a clock time here
         // ("it's 3:13pm in Houston" when it was 10:05pm). Forbid it explicitly.
-        `CURRENT TIME:\n- you do NOT know their timezone yet. NEVER state or guess a clock time — don't say "it's 3pm", "this late", "rest of your day", or reference any specific hour. if they ask what time it is, or it would come up, ask what city they're in instead. never make one up.\n\n`;
+        // The DATE is still safe to state (and required for deadline math).
+        `CURRENT TIME:\n${dateLine}- you do NOT know their timezone yet. NEVER state or guess a clock TIME — don't say "it's 3pm", "this late", "rest of your day", or reference any specific hour. if they ask what time it is, or it would come up, ask what city they're in instead. never make one up.\n\n`;
 
   // RC-4: hard anti-loop steer when the guard detects circling (or the user
   // called it out). Placed first so it overrides the build sequence.
