@@ -21,6 +21,7 @@ import { TaskService } from './task.service';
 import { SurpriseService } from './surprise.service';
 import { RecapService } from './recap.service';
 import { WeeklyReviewService } from './weekly-review.service';
+import { ScoreService } from './score.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { CoachingService } from '../ai/coaching.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
@@ -93,24 +94,51 @@ export function buildDunningNudge(
  * after a week of value — NOT a surprise bill and NOT a SaaS "your trial ends"
  * notice. Personalised with their goal; price comes from STRIPE_PRICE_DISPLAY.
  * Pure + exported for testing. humanizeVoice at send() handles the em-dash.
+ *
+ * The opener is GATED on actual follow-through (`executionDays` = distinct days
+ * they completed a task or sent accepted proof). KIBA must never claim a streak
+ * that didn't happen — Karibi 2026-07-07 ghosted the entire trial and still got
+ * "7 days straight, you actually did it, most people fall off by day 3 and you
+ * didn't." That false praise nukes credibility. Three honest tiers below; the
+ * price + DoorDash close is identical across all of them. Defaults to 0 days
+ * (the honest ghost copy) so a missing/failed signal never fabricates a win.
  */
 export function buildTrialPriceReveal(ctx: {
   name: string | null;
   goal?: string | null;
   priceDisplay: string;
+  executionDays?: number;
 }): string {
   const tail = ctx.name?.trim() ? ` ${ctx.name.trim()}` : '';
   const goal = ctx.goal?.trim();
   const forGoal = goal ? ` for ${goal}` : '';
-  // Day-7 conversion copy from the Sales Psychology docs: social proof ("most
-  // people fall off by day 3 — you didn't") + the specific DoorDash cost
-  // comparison. Price lands here, after they've felt the product work.
-  return (
-    `yo${tail}. 7 days straight. you actually did it, ` +
-    `most people fall off by day 3 and you didn't. ` +
+  const days = Math.max(0, Math.floor(ctx.executionDays ?? 0));
+  // The price + specific DoorDash cost comparison lands at the end of every
+  // variant (regression checklist B10). Kept goal-personalised.
+  const close =
     `keeping me on you every morning${forGoal} is ${ctx.priceDisplay}. ` +
-    `that's less than two doordash orders you didn't place this week. ` +
-    `you already know it's worth it.`
+    `that's less than two doordash orders. you already know what it's worth.`;
+
+  if (days >= 4) {
+    // Real week — earned the celebration + the "fall off by day 3" social proof.
+    return (
+      `yo${tail}. ${days} days you actually showed up. ` +
+      `most people fall off by day 3 and you didn't. ${close}`
+    );
+  }
+  if (days >= 1) {
+    // Partial — honest and forward-leaning, but no invented streak.
+    return (
+      `yo${tail}. you showed up ${days} day${days === 1 ? '' : 's'} this week. ` +
+      `not the full run, but you started — that's the part most people never do. ` +
+      `this is where it compounds if you stay on it. ${close}`
+    );
+  }
+  // Ghosted — name it honestly and make the ghosting itself the pitch. No praise.
+  return (
+    `yo${tail}. real talk — you barely let me in this week. no shade, but ` +
+    `that right there is the exact thing i'm built to fix. the week you actually ` +
+    `let me stay on you is the week it changes. ${close}`
   );
 }
 
@@ -131,6 +159,7 @@ export class CheckinProcessor {
     private readonly surpriseService: SurpriseService,
     private readonly recapService: RecapService,
     private readonly weeklyReviewService: WeeklyReviewService,
+    private readonly scoreService: ScoreService,
     private readonly stripeService: StripeService,
     private readonly config: ConfigService,
     @Inject(forwardRef(() => CoachingService))
@@ -395,10 +424,18 @@ export class CheckinProcessor {
     if (user.trial_price_revealed_at) return; // already revealed (idempotent)
 
     const priceDisplay = this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month');
+    // Gate the opener on real follow-through over the trial window so we never
+    // fabricate a "7 days straight, you actually did it" for someone who ghosted
+    // (Karibi 2026-07-07). Failure → 0 days → honest ghost copy, never praise.
+    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
+    const executionDays = await this.scoreService
+      .countExecutionDays(userId, trialDays)
+      .catch(() => 0);
     const text = buildTrialPriceReveal({
       name: user.name,
       goal: user.intake_data?.goal_description ?? null,
       priceDisplay,
+      executionDays,
     });
     await this.messagingService.send(user.phone_number, text);
     await this.userRepo.update(userId, { trial_price_revealed_at: new Date() });

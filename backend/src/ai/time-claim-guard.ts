@@ -1,0 +1,236 @@
+/**
+ * Deterministic date/time guard (Karibi 2026-07-08).
+ *
+ * The language model cannot be trusted to do date arithmetic — it told a July
+ * user that "May 29 is like 5 months out." We stop relying on it two ways:
+ *
+ *  1. PREVENTION — `buildDateFactsBlock` finds every calendar date the user
+ *     named, computes the exact gap from today in code, and hands the model the
+ *     answer so it never has to calculate.
+ *  2. HARD CHECK — `correctTimeClaims` runs on KIBA's finished reply and, when a
+ *     gap it states is PROVABLY wrong (off by more than a tolerance vs the real
+ *     gap to a date in context), rewrites just the number before the text is
+ *     sent. No model call, no latency, and it never ships a wrong date.
+ *
+ * Everything here is pure and unit-tested. It is deliberately CONSERVATIVE:
+ * unless it can prove a claim wrong against a single unambiguous date, it leaves
+ * the text untouched — a false correction would be its own insult.
+ */
+
+const MONTHS: Record<string, number> = {
+  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
+  may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10,
+  dec: 11, december: 11,
+};
+const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTHS_FULL = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const UNIT_DAYS: Record<string, number> = { day: 1, week: 7, month: 30.436875, year: 365.25 };
+// How far off a stated number must be, per unit, before we call it PROVABLY
+// wrong and rewrite it. Loose enough that honest rounding ("about 3 weeks") is
+// never touched; tight enough to catch a real blunder ("5 months" for 11).
+const UNIT_TOLERANCE: Record<string, number> = { day: 3, week: 2, month: 2, year: 1 };
+
+export interface NamedDate {
+  /** The literal phrase we matched, e.g. "May 29". */
+  phrase: string;
+  /** Resolved to the NEXT occurrence (this year, or next if already passed). */
+  date: Date;
+}
+
+/** User-local midnight for a UTC instant + offset. Returns ms since epoch. */
+function localMidnightMs(nowUtc: Date, offsetMinutes: number | null): number {
+  const local = new Date(nowUtc.getTime() + (offsetMinutes ?? 0) * 60_000);
+  return Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+}
+
+/**
+ * Every calendar date named in `text`, resolved to its next future occurrence.
+ * Matches "May 29", "May 29th", "29 May", and numeric "5/29" / "5/29/2027".
+ * A bare month with no day is ignored (too vague to compute a gap).
+ */
+export function extractFutureDates(text: string, nowUtc: Date, offsetMinutes: number | null): NamedDate[] {
+  if (!text) return [];
+  const todayMs = localMidnightMs(nowUtc, offsetMinutes);
+  const local = new Date(nowUtc.getTime() + (offsetMinutes ?? 0) * 60_000);
+  const thisYear = local.getUTCFullYear();
+  const out: NamedDate[] = [];
+  const seen = new Set<number>();
+
+  const push = (phrase: string, month: number, day: number, explicitYear?: number) => {
+    if (month < 0 || month > 11 || day < 1 || day > 31) return;
+    let year = explicitYear ?? thisYear;
+    let ms = Date.UTC(year, month, day);
+    // No explicit year and it already passed today → the next occurrence.
+    if (explicitYear === undefined && ms < todayMs) {
+      year += 1;
+      ms = Date.UTC(year, month, day);
+    }
+    if (seen.has(ms)) return;
+    seen.add(ms);
+    out.push({ phrase, date: new Date(ms) });
+  };
+
+  // "May 29" / "May 29th" / "September 3"
+  const monthDay = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/gi;
+  for (const m of text.matchAll(monthDay)) {
+    const month = MONTHS[m[1].toLowerCase()];
+    if (month === undefined) continue;
+    push(m[0], month, parseInt(m[2], 10));
+  }
+
+  // "29 May" / "29th of May"
+  const dayMonth = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/gi;
+  for (const m of text.matchAll(dayMonth)) {
+    const month = MONTHS[m[2].toLowerCase()];
+    if (month === undefined) continue;
+    push(m[0], month, parseInt(m[1], 10));
+  }
+
+  // Numeric "5/29" or "5/29/2027" or ISO "2027-05-29".
+  const numeric = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g;
+  for (const m of text.matchAll(numeric)) {
+    const month = parseInt(m[1], 10) - 1;
+    const day = parseInt(m[2], 10);
+    let year: number | undefined;
+    if (m[3]) { year = parseInt(m[3], 10); if (year < 100) year += 2000; }
+    push(m[0], month, day, year);
+  }
+  const iso = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
+  for (const m of text.matchAll(iso)) {
+    push(m[0], parseInt(m[2], 10) - 1, parseInt(m[3], 10), parseInt(m[1], 10));
+  }
+
+  return out;
+}
+
+/** Whole days from today (user-local) to a target date. Negative if past. */
+export function gapInDays(target: Date, nowUtc: Date, offsetMinutes: number | null): number {
+  const todayMs = localMidnightMs(nowUtc, offsetMinutes);
+  const targetMs = Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate());
+  return Math.round((targetMs - todayMs) / 86_400_000);
+}
+
+/** "325 days from today (about 10.7 months)" — a human, unambiguous gap. */
+function describeGap(days: number): string {
+  if (days === 0) return 'today';
+  if (days < 0) return `${-days} day${days === -1 ? '' : 's'} ago`;
+  const approx =
+    days >= 60 ? ` (about ${(days / 30.436875).toFixed(1)} months)`
+    : days >= 14 ? ` (about ${Math.round(days / 7)} weeks)`
+    : '';
+  return `${days} day${days === 1 ? '' : 's'} from today${approx}`;
+}
+
+/**
+ * Prevention block. Lists every date named in `text` with its resolved next
+ * occurrence and exact gap, so the model reads the answer instead of computing.
+ * Returns '' when no datable reference is present.
+ */
+export function buildDateFactsBlock(text: string, nowUtc: Date, offsetMinutes: number | null): string {
+  const dates = extractFutureDates(text, nowUtc, offsetMinutes);
+  if (dates.length === 0) return '';
+  const lines = dates.map((d) => {
+    const days = gapInDays(d.date, nowUtc, offsetMinutes);
+    const full = `${DAYS_FULL[d.date.getUTCDay()]}, ${MONTHS_FULL[d.date.getUTCMonth()]} ${d.date.getUTCDate()}, ${d.date.getUTCFullYear()}`;
+    return `- "${d.phrase}" → ${full} — that's ${describeGap(days)}.`;
+  });
+  return [
+    'DATE FACTS (already computed for you — use THESE exact numbers; do NOT calculate a date gap yourself, you get it wrong):',
+    ...lines,
+  ].join('\n');
+}
+
+interface GapClaim {
+  index: number;
+  length: number;
+  raw: string;   // full matched span, e.g. "5 months out"
+  number: number;
+  unit: 'day' | 'week' | 'month' | 'year';
+}
+
+/** Find "N days/weeks/months out|away|left|until|from now|…" style gap claims. */
+function findGapClaims(text: string): GapClaim[] {
+  const raw: GapClaim[] = [];
+  const collect = (re: RegExp) => {
+    for (const m of text.matchAll(re)) {
+      raw.push({ index: m.index!, length: m[0].length, raw: m[0], number: parseInt(m[1], 10), unit: m[2].toLowerCase() as GapClaim['unit'] });
+    }
+  };
+  // Requires a directional qualifier OR a "that's like/about" lead-in so plain
+  // durations ("3 days a week", "2 hour workout") are never matched.
+  collect(/\b(\d{1,3})\s+(day|week|month|year)s?\s+(?:out|away|left|to\s*go|from\s+now|from\s+today|ahead|down\s+the\s+road|until\s+then)\b/gi);
+  collect(/\b(?:that'?s|thats|about|like|roughly|around|only|just|another)\s+(\d{1,3})\s+(day|week|month|year)s?\b/gi);
+
+  // Merge overlapping matches (the two patterns can both hit "like 5 weeks away")
+  // — keep the earliest, longest span so a claim is never corrected twice.
+  raw.sort((a, b) => a.index - b.index || b.length - a.length);
+  const merged: GapClaim[] = [];
+  for (const c of raw) {
+    const last = merged[merged.length - 1];
+    if (last && c.index < last.index + last.length) continue; // overlaps a kept claim
+    merged.push(c);
+  }
+  return merged;
+}
+
+export interface ClaimCorrection {
+  from: string;
+  to: string;
+  reason: string;
+}
+
+/**
+ * HARD CHECK. Scans `reply` for gap claims and, when one is provably wrong
+ * against the single unambiguous future date in context, rewrites the number.
+ * Returns the (possibly corrected) text plus a list of what it changed.
+ *
+ * Conservative by design: it only acts when exactly one future date is in play
+ * (from the user's message and/or the reply itself) and the stated number is off
+ * by more than the per-unit tolerance. Otherwise it leaves the text alone.
+ */
+export function correctTimeClaims(
+  reply: string,
+  contextText: string,
+  nowUtc: Date,
+  offsetMinutes: number | null,
+): { text: string; corrections: ClaimCorrection[] } {
+  const claims = findGapClaims(reply);
+  if (claims.length === 0) return { text: reply, corrections: [] };
+
+  // Candidate target dates: those named in the reply, then the user's message.
+  const dates = [
+    ...extractFutureDates(reply, nowUtc, offsetMinutes),
+    ...extractFutureDates(contextText, nowUtc, offsetMinutes),
+  ];
+  // De-dupe by timestamp; require exactly one distinct future date to stay safe.
+  const distinct = new Map<number, NamedDate>();
+  for (const d of dates) if (d.date.getTime() >= localMidnightMs(nowUtc, offsetMinutes)) distinct.set(d.date.getTime(), d);
+  if (distinct.size !== 1) return { text: reply, corrections: [] };
+  const target = [...distinct.values()][0];
+  const days = gapInDays(target.date, nowUtc, offsetMinutes);
+  if (days <= 0) return { text: reply, corrections: [] };
+
+  const corrections: ClaimCorrection[] = [];
+  // Apply from the end so earlier indices stay valid as we splice.
+  let text = reply;
+  for (const claim of [...claims].sort((a, b) => b.index - a.index)) {
+    const trueVal = Math.round(days / UNIT_DAYS[claim.unit]);
+    if (trueVal < 1) continue;
+    if (Math.abs(claim.number - trueVal) < UNIT_TOLERANCE[claim.unit]) continue; // close enough
+    // Swap only the number inside the matched span, keep the unit + wording.
+    const fixedSpan = claim.raw.replace(String(claim.number), String(trueVal));
+    if (fixedSpan === claim.raw) continue;
+    text = text.slice(0, claim.index) + fixedSpan + text.slice(claim.index + claim.length);
+    corrections.push({
+      from: claim.raw,
+      to: fixedSpan,
+      reason: `${target.phrase} is ${days} days from today (~${trueVal} ${claim.unit}${trueVal === 1 ? '' : 's'}), not ${claim.number}`,
+    });
+  }
+  return { text, corrections };
+}

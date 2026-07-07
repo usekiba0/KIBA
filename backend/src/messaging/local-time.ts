@@ -13,6 +13,10 @@
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS_FULL = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
 /** Shift a UTC instant into the user's local wall clock as a UTC-keyed Date. */
 function toLocal(nowUtc: Date, offsetMinutes: number): Date {
@@ -37,6 +41,20 @@ export function formatLocalClockPretty(nowUtc: Date, offsetMinutes: number): str
   const period = hh >= 12 ? 'PM' : 'AM';
   const hh12 = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
   return `${hh12}:${mm} ${period}, ${DAYS[local.getUTCDay()]} ${MONTHS[local.getUTCMonth()]} ${local.getUTCDate()}`;
+}
+
+/**
+ * Full calendar date WITH YEAR — "Wednesday, July 8, 2026". Injected so the
+ * model can ground deadline math (e.g. "how long until May 29") in the real
+ * date instead of guessing the current month/year and getting it wildly wrong
+ * (Karibi 2026-07-08: told a July user May 29 was "like 5 months out"). Unlike
+ * the clock, the date does NOT need the user's timezone — server UTC is accurate
+ * to the day for month-level math — so `offsetMinutes` is optional and falls
+ * back to UTC when unknown (the date is still injected pre-timezone-capture).
+ */
+export function formatDateWithYear(nowUtc: Date, offsetMinutes: number | null): string {
+  const local = toLocal(nowUtc, offsetMinutes ?? 0);
+  return `${DAYS[local.getUTCDay()]}, ${MONTHS_FULL[local.getUTCMonth()]} ${local.getUTCDate()}, ${local.getUTCFullYear()}`;
 }
 
 /**

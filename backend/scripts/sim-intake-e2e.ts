@@ -27,7 +27,7 @@ const config = {
 const repo = { findOne: async () => null, save: async (x: unknown) => x, update: async () => ({}), count: async () => 0, find: async () => [] } as never;
 const correction = { getActiveKnowledge: async () => [] } as never;
 
-const svc = new CoachingService(config, repo, repo, repo, repo, correction);
+const svc = new CoachingService(config, repo, repo, repo, repo, repo, correction);
 
 const user = {
   id: 'sim-1', name: null as string | null, phone_number: '+10000000000',

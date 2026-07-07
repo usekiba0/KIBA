@@ -47,6 +47,13 @@ export class Subscription {
   @Column({ type: 'timestamptz', nullable: true })
   current_period_end: Date | null;
 
+  // Stripe livemode of the subscription: true = real money (live key), false =
+  // test-mode payment. NULL = created before we tracked it (legacy). MRR counts
+  // ONLY real money — test-mode subscriptions must never inflate revenue
+  // (Karibi 2026-07-08: dashboard showed $60 MRR from test conversions).
+  @Column({ type: 'boolean', nullable: true })
+  livemode: boolean | null;
+
   @CreateDateColumn()
   created_at: Date;
 

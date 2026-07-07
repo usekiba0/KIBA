@@ -1,7 +1,10 @@
 import { buildCheckinMessage } from '../../src/ai/prompts/checkin.prompt';
-import { formatHistoryStamp, timeOfDayLabel } from '../../src/messaging/local-time';
+import { formatHistoryStamp, timeOfDayLabel, formatDateWithYear } from '../../src/messaging/local-time';
 import { offsetMinutesForZone, resolveOffsetMinutes } from '../../src/messaging/world-time';
 import { nextDailyFireAt } from '../../src/accountability/schedule.service';
+import { buildIntakeSystemPrompt } from '../../src/ai/prompts/intake.prompt';
+import { buildSystemPrompt } from '../../src/ai/prompts/coaching.prompt';
+import { OnboardingVariant } from '../../src/data/entities/user.entity';
 
 describe('time-of-day anchoring (Karibi 2026-06-30)', () => {
   describe('timeOfDayLabel', () => {
@@ -89,6 +92,57 @@ describe('time-of-day anchoring (Karibi 2026-06-30)', () => {
       // With the STALE summer offset it would fire at 11:00 UTC = 06:00 EST (1h early).
       const drifted = nextDailyFireAt(winterMorning, '07:00', -240);
       expect(drifted.getUTCHours()).toBe(11);
+    });
+  });
+
+  describe('formatDateWithYear (deadline-math anchor, Karibi 2026-07-08)', () => {
+    const july8 = new Date('2026-07-08T15:00:00Z');
+
+    it('renders a full human date WITH year', () => {
+      expect(formatDateWithYear(july8, -300)).toBe('Wednesday, July 8, 2026');
+    });
+    it('works without a timezone (falls back to UTC — still day-accurate)', () => {
+      expect(formatDateWithYear(july8, null)).toBe('Wednesday, July 8, 2026');
+    });
+    it('applies the offset when it crosses a day boundary', () => {
+      const nearMidnightUtc = new Date('2026-07-08T02:00:00Z'); // 9pm on the 7th at UTC-5
+      expect(formatDateWithYear(nearMidnightUtc, -300)).toBe('Tuesday, July 7, 2026');
+    });
+  });
+
+  describe("TODAY'S DATE injection so deadline math is grounded (Karibi 2026-07-08)", () => {
+    const july8 = new Date('2026-07-08T15:00:00Z');
+    const baseIntake = {
+      name: 'Bob', intakeData: {} as any, paymentLinkSent: false,
+      sampleCoachingGiven: false, variant: OnboardingVariant.STANDARD,
+      trialDays: 7, priceDisplay: '$20/month', nowUtc: july8,
+    };
+
+    it('intake injects the dated anchor BEFORE the timezone is known (the exact bug)', () => {
+      const prompt = buildIntakeSystemPrompt({ ...baseIntake, utcOffsetMinutes: null });
+      expect(prompt).toContain("TODAY'S DATE: Wednesday, July 8, 2026");
+      expect(prompt.toLowerCase()).toMatch(/count how far away it is from today's date/);
+      // still forbids guessing the clock time when tz unknown
+      expect(prompt.toLowerCase()).toMatch(/never state or guess a clock time/);
+    });
+
+    it('intake injects the dated anchor once the timezone IS known too', () => {
+      const prompt = buildIntakeSystemPrompt({ ...baseIntake, utcOffsetMinutes: -300 });
+      expect(prompt).toContain("TODAY'S DATE: Wednesday, July 8, 2026");
+    });
+
+    it('coaching injects the dated anchor with year (both tz-known and unknown)', () => {
+      const known = buildSystemPrompt(
+        { id: 'u', name: 'Bob', phone_number: '+1' } as any, { pressure_preference: 'pressure' } as any,
+        72, 0, undefined, undefined, { nowUtc: july8, userOffsetMinutes: -300 },
+      );
+      const unknown = buildSystemPrompt(
+        { id: 'u', name: 'Bob', phone_number: '+1' } as any, { pressure_preference: 'pressure' } as any,
+        72, 0, undefined, undefined, { nowUtc: july8, userOffsetMinutes: null },
+      );
+      expect(known).toContain("TODAY'S DATE: Wednesday, July 8, 2026");
+      expect(unknown).toContain("TODAY'S DATE: Wednesday, July 8, 2026");
+      expect(known.toLowerCase()).toMatch(/count how far off it is from today's date/);
     });
   });
 

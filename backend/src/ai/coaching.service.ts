@@ -13,13 +13,16 @@ import { Message } from '../data/entities/message.entity';
 import { PsychologicalProfile, PressurePreference } from '../data/entities/psychological-profile.entity';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { Strike } from '../data/entities/strike.entity';
-import { buildSystemPrompt } from './prompts/coaching.prompt';
+import { DailyTask } from '../data/entities/daily-task.entity';
+import { currentStreakFromTasks } from '../accountability/score.service';
+import { buildSystemPrompt, PatternSignals } from './prompts/coaching.prompt';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
 import { CorrectionService } from '../data/correction.service';
 import { formatHistoryStamp } from '../messaging/local-time';
 import { resolveOffsetMinutes } from '../messaging/world-time';
+import { buildDateFactsBlock, correctTimeClaims } from './time-claim-guard';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
 /** Coaching-mode tools (post-payment). */
@@ -349,6 +352,8 @@ export class CoachingService {
     private readonly scoreRepo: Repository<ExecutionScore>,
     @InjectRepository(Strike)
     private readonly strikeRepo: Repository<Strike>,
+    @InjectRepository(DailyTask)
+    private readonly taskRepo: Repository<DailyTask>,
     private readonly correctionService: CorrectionService,
   ) {
     this.client = createAnthropicClient(config);
@@ -534,7 +539,7 @@ export class CoachingService {
       loopingOnQuestion?: boolean;
     },
   ): Promise<{ reply: string; tokenCount: number }> {
-    const [profile, latestScore, strikeCount, knowledge] = await Promise.all([
+    const [profile, latestScore, strikeCount, knowledge, recentTasks] = await Promise.all([
       // SMS-first onboarding never created a profile row — lazy-create from
       // intake_data so the coaching prompt always has structured psych context
       // (and the AI never falls back to the no-profile generic prompt).
@@ -550,7 +555,11 @@ export class CoachingService {
         },
       }),
       this.correctionService.getActiveKnowledge(),
+      // Last 60 days of tasks → the REAL current streak, injected as ground truth
+      // so the model never fabricates "X days straight" (Karibi 2026-07-07).
+      this.taskRepo.find({ where: { user_id: user.id }, order: { scheduled_date: 'DESC' }, take: 60 }),
     ]);
+    const currentStreak = currentStreakFromTasks(recentTasks);
 
     const knowledgeTexts = knowledge.map((k) => k.content);
     // Prefer the DST-correct live offset from the user's IANA zone; fall back to
@@ -579,6 +588,17 @@ export class CoachingService {
       // Layer 3 — durable "never forget" facts (append-only anchor list).
       facts: intake.notes && intake.notes.length ? intake.notes : null,
     };
+    // Fold the REAL streak into the pattern signals so it always reaches the
+    // prompt as ground truth, even if the caller passed no other signals.
+    const patternsWithStreak: PatternSignals = {
+      weakestDow: patterns?.weakestDow ?? null,
+      weakestDowMisses: patterns?.weakestDowMisses ?? 0,
+      recurringExcuse: patterns?.recurringExcuse ?? null,
+      recurringExcuseCount: patterns?.recurringExcuseCount ?? 0,
+      lastMilestoneHit: patterns?.lastMilestoneHit ?? 0,
+      loopingOnQuestion: patterns?.loopingOnQuestion,
+      currentStreak,
+    };
     const systemPrompt = buildSystemPrompt(
       { id: user.id, name: userName, phone_number: user.phone_number },
       profile,
@@ -588,11 +608,16 @@ export class CoachingService {
       knowledgeTexts,
       timeContext,
       todos,
-      patterns,
+      patternsWithStreak,
       weeksIn,
       knownFacts,
       user.relationship_memory ?? null,
     );
+
+    // Prevention: pre-compute the gap to any date the user named so the model
+    // reads the answer instead of doing (wrong) date math (Karibi 2026-07-08).
+    const dateFacts = buildDateFactsBlock(incomingText, nowUtc, liveOffset);
+    const finalSystemPrompt = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
 
     const tools = toolHandlers
       ? [
@@ -608,7 +633,7 @@ export class CoachingService {
       : undefined;
 
     return this.runChat({
-      systemPrompt,
+      systemPrompt: finalSystemPrompt,
       recentMessages,
       incomingText,
       imageUrls,
@@ -635,12 +660,17 @@ export class CoachingService {
     imageContentTypes?: string[],
   ): Promise<{ reply: string; tokenCount: number }> {
     const systemPrompt = buildIntakeSystemPrompt(ctx);
+    const intakeOffset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
+    // Prevention: hand the model the exact gap to any date the user named (e.g.
+    // "before May 29") so it never computes it wrong (Karibi 2026-07-08).
+    const dateFacts = buildDateFactsBlock(incomingText, ctx.nowUtc ?? new Date(), intakeOffset);
+    const finalSystemPrompt = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
     const tools = [SAVE_INTAKE_FIELD_TOOL, SEND_PAYMENT_LINK_TOOL, SCHEDULE_REMINDER_TOOL];
     const dispatch = (block: Anthropic.Messages.ToolUseBlock) =>
       this.dispatchIntakeTool(block, toolHandlers, user.id);
 
     return this.runChat({
-      systemPrompt,
+      systemPrompt: finalSystemPrompt,
       recentMessages,
       incomingText,
       imageUrls,
@@ -649,7 +679,7 @@ export class CoachingService {
       dispatch,
       userId: user.id,
       operationLabel: 'intake_reply',
-      userOffsetMinutes: resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes),
+      userOffsetMinutes: intakeOffset,
     });
   }
 
@@ -943,6 +973,27 @@ export class CoachingService {
     const STAMP_LEAK = /^\s*\[\s*(?:today|yesterday)\b[^\]]*\]\s*/i;
     while (STAMP_LEAK.test(finalReply)) finalReply = finalReply.replace(STAMP_LEAK, '');
     finalReply = finalReply.trim();
+
+    // HARD CHECK on any date/time claim before it goes out. The model can't be
+    // trusted to count months to a date — if it states a gap that's provably
+    // wrong vs a date in context, rewrite the number deterministically (no model
+    // call, no latency). Conservative: only acts on a single unambiguous date
+    // and a clear miss. (Karibi 2026-07-08: "May 29 is like 5 months out.")
+    const guard = correctTimeClaims(
+      finalReply,
+      args.incomingText ?? '',
+      new Date(),
+      args.userOffsetMinutes ?? null,
+    );
+    if (guard.corrections.length > 0) {
+      finalReply = guard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'time_claim_corrected',
+        userId: args.userId,
+        corrections: guard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
 
     return { reply: finalReply, tokenCount: totalInputTokens + totalOutputTokens };
   }

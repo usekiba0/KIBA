@@ -2,7 +2,7 @@ import {
   PsychologicalProfile,
   PressurePreference,
 } from '../../data/entities/psychological-profile.entity';
-import { formatLocalClockPretty, timeOfDayLabel } from '../../messaging/local-time';
+import { formatLocalClockPretty, timeOfDayLabel, formatDateWithYear } from '../../messaging/local-time';
 
 interface UserContext {
   id: string;
@@ -91,9 +91,14 @@ export interface TimeContext {
 
 function formatTimeContext(ctx: TimeContext): string {
   const utcIso = ctx.nowUtc.toISOString();
+  // Human date WITH YEAR — grounds deadline math ("how long until May 29") so
+  // the model never guesses the current month (Karibi 2026-07-08). Safe without
+  // the user's timezone (server date is day-accurate for month-level math).
+  const dateLine = `- TODAY'S DATE: ${formatDateWithYear(ctx.nowUtc, ctx.userOffsetMinutes)} — when the user names a future date or deadline, count how far off it is FROM TODAY'S DATE, never estimate the gap or guess the month. if the year is ambiguous, assume the next time that date occurs; if it already passed this year, it's next year.`;
   if (ctx.userOffsetMinutes === null) {
     return [
       'CURRENT TIME:',
+      dateLine,
       `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
       '- USER TIMEZONE: unknown — ask the user before scheduling anything time-specific. NEVER guess or compute what time it is for them; ask.',
       "- TIME OF DAY: unknown — do NOT assume it's day or night. Do NOT tell them to go to sleep / wake up, say goodnight/good morning, or reference a morning wake-up. Older messages in this thread are NOT a clue to the current time.",
@@ -113,6 +118,7 @@ function formatTimeContext(ctx: TimeContext): string {
   const m = (absMin % 60).toString().padStart(2, '0');
   return [
     'CURRENT TIME:',
+    dateLine,
     `- NOW IN UTC (use this for fire_at_iso math): ${utcIso}`,
     `- USER LOCAL CLOCK: ${localPretty} — user offset is UTC${sign}${h}:${m}`,
     `- TIME OF DAY: it is currently ${timeOfDayLabel(ctx.nowUtc, ctx.userOffsetMinutes)} for the user. Greet and frame by THIS. Do NOT tell them to go to sleep, say goodnight, or reference a morning/7am wake-up unless the local clock above is actually night or the middle of the night. CRITICAL: IGNORE the time implied by OLDER messages in this thread (a late-night exchange from a previous day is NOT now) — the USER LOCAL CLOCK line is the ONLY source of truth for what time it is.`,
@@ -146,6 +152,13 @@ export interface PatternSignals {
   recurringExcuseCount: number;
   /** Highest streak milestone already celebrated (0 if none). */
   lastMilestoneHit: number;
+  /**
+   * REAL current streak: consecutive days ending today with a completed task
+   * (0 = not on a streak). Injected as ground truth so KIBA cites the true
+   * number and never fabricates "X days straight" for someone who didn't earn
+   * it (Karibi 2026-07-07). Defaults to 0 (the safe, no-praise direction).
+   */
+  currentStreak?: number;
   /**
    * Derived in the processor: KIBA has been asking near-identical questions turn
    * after turn (or the user explicitly called out the loop). Surfaces a hard
@@ -187,8 +200,17 @@ function formatPatternSignals(p: PatternSignals): string {
   const behavioral = lines.length
     ? ['', 'BEHAVIORAL SIGNALS (derived — use only when the moment calls for it):', ...lines]
     : [];
-  if (urgent.length === 0 && behavioral.length === 0) return '';
-  return [...urgent, ...behavioral].join('\n');
+
+  // ALWAYS-ON ground truth. The model must cite THIS streak and never invent a
+  // "X days straight" (Karibi 2026-07-07: KIBA told a user who ghosted the whole
+  // trial "7 days straight, you actually did it"). streak 0 = no praise, period.
+  const streak = Math.max(0, Math.floor(p.currentStreak ?? 0));
+  const streakFact = streak > 0
+    ? `- Current streak: ${streak} consecutive day${streak === 1 ? '' : 's'} with a completed task. If you reference a streak or day count, use THIS number only — never round up or invent one.`
+    : `- Current streak: 0 — they are NOT on a streak right now. Do NOT say "X days straight", "you're locked in", or congratulate a run that didn't happen. If they've gone quiet or skipped, name it honestly instead of praising.`;
+  const factBlock = ['', 'HARD FACTS (ground truth — cite only these numbers, never fabricate a streak or win):', streakFact];
+
+  return [...urgent, ...factBlock, ...behavioral].join('\n');
 }
 
 function ordinal(n: number): string {

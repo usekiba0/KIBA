@@ -35,7 +35,14 @@ export class AdminService {
   ) {}
 
   async getDashboardStats() {
-    const [userRow, subRows, msgRow, crisisRow] = await Promise.all([
+    // Real MRR must reflect real money only. A subscription counts toward MRR
+    // when it is `active`, belongs to a non-cancelled user, AND is live-mode
+    // (real Stripe money). `livemode = null` rows are legacy (pre-tracking) and
+    // are trusted only when the app itself runs on a LIVE Stripe key — a test-key
+    // deployment reports $0 real MRR (Karibi 2026-07-08: $60 was test conversions).
+    const stripeLiveMode = (this.configService.get<string>('STRIPE_SECRET_KEY') || '').startsWith('sk_live_');
+
+    const [userRow, subRows, msgRow, crisisRow, mrrRows] = await Promise.all([
       this.dataSource.query(`
         SELECT
           COUNT(*)::int AS total_users,
@@ -63,30 +70,50 @@ export class AdminService {
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')::int AS last_30d
         FROM crisis_alerts
       `),
+      // Real-money MRR: active subs on non-cancelled users, live-mode only.
+      this.dataSource.query(
+        `
+        SELECT s.plan, COUNT(*)::int AS cnt
+        FROM subscriptions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.status = 'active'
+          AND u.status <> 'cancelled'
+          AND (s.livemode = true OR (s.livemode IS NULL AND $1 = true))
+        GROUP BY s.plan
+      `,
+        [stripeLiveMode],
+      ),
     ]);
 
     const u = userRow[0];
     const m = msgRow[0];
     const c = crisisRow[0];
 
-    // MRR — only active subs
-    let mrrCents = 0;
+    // Subscription status breakdown (raw row counts, all modes).
     let activeSubs = 0;
     let trialingSubs = 0;
     let pastDueSubs = 0;
     let cancelledSubs = 0;
-    let trialToPaid = 0;
 
     for (const row of subRows) {
-      if (row.status === 'active') {
-        activeSubs += row.cnt;
-        mrrCents += row.cnt * (PLAN_PRICE_CENTS[row.plan] ?? 0);
-        trialToPaid += row.cnt; // active = converted from trial
-      }
+      if (row.status === 'active') activeSubs += row.cnt;
       if (row.status === 'trialing') trialingSubs += row.cnt;
       if (row.status === 'past_due') pastDueSubs += row.cnt;
       if (row.status === 'cancelled') cancelledSubs += row.cnt;
     }
+
+    // Real MRR — only live-money active subs on non-cancelled users (mrrRows is
+    // already filtered). Everything else counted as `active` is test money or a
+    // stale row on a cancelled user, surfaced separately so it's transparent,
+    // never silently folded into revenue.
+    let mrrCents = 0;
+    let payingSubs = 0;
+    for (const row of mrrRows) {
+      mrrCents += row.cnt * (PLAN_PRICE_CENTS[row.plan] ?? 0);
+      payingSubs += row.cnt;
+    }
+    const trialToPaid = payingSubs; // real conversions = real paying subs
+    const testModeSubs = Math.max(0, activeSubs - payingSubs);
 
     return {
       total_users: u.total_users,
@@ -102,6 +129,11 @@ export class AdminService {
       trial_to_paid_count: trialToPaid,
       mrr_cents: mrrCents,
       arr_cents: mrrCents * 12,
+      // Transparency: whether the app is on a live Stripe key, and how many
+      // active subs were EXCLUDED from MRR as test-mode / cancelled-user rows.
+      stripe_live_mode: stripeLiveMode,
+      paying_subs: payingSubs,
+      test_mode_subs: testModeSubs,
       messages_last_24h: m.last_24h,
       messages_last_7d: m.last_7d,
       flagged_messages_total: m.flagged_total,

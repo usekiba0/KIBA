@@ -153,6 +153,63 @@ describe('AdminService — T076 getUserDetail', () => {
   });
 });
 
+describe('AdminService — getDashboardStats real MRR (test-mode guard)', () => {
+  // The 4 base queries return neutral rows; the 5th (mrrRows) is what MRR sums.
+  const baseRows = {
+    userQuery: [{ total_users: 5, active_users: 3, trial_users: 1, paused_users: 0, cancelled_users: 1, crisis_hold_count: 0 }],
+    subQuery: [{ plan: 'individual', status: 'active', cnt: 3 }], // 3 active rows total
+    msgQuery: [{ last_24h: 0, last_7d: 0, flagged_total: 0 }],
+    crisisQuery: [{ open_alerts: 0, acknowledged_alerts: 0, last_30d: 0 }],
+  };
+
+  async function build(stripeKey: string, mrrRows: any[]) {
+    const mockDataSource = {
+      query: jest.fn()
+        .mockResolvedValueOnce(baseRows.userQuery)
+        .mockResolvedValueOnce(baseRows.subQuery)
+        .mockResolvedValueOnce(baseRows.msgQuery)
+        .mockResolvedValueOnce(baseRows.crisisQuery)
+        .mockResolvedValueOnce(mrrRows), // real-money MRR query
+      transaction: jest.fn(),
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AdminService,
+        { provide: getRepositoryToken(User), useValue: {} },
+        { provide: getRepositoryToken(Message), useValue: {} },
+        { provide: getRepositoryToken(Subscription), useValue: {} },
+        { provide: getRepositoryToken(CrisisAlert), useValue: {} },
+        { provide: getRepositoryToken(ConversationSession), useValue: {} },
+        { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: ConfigService, useValue: { get: jest.fn(() => stripeKey) } },
+        { provide: DataRightsService, useValue: {} },
+      ],
+    }).compile();
+    return module.get<AdminService>(AdminService);
+  }
+
+  it('on a TEST key, the real-MRR query filters out legacy rows → $0 MRR, subs flagged as test', async () => {
+    // On a test key, the SQL guard `livemode IS NULL AND $1=true` is false, so
+    // the DB returns no rows → real MRR is 0 even though 3 subs are "active".
+    const service = await build('sk_test_abc', []);
+    const stats = await service.getDashboardStats();
+    expect(stats.mrr_cents).toBe(0);
+    expect(stats.stripe_live_mode).toBe(false);
+    expect(stats.active_subs).toBe(3);
+    expect(stats.paying_subs).toBe(0);
+    expect(stats.test_mode_subs).toBe(3); // 3 active - 0 paying
+  });
+
+  it('on a LIVE key with real subs, MRR counts them', async () => {
+    const service = await build('sk_live_xyz', [{ plan: 'individual', cnt: 3 }]);
+    const stats = await service.getDashboardStats();
+    expect(stats.stripe_live_mode).toBe(true);
+    expect(stats.mrr_cents).toBe(6000); // 3 x $20
+    expect(stats.paying_subs).toBe(3);
+    expect(stats.test_mode_subs).toBe(0);
+  });
+});
+
 describe('AdminService — deleteUserByPhone', () => {
   let service: AdminService;
   let userRepo: { findOne: jest.Mock };
