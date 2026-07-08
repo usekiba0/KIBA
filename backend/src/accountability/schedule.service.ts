@@ -156,19 +156,46 @@ export class ScheduleService {
       }
     }
 
-    const saved = await this.reminderRepo.save({
-      user_id: args.userId,
-      session_id: args.sessionId ?? null,
-      created_by_message_id: args.createdByMessageId ?? null,
-      fire_at: args.fireAt,
-      message: args.message.trim(),
-      status: ScheduledReminderStatus.PENDING,
-      recurrence_rule: rec?.rule ?? null,
-      recurrence_local_time: rec?.localTime ?? null,
-      recurrence_offset_minutes: rec?.offsetMinutes ?? null,
-      recurrence_iana_timezone: rec?.ianaTimezone ?? null,
-      recurrence_parent_id: rec?.parentId ?? null,
-    });
+    let saved: ScheduledReminder;
+    try {
+      saved = await this.reminderRepo.save({
+        user_id: args.userId,
+        session_id: args.sessionId ?? null,
+        created_by_message_id: args.createdByMessageId ?? null,
+        fire_at: args.fireAt,
+        message: args.message.trim(),
+        status: ScheduledReminderStatus.PENDING,
+        recurrence_rule: rec?.rule ?? null,
+        recurrence_local_time: rec?.localTime ?? null,
+        recurrence_offset_minutes: rec?.offsetMinutes ?? null,
+        recurrence_iana_timezone: rec?.ianaTimezone ?? null,
+        recurrence_parent_id: rec?.parentId ?? null,
+      });
+    } catch (err) {
+      // Backstop for the partial-unique index (one pending daily reminder per
+      // user/local-time): if a concurrent create beat us past the findOne dedup
+      // above, the insert hits a 23505 unique violation. Recover by returning
+      // the winner instead of surfacing an error — same outcome as the dedup.
+      if (
+        (err as { code?: string }).code === '23505' &&
+        rec?.rule === ReminderRecurrence.DAILY &&
+        rec.localTime &&
+        !rec.parentId
+      ) {
+        const winner = await this.reminderRepo.findOne({
+          where: {
+            user_id: args.userId,
+            status: ScheduledReminderStatus.PENDING,
+            recurrence_rule: ReminderRecurrence.DAILY,
+            recurrence_local_time: rec.localTime,
+          },
+        });
+        if (winner) {
+          return { ok: true, reminderId: winner.id, fireAtIso: winner.fire_at.toISOString() };
+        }
+      }
+      throw err;
+    }
 
     // First-of-chain: stamp parent_id to its own id so the whole chain shares one.
     if (rec && !rec.parentId) {

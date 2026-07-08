@@ -166,6 +166,26 @@ describe('ScheduleService', () => {
       expect(queue.add).toHaveBeenCalled();
     });
 
+    it('recovers from a unique-violation race by returning the winning chain', async () => {
+      // findOne #1 (dedup) misses, save races and hits the partial-unique index,
+      // findOne #2 returns the concurrent winner.
+      reminderRepo.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'rem-winner', fire_at: new Date(Date.now() + 60 * 60_000) });
+      reminderRepo.save.mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505' }));
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'weigh in',
+        recurrence: { ...dailyRec },
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.reminderId).toBe('rem-winner');
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
     it('does not dedup a parented occurrence (recurrence re-enqueue keeps the chain alive)', async () => {
       // A pending sibling is present, but a parented occurrence must still be
       // created — otherwise the daily chain would stop after its first fire.

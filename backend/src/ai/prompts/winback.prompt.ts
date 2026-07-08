@@ -8,8 +8,9 @@
  * This fires at most 3 times per unpaid lead, so a single short LLM call here is
  * cheap. The result is ONE text in KIBA's voice, personalised to the exact goal,
  * obstacle, and reason-why the lead gave at intake, escalating gently across the
- * three nudges. The checkout link is appended by the caller on its own line —
- * this copy must NOT contain a URL.
+ * three nudges. It is a re-engagement message ONLY — the caller does NOT append a
+ * checkout link (the link is sent once at checkout and resent only on request),
+ * so this copy must NOT contain a URL.
  */
 export interface WinbackContext {
   name: string | null;
@@ -70,7 +71,7 @@ VOICE — never break:
 - ${ctx.cussingOk ? 'they opted into cussing — you can be raw and direct.' : 'keep it clean — they did NOT opt into cussing. no swearing.'}
 
 HARD RULES:
-- output ONLY the text message itself. no quotes, no preamble, no explanation, no link/URL (the system adds the link separately on its own line).
+- output ONLY the text message itself. no quotes, no preamble, no explanation, no link/URL — this is a re-engagement text, not a payment link. if they want the link they'll ask.
 - do NOT invent facts about them. only use WHAT YOU KNOW above.
 - do NOT repeat the price more than once. do NOT sound like a sales bot.`;
 }

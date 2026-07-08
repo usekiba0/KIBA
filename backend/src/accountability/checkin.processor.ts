@@ -6,7 +6,6 @@ import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Job, Queue } from 'bull';
 import { User, OnboardingStage, UserStatus } from '../data/entities/user.entity';
-import { StripeService } from '../onboarding/stripe.service';
 // DailyTask repo is no longer needed here — task lookup/creation is handled
 // by TaskService.ensureTodayTask, which encapsulates the day-index + cycling
 // logic. Keeps this processor lean.
@@ -161,7 +160,6 @@ export class CheckinProcessor {
     private readonly recapService: RecapService,
     private readonly weeklyReviewService: WeeklyReviewService,
     private readonly scoreService: ScoreService,
-    private readonly stripeService: StripeService,
     private readonly config: ConfigService,
     @Inject(forwardRef(() => CoachingService))
     private readonly coachingService: CoachingService,
@@ -358,11 +356,16 @@ export class CheckinProcessor {
   }
 
   /**
-   * SMS-first onboarding follow-up sequence. Three nudges — ~2.5h, ~next day,
-   * ~2-3 days after the link — for leads who haven't paid yet. Each one is
-   * personalised with the lead's goal/obstacle and ships a FRESH checkout link
-   * (the original Stripe session expires at 24h, so reusing it would be a dead
-   * link by nudge 2). After three we stop pestering.
+   * SMS-first onboarding follow-up for leads who got a payment link but haven't
+   * paid. ONE re-engagement nudge, personalised with their goal/obstacle.
+   *
+   * It does NOT auto-resend a checkout link. The client's directive is that the
+   * link goes out ONCE (at checkout) and is resent only when the lead asks —
+   * CoachingProcessor already handles "send me the link" on demand. We used to
+   * append a freshly regenerated checkout link as a second bubble here, so a lead
+   * who declined at intake got what read as a second payment link hours later
+   * (Karibi 2026-07-08 — "why 2 payment links"). The nudge now pulls them back
+   * into the conversation; if they're ready, they reply and get the link.
    */
   @Process('payment-link-nudge')
   async handlePaymentLinkNudge(job: Job<{ userId: string; nudgeIndex: number }>): Promise<void> {
@@ -393,20 +396,11 @@ export class CheckinProcessor {
     const text = generated ?? buildDunningNudge(nudgeIndex, { name: user.name, goal, obstacle, trialDays });
     await this.messagingService.send(user.phone_number, text);
 
-    // Ship a fresh link on its own line so it's always live and clickable. If
-    // regen fails (Stripe hiccup), fall back to a reply CTA rather than a dead
-    // or missing link — the conversation re-engages either way.
-    const freshUrl = await this.regenerateCheckoutLink(user);
-    await this.messagingService.send(
-      user.phone_number,
-      freshUrl ?? "reply 'go' and i'll send you a fresh link.",
-    );
-
     await this.userRepo.update(userId, { dunning_nudges_sent: user.dunning_nudges_sent + 1 });
 
     structuredLog(this.logger, 'log', {
       service: 'onboarding', operation: 'dunning_nudge_sent',
-      userId, nudgeIndex, linkRegenerated: !!freshUrl, aiGenerated: !!generated,
+      userId, nudgeIndex, aiGenerated: !!generated,
     });
 
     // Schedule the next nudge in the sequence, if any remain.
@@ -460,43 +454,6 @@ export class CheckinProcessor {
     });
   }
 
-  /**
-   * Create a fresh Stripe checkout session for a still-unpaid lead and record it
-   * on the user row. Returns the hosted URL, or null if the user has no name or
-   * Stripe fails (caller falls back to a reply CTA). Does NOT change
-   * onboarding_stage — the lead is already PAYMENT_PENDING.
-   */
-  private async regenerateCheckoutLink(user: User): Promise<string | null> {
-    if (!user.name) return null;
-    try {
-      const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
-      const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
-      // Return pages are FRONTEND routes — use FRONTEND_URL, not APP_BASE_URL
-      // (the backend has no /onboarding/success route and would 404 after pay).
-      const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://kiba.ai');
-      const customer = await this.stripeService.createCustomer(user.name, user.phone_number);
-      const session = await this.stripeService.createCheckoutSession({
-        customerId: customer.id,
-        priceId,
-        trialDays,
-        userId: user.id,
-        successUrl: `${frontendUrl}/onboarding/success`,
-        cancelUrl: `${frontendUrl}/onboarding/cancel`,
-      });
-      if (!session.url) return null;
-      await this.userRepo.update(user.id, {
-        payment_link_sent_at: new Date(),
-        stripe_checkout_session_id: session.id,
-      });
-      return session.url;
-    } catch (err) {
-      structuredLog(this.logger, 'error', {
-        service: 'onboarding', operation: 'dunning_link_regen_failed',
-        userId: user.id, error: (err as Error).message,
-      });
-      return null;
-    }
-  }
 
   @Process('checkin-missed')
   async handleCheckinMissed(
