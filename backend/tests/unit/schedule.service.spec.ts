@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
-import { ScheduleService } from '../../src/accountability/schedule.service';
+import { ScheduleService, normalizeLocalTime } from '../../src/accountability/schedule.service';
 import { ScheduledReminder, ScheduledReminderStatus, ReminderRecurrence } from '../../src/data/entities/scheduled-reminder.entity';
 import { User } from '../../src/data/entities/user.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
@@ -166,6 +166,39 @@ describe('ScheduleService', () => {
       expect(queue.add).toHaveBeenCalled();
     });
 
+    it('normalizes the local time before dedup and save so "8:00" and "08:00" collapse', async () => {
+      reminderRepo.findOne.mockResolvedValueOnce(null);
+
+      await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'weigh in',
+        recurrence: { rule: ReminderRecurrence.DAILY, localTime: '8:00', offsetMinutes: -300 },
+      });
+
+      // Dedup lookup AND the stored row use the canonical "08:00", so a later
+      // "08:00" request finds this chain instead of spawning a duplicate.
+      expect(reminderRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ recurrence_local_time: '08:00' }) }),
+      );
+      expect(reminderRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ recurrence_local_time: '08:00' }),
+      );
+    });
+
+    it('rejects a daily reminder with an unparseable local time', async () => {
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'x',
+        recurrence: { rule: ReminderRecurrence.DAILY, localTime: 'half eight', offsetMinutes: -300 },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(reminderRepo.save).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
     it('recovers from a unique-violation race by returning the winning chain', async () => {
       // findOne #1 (dedup) misses, save races and hits the partial-unique index,
       // findOne #2 returns the concurrent winner.
@@ -328,5 +361,28 @@ describe('ScheduleService', () => {
       reminderRepo.findOne.mockResolvedValue(null);
       expect(await service.cancel('nope')).toBeNull();
     });
+  });
+});
+
+describe('normalizeLocalTime', () => {
+  it('zero-pads a single-digit hour', () => {
+    expect(normalizeLocalTime('8:00')).toBe('08:00');
+    expect(normalizeLocalTime('9:30')).toBe('09:30');
+  });
+
+  it('passes a valid padded time through unchanged', () => {
+    expect(normalizeLocalTime('08:00')).toBe('08:00');
+    expect(normalizeLocalTime('23:59')).toBe('23:59');
+    expect(normalizeLocalTime('0:00')).toBe('00:00');
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(normalizeLocalTime('  8:00 ')).toBe('08:00');
+  });
+
+  it('rejects out-of-range and malformed values', () => {
+    for (const bad of ['24:00', '12:60', '8:5', '800', '8', 'abc', '', ' ', ':', '8:', null, undefined]) {
+      expect(normalizeLocalTime(bad as string)).toBeNull();
+    }
   });
 });

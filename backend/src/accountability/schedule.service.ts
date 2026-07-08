@@ -76,6 +76,26 @@ export function nextDailyFireAt(now: Date, localHHmm: string, offsetMinutes: num
   return new Date(candidateLocal - offsetMinutes * 60_000);
 }
 
+/**
+ * Normalize a local clock time to zero-padded "HH:MM", or null if it isn't a
+ * valid 24h time. The model supplies recurrence.local_time as a raw string and
+ * its formatting drifts ("8:00" one turn, "08:00" the next). Both the daily-
+ * reminder dedup and the partial-unique index key on this exact string, and
+ * nextDailyFireAt's strict regex throws on a non-padded hour — so an
+ * un-normalized value silently defeats dedup AND kills the chain on re-enqueue.
+ * Normalizing here is the single choke point that keeps all of that consistent.
+ * Pure, exported for tests.
+ */
+export function normalizeLocalTime(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const m = String(raw).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hour = parseInt(m[1], 10);
+  const minute = parseInt(m[2], 10);
+  if (hour > 23 || minute > 59) return null;
+  return `${String(hour).padStart(2, '0')}:${m[2]}`;
+}
+
 export interface EnqueueResult {
   ok: true;
   reminderId: string;
@@ -119,7 +139,18 @@ export class ScheduleService {
       return { ok: false, reason: 'message is required' };
     }
 
-    const rec = args.recurrence ?? null;
+    let rec = args.recurrence ?? null;
+
+    // Normalize the daily local time up front so dedup, the unique index, and
+    // nextDailyFireAt all see the same canonical "HH:MM". Reject an unparseable
+    // value rather than storing a string that would later throw on re-enqueue.
+    if (rec?.rule === ReminderRecurrence.DAILY) {
+      const normalized = normalizeLocalTime(rec.localTime);
+      if (!normalized) {
+        return { ok: false, reason: 'recurrence local_time must be a valid "HH:MM" 24h time' };
+      }
+      rec = { ...rec, localTime: normalized };
+    }
 
     // Idempotency for user-created daily reminders: one chain per (user, local
     // time). The coaching model used to spawn a brand-new daily chain every time
@@ -193,6 +224,10 @@ export class ScheduleService {
         if (winner) {
           return { ok: true, reminderId: winner.id, fireAtIso: winner.fire_at.toISOString() };
         }
+        // The winning row already fired/cancelled between the violation and this
+        // read, so the slot is momentarily free but the duplicate is resolved.
+        // Report a soft rejection rather than leaking a raw QueryFailedError.
+        return { ok: false, reason: 'a daily reminder for that time was just scheduled' };
       }
       throw err;
     }

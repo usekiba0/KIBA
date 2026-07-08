@@ -1230,7 +1230,14 @@ export class CoachingProcessor {
       liveUser.utc_offset_minutes !== null &&
       liveUser.utc_offset_minutes !== undefined;
 
-    if (!liveUser.payment_link_sent_at && askedForLink && hasMinimumForLink) {
+    if (askedForLink && hasMinimumForLink) {
+      // An EXPLICIT link request always gets a link — even for a PAYMENT_PENDING
+      // lead who already has one. The original Stripe session expires ~24h out,
+      // and the dunning nudge no longer auto-resends (Karibi 2026-07-08 — "why 2
+      // payment links"), so this deterministic on-ask resend is the ONLY thing
+      // keeping a ready-to-buy lead from being stranded with a dead link when the
+      // model doesn't call the tool. sendPaymentLink's own 5-minute guard blocks
+      // spam, so re-sending on request is safe.
       const sent = await this.sendPaymentLink(liveUser, userMessageId, {
         requireFullIntake: true,
         leadIn: CLOSE_LEAD_IN,
