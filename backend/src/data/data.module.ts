@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bull';
 import { RedisModule } from '@nestjs-modules/ioredis';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AccountabilityModule } from '../accountability/accountability.module';
@@ -56,6 +57,9 @@ const ENTITIES = [
 @Module({
   imports: [
     TypeOrmModule.forFeature(ENTITIES),
+    // DataRightsService drains a deleted user's Bull jobs; register the queue
+    // client here so it can be injected without reaching into AccountabilityModule.
+    BullModule.registerQueue({ name: 'accountability' }),
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

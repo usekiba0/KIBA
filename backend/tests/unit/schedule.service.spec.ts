@@ -118,6 +118,71 @@ describe('ScheduleService', () => {
     });
   });
 
+  // Karibi 2026-07-08 "dozens every morning": the coaching model spawned a
+  // brand-new daily chain every time it set "remind me each morning", so
+  // redundant reminders stacked and all fired in the same window. A daily
+  // reminder is now idempotent per (user, local time).
+  describe('enqueue — daily recurrence dedup', () => {
+    const dailyRec = { rule: ReminderRecurrence.DAILY, localTime: '09:00', offsetMinutes: -300 };
+    const fireAt = () => new Date(Date.now() + 60 * 60_000);
+
+    it('collapses a repeat daily reminder at the same local time into the existing chain', async () => {
+      reminderRepo.findOne.mockResolvedValueOnce({
+        id: 'rem-existing',
+        fire_at: new Date(Date.now() + 3 * 60 * 60_000),
+      });
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'weigh in',
+        recurrence: { ...dailyRec },
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.reminderId).toBe('rem-existing');
+      // No duplicate row, no duplicate Bull job.
+      expect(reminderRepo.save).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+      // Latest intent wins — the surviving chain's message is refreshed.
+      expect(reminderRepo.update).toHaveBeenCalledWith(
+        'rem-existing',
+        expect.objectContaining({ message: 'weigh in' }),
+      );
+    });
+
+    it('creates a fresh chain when no pending daily reminder exists at that time', async () => {
+      reminderRepo.findOne.mockResolvedValueOnce(null);
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'morning weigh in',
+        recurrence: { ...dailyRec },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(reminderRepo.save).toHaveBeenCalled();
+      expect(queue.add).toHaveBeenCalled();
+    });
+
+    it('does not dedup a parented occurrence (recurrence re-enqueue keeps the chain alive)', async () => {
+      // A pending sibling is present, but a parented occurrence must still be
+      // created — otherwise the daily chain would stop after its first fire.
+      reminderRepo.findOne.mockResolvedValue({ id: 'rem-existing', fire_at: new Date() });
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'next day',
+        recurrence: { ...dailyRec, parentId: 'parent-1' },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(reminderRepo.save).toHaveBeenCalled();
+    });
+  });
+
   describe('fire', () => {
     it('sends the message and marks fired when reminder is pending', async () => {
       reminderRepo.findOne.mockResolvedValue({

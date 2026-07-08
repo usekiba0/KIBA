@@ -120,6 +120,42 @@ export class ScheduleService {
     }
 
     const rec = args.recurrence ?? null;
+
+    // Idempotency for user-created daily reminders: one chain per (user, local
+    // time). The coaching model used to spawn a brand-new daily chain every time
+    // it set "remind me each morning", and each chain re-enqueues itself forever
+    // — so redundant reminders stacked and all fired in the same morning window
+    // (Karibi 2026-07-08 — dozens every morning). Collapse a repeat request into
+    // the existing chain, refreshing its message so the latest intent wins.
+    // Scoped to first-of-chain (no parentId): the recurrence re-enqueue below
+    // runs only AFTER the prior occurrence is FIRED, so it never matches here and
+    // is never blocked from continuing a live chain.
+    if (rec?.rule === ReminderRecurrence.DAILY && rec.localTime && !rec.parentId) {
+      const existing = await this.reminderRepo.findOne({
+        where: {
+          user_id: args.userId,
+          status: ScheduledReminderStatus.PENDING,
+          recurrence_rule: ReminderRecurrence.DAILY,
+          recurrence_local_time: rec.localTime,
+        },
+      });
+      if (existing) {
+        await this.reminderRepo.update(existing.id, {
+          message: args.message.trim(),
+          recurrence_offset_minutes: rec.offsetMinutes,
+          recurrence_iana_timezone: rec.ianaTimezone ?? null,
+        });
+        structuredLog(this.logger, 'log', {
+          service: 'schedule',
+          operation: 'daily_reminder_deduped',
+          userId: args.userId,
+          reminderId: existing.id,
+          localTime: rec.localTime,
+        });
+        return { ok: true, reminderId: existing.id, fireAtIso: existing.fire_at.toISOString() };
+      }
+    }
+
     const saved = await this.reminderRepo.save({
       user_id: args.userId,
       session_id: args.sessionId ?? null,
