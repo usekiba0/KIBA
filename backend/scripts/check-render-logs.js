@@ -58,7 +58,9 @@ const BUG_SIGNATURES = [
 ];
 const ERROR_SIGNATURES = [/unhandledrejection/i, /\bECONNREFUSED\b/i, /\bstack:/i, /"level":"error"/i, / ERROR /];
 
-const c = { g: (s) => `\x1b[32m${s}\x1b[0m`, r: (s) => `\x1b[31m${s}\x1b[0m`, y: (s) => `\x1b[33m${s}\x1b[0m`, dim: (s) => `\x1b[2m${s}\x1b[0m` };
+// Colorize for a terminal; go plain when NO_COLOR is set (e.g. CI step summaries).
+const paint = (code) => (s) => (process.env.NO_COLOR ? `${s}` : `\x1b[${code}m${s}\x1b[0m`);
+const c = { g: paint(32), r: paint(31), y: paint(33), dim: paint(2) };
 
 async function checkHealth() {
   process.stdout.write(`\n[C] Health check → ${HEALTH_URL}\n`);
