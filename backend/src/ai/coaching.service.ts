@@ -14,6 +14,7 @@ import { PsychologicalProfile, PressurePreference } from '../data/entities/psych
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { Strike } from '../data/entities/strike.entity';
 import { DailyTask } from '../data/entities/daily-task.entity';
+import { Subscription } from '../data/entities/subscription.entity';
 import { currentStreakFromTasks } from '../accountability/score.service';
 import { buildSystemPrompt, PatternSignals } from './prompts/coaching.prompt';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
@@ -22,7 +23,7 @@ import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/paym
 import { CorrectionService } from '../data/correction.service';
 import { formatHistoryStamp } from '../messaging/local-time';
 import { resolveOffsetMinutes } from '../messaging/world-time';
-import { buildDateFactsBlock, correctTimeClaims } from './time-claim-guard';
+import { buildDateFactsBlock, correctTimeClaims, correctEventTimingClaims, describeActivationDay } from './time-claim-guard';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
 /** Coaching-mode tools (post-payment). */
@@ -588,6 +589,27 @@ export class CoachingService {
       // Layer 3 — durable "never forget" facts (append-only anchor list).
       facts: intake.notes && intake.notes.length ? intake.notes : null,
     };
+    // Ground truth for WHEN they paid/locked in. The model kept inventing a day
+    // ("the link went through yesterday" to a user who'd just checked out), so we
+    // hand it the real activation day AND deterministically correct the outbound
+    // reply below. Subscription.created_at is the checkout-completion instant.
+    // Uses the entity manager so we don't have to wire a new repo into the module.
+    // (Karibi 2026-07-09)
+    let activatedAtUtc: Date | null = null;
+    try {
+      const subscription = await this.userRepo.manager.findOne(Subscription, {
+        where: { user_id: user.id },
+        order: { created_at: 'DESC' },
+      });
+      activatedAtUtc = subscription?.created_at ?? null;
+    } catch (err) {
+      // The activation fact is an enhancement, not load-bearing. A lookup failure
+      // must never block the coaching reply — degrade to "unknown" and move on.
+      this.logger.warn(`activation lookup failed for ${user.id}: ${(err as Error).message}`);
+    }
+    const activatedDayLabel = activatedAtUtc
+      ? describeActivationDay(activatedAtUtc, nowUtc, liveOffset)
+      : null;
     // Fold the REAL streak into the pattern signals so it always reaches the
     // prompt as ground truth, even if the caller passed no other signals.
     const patternsWithStreak: PatternSignals = {
@@ -598,6 +620,7 @@ export class CoachingService {
       lastMilestoneHit: patterns?.lastMilestoneHit ?? 0,
       loopingOnQuestion: patterns?.loopingOnQuestion,
       currentStreak,
+      activatedDayLabel,
     };
     const systemPrompt = buildSystemPrompt(
       { id: user.id, name: userName, phone_number: user.phone_number },
@@ -643,6 +666,7 @@ export class CoachingService {
       userId: user.id,
       operationLabel: 'coaching_reply',
       userOffsetMinutes: liveOffset,
+      activatedAtUtc,
     });
   }
 
@@ -772,6 +796,9 @@ export class CoachingService {
     operationLabel: string;
     /** User's UTC offset — when set, history is stamped with local send-times. */
     userOffsetMinutes?: number | null;
+    /** When the user's subscription was created (checkout completed). Grounds the
+     * deterministic payment-timing guard so KIBA can't invent a wrong "you paid X" day. */
+    activatedAtUtc?: Date | null;
   }): Promise<{ reply: string; tokenCount: number }> {
     const baseModel = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
     // Photos need real OCR + brand/world knowledge — read the "Salata" sign off a
@@ -992,6 +1019,27 @@ export class CoachingService {
         operation: 'time_claim_corrected',
         userId: args.userId,
         corrections: guard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on payment/signup timing. The model can't be trusted to know
+    // WHEN the user paid — it told a just-checked-out user "the link went through
+    // yesterday." Given the real activation instant, strip any day-word on a
+    // payment event that contradicts it. Deterministic, no model call, and
+    // conservative (only acts when it can prove the day wrong). (Karibi 2026-07-09)
+    const eventGuard = correctEventTimingClaims(
+      finalReply,
+      args.activatedAtUtc ?? null,
+      new Date(),
+      args.userOffsetMinutes ?? null,
+    );
+    if (eventGuard.corrections.length > 0) {
+      finalReply = eventGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'event_timing_corrected',
+        userId: args.userId,
+        corrections: eventGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
       });
     }
 

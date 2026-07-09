@@ -234,3 +234,97 @@ export function correctTimeClaims(
   }
   return { text, corrections };
 }
+
+// ── Event-timing guard (Karibi 2026-07-09) ──────────────────────────────────
+// Same philosophy as correctTimeClaims, but for PAST events rather than future
+// date math. The model kept fabricating WHEN the user paid — it told a user who
+// had just checked out "the link went through yesterday." Future-gap correction
+// never touched that, and every prior attempt to fix it was a prompt instruction
+// the model ignored. This is the deterministic backstop: given the real
+// activation instant (Subscription.created_at), it rewrites any payment/signup
+// timing claim whose stated day is provably wrong. Conservative — it acts ONLY
+// when we have the ground-truth timestamp AND the reply names a day that
+// contradicts it. When unsure, it leaves the text alone.
+
+/** Which local day a past instant fell on relative to now: 0=today, 1=yesterday, ≥2=older. */
+function localDayDelta(pastUtc: Date, nowUtc: Date, offsetMinutes: number | null): number {
+  return Math.round((localMidnightMs(nowUtc, offsetMinutes) - localMidnightMs(pastUtc, offsetMinutes)) / 86_400_000);
+}
+
+type DayClass = 'today' | 'yesterday' | 'old';
+function dayClass(delta: number): DayClass {
+  return delta <= 0 ? 'today' : delta === 1 ? 'yesterday' : 'old';
+}
+
+/**
+ * Human label for when a past event happened, in the user's local day.
+ * "today" / "yesterday" / "Mon Jul 8". Used to ground the coaching prompt so the
+ * model reads the real activation day instead of guessing one.
+ */
+export function describeActivationDay(pastUtc: Date, nowUtc: Date, offsetMinutes: number | null): string {
+  const delta = localDayDelta(pastUtc, nowUtc, offsetMinutes);
+  if (delta <= 0) return 'today';
+  if (delta === 1) return 'yesterday';
+  const local = new Date(pastUtc.getTime() + (offsetMinutes ?? 0) * 60_000);
+  const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][local.getUTCDay()];
+  return `${dow} ${MONTHS_FULL[local.getUTCMonth()].slice(0, 3)} ${local.getUTCDate()} (${delta} days ago)`;
+}
+
+// A payment/activation event KIBA might reference. Present-tense mentions ("the
+// link went through", "you're locked in") are always fine — only an explicit
+// WRONG day attached to one of these is corrected.
+const PAY_EVENT =
+  '(?:(?:the\\s+)?(?:link|payment|checkout|charge|sub(?:scription)?)\\s+' +
+  '(?:went\\s+through|came\\s+through|cleared|processed|went\\s+in|got\\s+processed)' +
+  '|you\\s+(?:paid|signed\\s+up|joined|subscribed|got\\s+in|locked\\s+in|came\\s+in|started))';
+
+const PAY_QUALIFIERS: Array<{ re: string; cls: DayClass }> = [
+  { re: 'just\\s+now', cls: 'today' },
+  { re: 'earlier\\s+today', cls: 'today' },
+  { re: 'today', cls: 'today' },
+  { re: 'last\\s+night', cls: 'yesterday' },
+  { re: 'yesterday', cls: 'yesterday' },
+  { re: 'last\\s+week', cls: 'old' },
+  { re: 'the\\s+other\\s+day', cls: 'old' },
+  { re: 'a\\s+few\\s+days\\s+ago', cls: 'old' },
+  { re: '(?:a\\s+)?couple\\s+(?:of\\s+)?days\\s+ago', cls: 'old' },
+  { re: '\\d+\\s+days\\s+ago', cls: 'old' },
+];
+
+/**
+ * HARD CHECK for payment/signup timing. Given the real activation instant, strips
+ * any day-word attached to a payment event that contradicts it (e.g. "the link
+ * went through yesterday" when they paid today → "the link went through"). Leaving
+ * the event present-tense is always truthful and natural. No-op without a
+ * ground-truth timestamp, or when the stated day already matches reality.
+ */
+export function correctEventTimingClaims(
+  reply: string,
+  activatedAtUtc: Date | null | undefined,
+  nowUtc: Date,
+  offsetMinutes: number | null,
+): { text: string; corrections: ClaimCorrection[] } {
+  if (!reply || !activatedAtUtc) return { text: reply, corrections: [] };
+  const actual = dayClass(localDayDelta(activatedAtUtc, nowUtc, offsetMinutes));
+
+  const corrections: ClaimCorrection[] = [];
+  let text = reply;
+  for (const q of PAY_QUALIFIERS) {
+    if (q.cls === actual) continue; // the stated day agrees with reality — leave it
+    // "...the link went through yesterday" → drop the false trailing day
+    const after = new RegExp(`(${PAY_EVENT})\\s+(?:on\\s+)?(?:${q.re})\\b`, 'gi');
+    text = text.replace(after, (m, ev) => {
+      corrections.push({ from: m, to: ev, reason: `payment cleared ${actual}, not ${q.cls}` });
+      return ev;
+    });
+    // "yesterday the link went through" → drop the false leading day
+    const before = new RegExp(`\\b(?:${q.re})[,\\s]+(${PAY_EVENT})`, 'gi');
+    text = text.replace(before, (m, ev) => {
+      corrections.push({ from: m, to: ev, reason: `payment cleared ${actual}, not ${q.cls}` });
+      return ev;
+    });
+  }
+  // Tidy whitespace/punctuation left by a splice, without disturbing newlines.
+  if (corrections.length > 0) text = text.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.,!?])/g, '$1');
+  return { text, corrections };
+}
