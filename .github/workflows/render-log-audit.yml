@@ -1,0 +1,37 @@
+name: Render Log Audit
+
+# Watches production Render logs for the time-fabrication class of bugs
+# (Karibi 2026-07-09) WITHOUT anyone's laptop being on. Runs on GitHub's
+# servers. If a run FAILS — a fabrication reached a user, the backend is
+# unhealthy, or the credentials are wrong — GitHub emails the repo owner.
+# A clean run passes silently; the counts are always in the run summary.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # every 6 hours (UTC)
+  workflow_dispatch: {} # lets you run it on demand from the Actions tab
+
+jobs:
+  audit:
+    name: Scan prod logs for fabricated time claims
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Render log audit
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
+          HOURS: '6' # cover the window since the last scheduled run
+          NO_COLOR: '1'
+        run: |
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node backend/scripts/check-render-logs.js | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $status
