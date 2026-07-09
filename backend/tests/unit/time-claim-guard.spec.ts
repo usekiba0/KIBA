@@ -3,6 +3,8 @@ import {
   gapInDays,
   buildDateFactsBlock,
   correctTimeClaims,
+  correctEventTimingClaims,
+  describeActivationDay,
 } from '../../src/ai/time-claim-guard';
 
 // Fixed "now" = Wednesday, July 8, 2026, 15:00 UTC. Offset -300 (UTC-5) → still
@@ -100,5 +102,76 @@ describe('correctTimeClaims (hard check)', () => {
     const { text, corrections } = correctTimeClaims(reply, 'trip December 20', NOW, OFF);
     expect(corrections).toHaveLength(1);
     expect(text).toMatch(/2\d weeks away/); // ~24 weeks
+  });
+});
+
+// NOW = Jul 8 2026 15:00 UTC, OFF -300 → Jul 8 local. Activation instants below
+// are chosen to land on a known local day relative to that anchor.
+const PAID_TODAY = new Date('2026-07-08T14:00:00Z'); // Jul 8 09:00 local → today
+const PAID_YESTERDAY = new Date('2026-07-07T14:00:00Z'); // Jul 7 → yesterday
+const PAID_LAST_WEEK = new Date('2026-07-01T14:00:00Z'); // Jul 1 → 7 days ago
+
+describe('describeActivationDay', () => {
+  it('labels same-local-day activation "today"', () => {
+    expect(describeActivationDay(PAID_TODAY, NOW, OFF)).toBe('today');
+  });
+  it('labels the prior local day "yesterday"', () => {
+    expect(describeActivationDay(PAID_YESTERDAY, NOW, OFF)).toBe('yesterday');
+  });
+  it('labels older activation with an absolute date + day count', () => {
+    expect(describeActivationDay(PAID_LAST_WEEK, NOW, OFF)).toBe('Wed Jul 1 (7 days ago)');
+  });
+});
+
+describe('correctEventTimingClaims (payment-timing hard check)', () => {
+  it('strips the fabricated day — the EXACT Karibi 2026-07-09 bug', () => {
+    // User checked out just now; the model claimed it happened yesterday.
+    const reply = "you're already locked in. the link went through yesterday.";
+    const { text, corrections } = correctEventTimingClaims(reply, PAID_TODAY, NOW, OFF);
+    expect(corrections).toHaveLength(1);
+    expect(text).toBe("you're already locked in. the link went through.");
+    expect(text).not.toMatch(/yesterday/i);
+  });
+
+  it('leaves the claim alone when the stated day is actually correct', () => {
+    // They really did pay yesterday, and the model said yesterday.
+    const reply = 'the link went through yesterday, so we start fresh today.';
+    const { text, corrections } = correctEventTimingClaims(reply, PAID_YESTERDAY, NOW, OFF);
+    expect(corrections).toHaveLength(0);
+    expect(text).toBe(reply);
+  });
+
+  it('corrects "you signed up last week" when they paid today', () => {
+    const reply = 'you signed up last week, remember?';
+    const { text, corrections } = correctEventTimingClaims(reply, PAID_TODAY, NOW, OFF);
+    expect(corrections).toHaveLength(1);
+    expect(text).toBe('you signed up, remember?');
+  });
+
+  it('handles the day BEFORE the event too ("yesterday you paid")', () => {
+    const reply = 'yesterday you paid and vanished on me.';
+    const { text, corrections } = correctEventTimingClaims(reply, PAID_TODAY, NOW, OFF);
+    expect(corrections).toHaveLength(1);
+    expect(text).toBe('you paid and vanished on me.');
+  });
+
+  it('is a no-op without a ground-truth activation timestamp', () => {
+    const reply = 'the link went through yesterday.';
+    const { text, corrections } = correctEventTimingClaims(reply, null, NOW, OFF);
+    expect(corrections).toHaveLength(0);
+    expect(text).toBe(reply);
+  });
+
+  it('never touches a present-tense "you\'re locked in"', () => {
+    const reply = "you're already locked in. what's the first move today?";
+    const { text, corrections } = correctEventTimingClaims(reply, PAID_TODAY, NOW, OFF);
+    expect(corrections).toHaveLength(0);
+    expect(text).toBe(reply);
+  });
+
+  it('does not invent a correction when no payment event is mentioned', () => {
+    const reply = 'you slept through yesterday, that stops now.';
+    const { corrections } = correctEventTimingClaims(reply, PAID_TODAY, NOW, OFF);
+    expect(corrections).toHaveLength(0);
   });
 });

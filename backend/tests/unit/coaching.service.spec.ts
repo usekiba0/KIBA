@@ -64,6 +64,9 @@ describe('CoachingService', () => {
     const mockUserRepo = {
       findOne: jest.fn().mockResolvedValue(testUser),
       update: jest.fn().mockResolvedValue({}),
+      // Coaching loads the latest Subscription via the entity manager to ground
+      // the payment-timing guard. Default: no subscription row (null).
+      manager: { findOne: jest.fn().mockResolvedValue(null) },
     };
     const mockCorrectionService = {
       getActiveKnowledge: jest.fn().mockResolvedValue([]),

@@ -123,6 +123,7 @@ function formatTimeContext(ctx: TimeContext): string {
     `- USER LOCAL CLOCK: ${localPretty} — user offset is UTC${sign}${h}:${m}`,
     `- TIME OF DAY: it is currently ${timeOfDayLabel(ctx.nowUtc, ctx.userOffsetMinutes)} for the user. Greet and frame by THIS. Do NOT tell them to go to sleep, say goodnight, or reference a morning/7am wake-up unless the local clock above is actually night or the middle of the night. CRITICAL: IGNORE the time implied by OLDER messages in this thread (a late-night exchange from a previous day is NOT now) — the USER LOCAL CLOCK line is the ONLY source of truth for what time it is.`,
     '- SOME past USER messages are prefixed with when they were sent, e.g. "[yesterday 11pm]" — that bracket is SYSTEM metadata so you know what is recent (anything stamped before today is NOT now). It is NOT part of the message and NOT part of how you write. NEVER begin your reply with a [bracketed time] like "[today 8:31pm]" — that is an internal label leaking; just write your actual text.',
+    '- EVENT TIMING: only call something the user did or said "today"/"this morning"/"yesterday" if a [today ...]/[yesterday ...] stamped message in THIS thread actually shows it. Anything from memory, the previous-session summary, or a durable fact is UNDATED — it may be days old, so refer to it WITHOUT a day ("you mentioned sleeping through a workday"), never "you slept through today". When unsure which day, drop the day-word rather than guess. Same for payment: never state a day for when they paid or "the link went through" unless HARD FACTS gives it.',
     '- when the user asks what time it is for them (or you reference their local time), COPY the time from the USER LOCAL CLOCK line above EXACTLY — digit for digit. Do NOT add "around"/"about", do NOT round, do NOT subtract for "how long this took", do NOT compute or do timezone math in your head — you get it wrong every time. The value on that line is already their current local time. Just copy it.',
     '',
     'SCHEDULING — DO NOT DO TIME MATH. let the schedule_reminder tool do it:',
@@ -165,6 +166,13 @@ export interface PatternSignals {
    * "stop asking, lock it in" steer so a model mid-circle breaks out.
    */
   loopingOnQuestion?: boolean;
+  /**
+   * When the user actually paid / locked in, in their local day ("today",
+   * "yesterday", "Mon Jul 8"). Ground truth from Subscription.created_at so the
+   * model never invents a payment day. null = unknown / not subscribed
+   * (Karibi 2026-07-09: "the link went through yesterday" to a user who'd just paid).
+   */
+  activatedDayLabel?: string | null;
 }
 
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -209,6 +217,13 @@ function formatPatternSignals(p: PatternSignals): string {
     ? `- Current streak: ${streak} consecutive day${streak === 1 ? '' : 's'} with a completed task. If you reference a streak or day count, use THIS number only — never round up or invent one.`
     : `- Current streak: 0 — they are NOT on a streak right now. Do NOT say "X days straight", "you're locked in", or congratulate a run that didn't happen. If they've gone quiet or skipped, name it honestly instead of praising.`;
   const factBlock = ['', 'HARD FACTS (ground truth — cite only these numbers, never fabricate a streak or win):', streakFact];
+  // When they actually paid/locked in. Grounds the model so it stops inventing a
+  // day for the payment ("the link went through yesterday" to a same-day payer).
+  if (p.activatedDayLabel) {
+    factBlock.push(
+      `- Locked in / paid: ${p.activatedDayLabel}. This is the ONLY correct answer for when they subscribed or when the link went through — say THIS, never a different day, and never guess. If it was today, don't say a day at all ("you're locked in", not "the link went through yesterday").`,
+    );
+  }
 
   return [...urgent, ...factBlock, ...behavioral].join('\n');
 }
@@ -306,9 +321,9 @@ export function buildSystemPrompt(
     ? `\nWHAT YOU KNOW ABOUT THEM (use it actively; correct them if they contradict it):\n${factLines.join('\n')}\n`
     : '';
   const memorySection = relationshipMemory && relationshipMemory.trim()
-    ? `\nWHAT YOU REMEMBER ABOUT THEM (the relationship so far — talk like you actually know them; reference it naturally when it lands, don't recite it, and gently correct them if they contradict it):\n${relationshipMemory.trim()}\n`
+    ? `\nWHAT YOU REMEMBER ABOUT THEM (the relationship so far, built up over DAYS — UNDATED, so never assume any of it happened today; talk like you actually know them; reference it naturally when it lands, don't recite it, and gently correct them if they contradict it):\n${relationshipMemory.trim()}\n`
     : '';
-  const summarySection = sessionSummary ? `\nPREVIOUS SESSION:\n${sessionSummary}\n` : '';
+  const summarySection = sessionSummary ? `\nPREVIOUS SESSION (from an EARLIER day — not today; do not describe anything in here as having happened "today" or "this morning"):\n${sessionSummary}\n` : '';
   const knowledgeSection =
     curatedKnowledge && curatedKnowledge.length > 0
       ? `\nCURATED KNOWLEDGE (admin-approved corrections from past users — follow these):\n${curatedKnowledge.map((k) => `- ${k}`).join('\n')}\n`
