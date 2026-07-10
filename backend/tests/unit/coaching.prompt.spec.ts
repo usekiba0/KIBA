@@ -260,8 +260,11 @@ describe('buildSystemPrompt', () => {
     // — net small after trimming a redundant identity-language example. Raised
     // 27k->27.5k same day for proof depth (specific critique on proof, meal-photo-
     // before-eating, lift-video form check, post-activity acknowledge-AND-pivot).
+    // Raised 27.5k->29k for the 2026-07-10 Conversation-Overhaul batch (Karibi's
+    // three relationship-quality rules: confidence calibration / don't-promote-a-
+    // hedge, greetings-are-human, mirror one-word replies) — trimmed lean first.
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(27500);
+    expect(prompt.length).toBeLessThan(29000);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {

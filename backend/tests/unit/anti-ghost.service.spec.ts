@@ -5,6 +5,7 @@ import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
 import { AntiGhostState, GhostState } from '../../src/data/entities/anti-ghost-state.entity';
 import { User, UserStatus } from '../../src/data/entities/user.entity';
 import { Goal } from '../../src/data/entities/goal.entity';
+import { Message, MessageRole } from '../../src/data/entities/message.entity';
 import { PsychologicalProfile } from '../../src/data/entities/psychological-profile.entity';
 import { StrikeService } from '../../src/accountability/strike.service';
 import { MessagingService } from '../../src/messaging/messaging.service';
@@ -42,6 +43,7 @@ describe('AntiGhostService', () => {
   let mockUserRepo: any;
   let mockGoalRepo: any;
   let mockProfileRepo: any;
+  let mockMessageRepo: any;
   let mockMessagingService: any;
 
   beforeEach(async () => {
@@ -63,6 +65,9 @@ describe('AntiGhostService', () => {
     // fireGhostMessage loads goal + profile and sends the scripted message.
     mockGoalRepo = { findOne: jest.fn().mockResolvedValue(null) };
     mockProfileRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    // Default: no prior inbound → context-suppression is a no-op and the ghost
+    // fires as before. Individual defer tests override findOne.
+    mockMessageRepo = { findOne: jest.fn().mockResolvedValue(null) };
     mockMessagingService = { send: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -72,6 +77,7 @@ describe('AntiGhostService', () => {
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getRepositoryToken(Goal), useValue: mockGoalRepo },
         { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
+        { provide: getRepositoryToken(Message), useValue: mockMessageRepo },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
         { provide: StrikeService, useValue: mockStrikeService },
         { provide: MessagingService, useValue: mockMessagingService },
@@ -126,6 +132,67 @@ describe('AntiGhostService', () => {
       expect(mockMessagingService.send).not.toHaveBeenCalled();
       expect(mockQueue.add).not.toHaveBeenCalled();
       expect(mockStateRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // Rule 13 (Karibi Conversation Overhaul): a ghost must never talk over a plan
+  // KIBA itself acknowledged. If the user's last inbound said they'd be back
+  // later, defer the whole chain ONCE instead of guilt-blasting them.
+  describe('onMissedCheckin — context suppression (stated return)', () => {
+    const recentAway = (content: string) => ({
+      content,
+      role: MessageRole.USER,
+      created_at: new Date(Date.now() - 60 * 60 * 1000), // 1h ago (within window)
+    });
+
+    it('defers (no strike/no message) when the last inbound stated a return time', async () => {
+      mockMessageRepo.findOne.mockResolvedValue(
+        recentAway("alr i'll lock in after the game bro watching Colombia rn"),
+      );
+      await service.onMissedCheckin(userId, taskId);
+
+      // No ghost fired, no strike, chain state untouched...
+      expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+      expect(mockStateRepo.save).not.toHaveBeenCalled();
+      // ...instead the chain is re-queued once with deferred=true.
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'checkin-missed',
+        expect.objectContaining({ userId, taskId, deferred: true }),
+        expect.objectContaining({ delay: expect.any(Number) }),
+      );
+    });
+
+    it('fires normally on the deferred re-run even if still saying they are away', async () => {
+      mockMessageRepo.findOne.mockResolvedValue(recentAway('going to sleep, talk later'));
+      await service.onMissedCheckin(userId, taskId, /* alreadyDeferred */ true);
+      // Second time around it does NOT defer again — a permanent "gn" can't
+      // suppress the ghost forever.
+      expect(mockStrikeService.logStrike).toHaveBeenCalledWith(userId, taskId, 1);
+      expect(mockMessagingService.send).toHaveBeenCalled();
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'ghost-escalate',
+        expect.objectContaining({ level: 2 }),
+        expect.anything(),
+      );
+    });
+
+    it('does NOT defer on a STALE away message (older than the window)', async () => {
+      mockMessageRepo.findOne.mockResolvedValue({
+        content: 'going to sleep',
+        role: MessageRole.USER,
+        created_at: new Date(Date.now() - 12 * 60 * 60 * 1000), // 12h ago
+      });
+      await service.onMissedCheckin(userId, taskId);
+      expect(mockStrikeService.logStrike).toHaveBeenCalledWith(userId, taskId, 1);
+      expect(mockMessagingService.send).toHaveBeenCalled();
+    });
+
+    it('does NOT defer when the last inbound is a normal message', async () => {
+      mockMessageRepo.findOne.mockResolvedValue(recentAway('yeah that plan works for me'));
+      await service.onMissedCheckin(userId, taskId);
+      expect(mockStrikeService.logStrike).toHaveBeenCalledWith(userId, taskId, 1);
+      expect(mockMessagingService.send).toHaveBeenCalled();
     });
   });
 

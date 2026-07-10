@@ -23,6 +23,7 @@ import { RecapService } from './recap.service';
 import { WeeklyReviewService } from './weekly-review.service';
 import { ScoreService } from './score.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
+import { buildFaithBlock } from './faith-content';
 import { CoachingService } from '../ai/coaching.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
@@ -224,9 +225,21 @@ export class CheckinProcessor {
         const localHour = offset !== null
           ? new Date(Date.now() + offset * 60_000).getUTCHours()
           : null;
-        const message = task
+        const baseMessage = task
           ? buildCheckinMessage(safeName, profile, task.task_description, { localDow, localHour })
           : buildCheckinMessage(safeName, profile, null, { localDow, localHour });
+
+        // PER-GOAL VALUE HOOK — FAITH (Rule 5). If they named a "closer to god" /
+        // faith goal, their morning starts with a verse + affirmation ("head
+        // right first, then the work"), then the normal check-in. Deterministic
+        // per user+day, curated static pool (never LLM-generated scripture).
+        // Returns null for non-faith users, so everyone else is unaffected.
+        const faithBlock = buildFaithBlock(
+          [user.intake_data?.goal_description, ...(user.intake_data?.goals ?? []), user.goals],
+          user.id,
+          localDate,
+        );
+        const message = faithBlock ? `${faithBlock}\n\n${baseMessage}` : baseMessage;
 
         // CRITICAL: wrap send so a Twilio/SendBlue throw can't kill the
         // re-enqueue chain below. We lost cadence for every prod user this way —
@@ -486,9 +499,11 @@ export class CheckinProcessor {
   }
 
   @Process('checkin-missed')
-  async handleCheckinMissed(job: Job<{ userId: string; taskId: string }>): Promise<void> {
-    const { userId, taskId } = job.data;
-    await this.antiGhostService.onMissedCheckin(userId, taskId);
+  async handleCheckinMissed(
+    job: Job<{ userId: string; taskId: string; deferred?: boolean }>,
+  ): Promise<void> {
+    const { userId, taskId, deferred } = job.data;
+    await this.antiGhostService.onMissedCheckin(userId, taskId, deferred ?? false);
 
     structuredLog(this.logger, 'log', {
       service: 'accountability',
