@@ -6,12 +6,23 @@ import { Queue } from 'bull';
 import { AntiGhostState, GhostState, GHOST_LEVEL_DELAY_MS } from '../data/entities/anti-ghost-state.entity';
 import { User } from '../data/entities/user.entity';
 import { Goal, GoalType } from '../data/entities/goal.entity';
+import { Message, MessageRole } from '../data/entities/message.entity';
 import { findAnchorGoal } from '../data/goal-selection';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { StrikeService } from './strike.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { buildGhostMessage } from '../ai/prompts/ghost.prompt';
+import { statesTemporaryReturn } from './ghost-context';
 import { structuredLog } from '../common/logger';
+
+// Ghost context-suppression (Rule 13). If the user's last inbound said they'd be
+// back later ("after the game", "going to sleep"), the missed-checkin ghost
+// waits this long instead of firing over their own stated plan. Deferred at most
+// once per chain — if they're still quiet after, the normal escalation proceeds.
+const GHOST_DEFER_MS = 3 * 60 * 60 * 1000;
+// Only a RECENT "back later" defers — an away message older than this is stale
+// and shouldn't hold off the ghost (covers the 2h missed-checkin delay + buffer).
+const STATED_RETURN_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 @Injectable()
 export class AntiGhostService {
@@ -22,14 +33,46 @@ export class AntiGhostService {
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Goal) private readonly goalRepo: Repository<Goal>,
     @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
+    @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
     @InjectQueue('accountability') private readonly queue: Queue,
     private readonly strikeService: StrikeService,
     private readonly messagingService: MessagingService,
   ) {}
 
-  async onMissedCheckin(userId: string, taskId: string): Promise<void> {
+  /**
+   * @param alreadyDeferred set by a re-enqueued job — true means this chain has
+   *   already waited once for a stated return, so we fire regardless now (a
+   *   permanent "gn" must never suppress the ghost forever).
+   */
+  async onMissedCheckin(userId: string, taskId: string, alreadyDeferred = false): Promise<void> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user || user.crisis_hold) return;
+
+    // ── Context-suppression (Rule 13) ─────────────────────────────────────
+    // Never ghost-blast a user who just told KIBA they'd be back later. If their
+    // most recent inbound stated a return ("after the game", "going to sleep")
+    // and it's recent, defer the whole chain ONCE (re-enqueue with deferred=true)
+    // instead of firing. If they're still quiet after the wait, it fires normally.
+    if (!alreadyDeferred) {
+      const lastInbound = await this.messageRepo.findOne({
+        where: { user_id: userId, role: MessageRole.USER },
+        order: { created_at: 'DESC' },
+      });
+      const recent =
+        lastInbound &&
+        Date.now() - new Date(lastInbound.created_at).getTime() <= STATED_RETURN_WINDOW_MS;
+      if (recent && statesTemporaryReturn(lastInbound!.content)) {
+        await this.queue.add(
+          'checkin-missed',
+          { userId, taskId, deferred: true },
+          { delay: GHOST_DEFER_MS },
+        );
+        structuredLog(this.logger, 'log', {
+          service: 'accountability', operation: 'ghost_deferred_stated_return', userId,
+        });
+        return;
+      }
+    }
 
     // ── Single-chain guard ────────────────────────────────────────────────
     // A ghost episode is ONE escalation chain. The daily check-in enqueues a
