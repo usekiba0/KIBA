@@ -225,12 +225,38 @@ describe('CheckinProcessor', () => {
       await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
       expect(mockQueue.add).not.toHaveBeenCalled();
     });
+
+    // Rule 5 per-goal value hook: a faith goal attaches a verse + affirmation to
+    // the morning check-in; everyone else gets the plain check-in unchanged.
+    it('prepends a verse + affirmation for a faith-goal user (task still present)', async () => {
+      mockUserRepo.findOne.mockResolvedValue({
+        ...testUser,
+        intake_data: { goals: ['hit 100k months', 'get closer to god'] },
+      });
+      await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
+      const body: string = mockMessagingService.send.mock.calls[0][1];
+      expect(body).toContain('verse for today:');
+      expect(body).toContain(testTask.task_description);
+    });
+
+    it('does NOT prepend a verse for a non-faith user', async () => {
+      await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
+      const body: string = mockMessagingService.send.mock.calls[0][1];
+      expect(body).not.toContain('verse for today:');
+    });
   });
 
   describe('handleCheckinMissed', () => {
     it('calls onMissedCheckin on the anti-ghost service', async () => {
       await processor.handleCheckinMissed(makeJob({ userId: 'user-1', taskId: 'task-1' }));
-      expect(mockAntiGhostService.onMissedCheckin).toHaveBeenCalledWith('user-1', 'task-1');
+      expect(mockAntiGhostService.onMissedCheckin).toHaveBeenCalledWith('user-1', 'task-1', false);
+    });
+
+    it('forwards the deferred flag on a re-queued (context-suppressed) miss', async () => {
+      await processor.handleCheckinMissed(
+        makeJob({ userId: 'user-1', taskId: 'task-1', deferred: true }),
+      );
+      expect(mockAntiGhostService.onMissedCheckin).toHaveBeenCalledWith('user-1', 'task-1', true);
     });
   });
 
