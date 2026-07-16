@@ -191,6 +191,7 @@ export class ScheduleService {
       return;
     }
 
+    let sendErr: Error | null = null;
     try {
       await this.messagingService.send(user.phone_number, reminder.message);
       await this.reminderRepo.update(reminderId, {
@@ -203,56 +204,67 @@ export class ScheduleService {
         userId: user.id,
         reminderId,
       });
-
-      // Recurring: enqueue the next occurrence. Errors here must not roll back
-      // the FIRED status (the send succeeded) — we log and move on; the user
-      // can re-ask if a daily chain breaks.
-      if (
-        reminder.recurrence_rule === ReminderRecurrence.DAILY &&
-        reminder.recurrence_local_time &&
-        reminder.recurrence_offset_minutes !== null
-      ) {
-        try {
-          // Recompute the offset LIVE from the zone (DST-correct) when we have
-          // one, else use the frozen snapshot. This is what keeps a "daily 7am"
-          // at 7am across a DST flip instead of drifting to 6am/8am.
-          const occurrenceOffset = resolveOffsetMinutes(
-            reminder.recurrence_iana_timezone,
-            reminder.recurrence_offset_minutes,
-          ) ?? reminder.recurrence_offset_minutes;
-          const nextFire = nextDailyFireAt(
-            new Date(),
-            reminder.recurrence_local_time,
-            occurrenceOffset,
-          );
-          await this.enqueue({
-            userId: reminder.user_id,
-            sessionId: reminder.session_id,
-            createdByMessageId: reminder.created_by_message_id,
-            fireAt: nextFire,
-            message: reminder.message,
-            recurrence: {
-              rule: ReminderRecurrence.DAILY,
-              localTime: reminder.recurrence_local_time,
-              offsetMinutes: reminder.recurrence_offset_minutes,
-              ianaTimezone: reminder.recurrence_iana_timezone,
-              parentId: reminder.recurrence_parent_id ?? reminderId,
-            },
-          });
-        } catch (recErr) {
-          this.logger.error(
-            `recurrence re-enqueue failed for ${reminderId}: ${(recErr as Error).message}`,
-          );
-        }
-      }
     } catch (err) {
+      sendErr = err as Error;
       await this.reminderRepo.update(reminderId, {
         status: ScheduledReminderStatus.FAILED,
-        failure_reason: (err as Error).message.slice(0, 500),
+        failure_reason: sendErr.message.slice(0, 500),
       });
-      this.logger.error(`fire failed for ${reminderId}: ${(err as Error).message}`);
-      throw err;
+      this.logger.error(`fire failed for ${reminderId}: ${sendErr.message}`);
     }
+
+    // Recurring: enqueue the next occurrence whether or not THIS send succeeded.
+    // The re-arm lives OUTSIDE the send try/catch on purpose — a transient
+    // SendBlue/Twilio failure must NEVER permanently kill a daily chain (Karibi
+    // 2026-07-16: reminders "stopped reminding me to log food / check in on my
+    // 8pm walks" after a hiccup — the re-enqueue used to sit inside the send
+    // success path, so one failed send ended the chain forever). The
+    // 'accountability' queue runs these jobs with Bull's default single attempt,
+    // so re-arming here can't double-fire via a retry. Errors are logged, never
+    // thrown — a broken re-arm degrades to "user can re-ask", not a crash.
+    if (
+      reminder.recurrence_rule === ReminderRecurrence.DAILY &&
+      reminder.recurrence_local_time &&
+      reminder.recurrence_offset_minutes !== null
+    ) {
+      try {
+        // Recompute the offset LIVE from the zone (DST-correct) when we have
+        // one, else use the frozen snapshot. This is what keeps a "daily 7am"
+        // at 7am across a DST flip instead of drifting to 6am/8am.
+        const occurrenceOffset = resolveOffsetMinutes(
+          reminder.recurrence_iana_timezone,
+          reminder.recurrence_offset_minutes,
+        ) ?? reminder.recurrence_offset_minutes;
+        const nextFire = nextDailyFireAt(
+          new Date(),
+          reminder.recurrence_local_time,
+          occurrenceOffset,
+        );
+        await this.enqueue({
+          userId: reminder.user_id,
+          sessionId: reminder.session_id,
+          createdByMessageId: reminder.created_by_message_id,
+          fireAt: nextFire,
+          message: reminder.message,
+          recurrence: {
+            rule: ReminderRecurrence.DAILY,
+            localTime: reminder.recurrence_local_time,
+            offsetMinutes: reminder.recurrence_offset_minutes,
+            ianaTimezone: reminder.recurrence_iana_timezone,
+            parentId: reminder.recurrence_parent_id ?? reminderId,
+          },
+        });
+      } catch (recErr) {
+        this.logger.error(
+          `recurrence re-enqueue failed for ${reminderId}: ${(recErr as Error).message}`,
+        );
+      }
+    }
+
+    // Surface a send failure to the caller only AFTER the chain is safely
+    // re-armed above (the row is already marked FAILED). Preserves failure
+    // observability without sacrificing the recurring chain.
+    if (sendErr) throw sendErr;
   }
 
   async findById(reminderId: string): Promise<ScheduledReminder | null> {

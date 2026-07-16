@@ -76,6 +76,13 @@ export interface IntakeData {
   // Whether the user has explicitly opted in to KIBA cursing. False by default
   // (no cursing without consent). Mirrored to PsychologicalProfile.cussing_ok.
   cussing_ok?: boolean;
+  // The user's stated weigh-in cadence, free text as they said it (e.g. "fridays
+  // only", "weekly on monday"). Captured via saveProfileField when the user tells
+  // KIBA how often they weigh in. Surfaced to the coaching prompt as a hard fact
+  // so KIBA stops demanding a DAILY weigh-in and stops scolding off-schedule ones
+  // (Karibi 2026-07-16: user set "fridays only", KIBA both asked daily AND scolded
+  // an off-day weigh-in). Stored here in JSONB — no schema migration needed.
+  weigh_in_schedule?: string;
   // Free-form notes the AI captures that don't fit the structured fields
   notes?: string[];
 }

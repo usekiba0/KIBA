@@ -12,8 +12,9 @@ import { shortGoalReference } from '../goal-classifier';
  * variables instead of a long-context LLM call keeps cost ~zero per ghost
  * fire (Karibi's 2026-05-29 constraint).
  *
- * Two variants per level keep the same user from seeing identical wording
- * if they ghost more than once.
+ * Multiple variants per level keep the same user from seeing identical wording
+ * if they ghost more than once — level 1 carries ~5 per goal branch so a
+ * repeat-ghosting user doesn't see the same line on a loop (Karibi 2026-07-16).
  *
  * Level 1 branches on goalType (Karibi 2026-06-01): a long-term OUTCOME /
  * IDENTITY / EMOTIONAL / HABIT goal must NOT be asked "did it happen?" as if it
@@ -70,13 +71,19 @@ export function buildGhostMessage(
         case GoalType.IDENTITY:
           return pick([
             `${goalShort} — that's the direction.\nwhat's one thing today that moves you there? 🔥`,
-            `not asking if you became a new person overnight 😭\nwhat's the one move today?`,
+            `${goalShort} isn't a someday thing.\nwhat's the one rep today?`,
+            `you becoming ${goalShort} or just talking about it? 👀\npick today's move.`,
+            `${goalShort} is who you're building.\nwhat's the move today that proves it?`,
+            `${goalShort} — that's the identity.\nwhat's today's one thing toward it?`,
           ]);
         case GoalType.OUTCOME:
         default:
           return pick([
             `${goalShort} is the target. cool.\nwhat's the actual move today? 👀`,
-            `not asking if it happened overnight 😭\nwhat's the one thing we're doing today toward ${goalShort}?`,
+            `${goalShort} — that's the big one.\nwhat's the one thing today that gets you closer?`,
+            `you still chasing ${goalShort}?\nwhat's the one thing we're doing about it today?`,
+            `${goalShort} doesn't move on its own 👀\nwhat's today's play toward it?`,
+            `real talk — ${goalShort} is the mission.\nwhat's the one move today? 🔥`,
           ]);
       }
 

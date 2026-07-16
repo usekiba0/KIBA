@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
 import { ScheduleService } from '../../src/accountability/schedule.service';
-import { ScheduledReminder, ScheduledReminderStatus } from '../../src/data/entities/scheduled-reminder.entity';
+import { ScheduledReminder, ScheduledReminderStatus, ReminderRecurrence } from '../../src/data/entities/scheduled-reminder.entity';
 import { User } from '../../src/data/entities/user.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
 
@@ -179,6 +179,35 @@ describe('ScheduleService', () => {
       expect(reminderRepo.update).toHaveBeenCalledWith('rem-1', expect.objectContaining({
         status: ScheduledReminderStatus.FAILED,
         failure_reason: expect.stringContaining('twilio down'),
+      }));
+    });
+
+    // A transient send failure must NOT kill a recurring chain (Karibi 2026-07-16:
+    // reminders "stopped" after a hiccup). The next daily occurrence is re-armed
+    // even though this send threw — the row is FAILED but tomorrow is enqueued.
+    it('re-arms the next daily occurrence even when the send fails', async () => {
+      reminderRepo.findOne.mockResolvedValue({
+        id: 'rem-1', user_id: 'u-1', status: ScheduledReminderStatus.PENDING, message: 'log dinner',
+        session_id: null, created_by_message_id: null,
+        recurrence_rule: ReminderRecurrence.DAILY,
+        recurrence_local_time: '20:00',
+        recurrence_offset_minutes: -300,
+        recurrence_iana_timezone: null,
+        recurrence_parent_id: 'rem-1',
+      });
+      userRepo.findOne.mockResolvedValue({ id: 'u-1', phone_number: '+15551234567', crisis_hold: false });
+      messagingService.send.mockRejectedValueOnce(new Error('sendblue 500'));
+      const enqueueSpy = jest.spyOn(service, 'enqueue').mockResolvedValue({ ok: true, reminderId: 'rem-2', fireAtIso: '' } as any);
+
+      await expect(service.fire('rem-1')).rejects.toThrow('sendblue 500');
+
+      // FAILED for this occurrence, but the chain lives on: tomorrow was enqueued.
+      expect(reminderRepo.update).toHaveBeenCalledWith('rem-1', expect.objectContaining({
+        status: ScheduledReminderStatus.FAILED,
+      }));
+      expect(enqueueSpy).toHaveBeenCalledWith(expect.objectContaining({
+        message: 'log dinner',
+        recurrence: expect.objectContaining({ rule: ReminderRecurrence.DAILY, localTime: '20:00' }),
       }));
     });
   });

@@ -245,6 +245,41 @@ describe('AntiGhostService', () => {
         expect.objectContaining({ state: GhostState.GHOST_3 })
       );
     });
+
+    // Fire-time activity backstop (Karibi 2026-07-16): never send "you went
+    // quiet" over an active conversation. A recent inbound means the user is
+    // present, so the chain resets to ACTIVE and no ping is sent — even if the
+    // orphan/id guards would otherwise let this job through.
+    it('suppresses the ghost and resets to ACTIVE when the user texted recently', async () => {
+      const state = makeState(GhostState.GHOST_1);
+      state.current_job_id = 'live-chain-job';
+      mockStateRepo.findOne.mockResolvedValue(state);
+      // Last inbound 5 min ago — well inside RECENT_ACTIVITY_MS (90 min).
+      mockMessageRepo.findOne.mockResolvedValue({
+        content: 'lunch. 5 wings. popcorn. kiwi.',
+        created_at: new Date(Date.now() - 5 * 60 * 1000),
+      });
+      await service.onEscalate(userId, taskId, 2, 'live-chain-job');
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+      expect(mockQueue.add).not.toHaveBeenCalled();
+      expect(mockStateRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ state: GhostState.ACTIVE, current_job_id: null })
+      );
+    });
+
+    // A stale inbound (older than the window) does NOT suppress — a genuinely
+    // ghosting user still gets escalated.
+    it('still escalates when the last inbound is older than the activity window', async () => {
+      const state = makeState(GhostState.GHOST_1);
+      state.current_job_id = 'live-chain-job';
+      mockStateRepo.findOne.mockResolvedValue(state);
+      mockMessageRepo.findOne.mockResolvedValue({
+        content: 'ok',
+        created_at: new Date(Date.now() - 5 * 60 * 60 * 1000), // 5h ago
+      });
+      await service.onEscalate(userId, taskId, 2, 'live-chain-job');
+      expect(mockMessagingService.send).toHaveBeenCalled();
+    });
   });
 
   describe('onUserResponse', () => {

@@ -263,8 +263,10 @@ describe('buildSystemPrompt', () => {
     // Raised 27.5k->29k for the 2026-07-10 Conversation-Overhaul batch (Karibi's
     // three relationship-quality rules: confidence calibration / don't-promote-a-
     // hedge, greetings-are-human, mirror one-word replies) — trimmed lean first.
+    // Raised 29k->29.8k for the 2026-07-16 batch (macro-breakdown-once + WEIGH-INS
+    // periodic-not-daily / never-scold-an-off-day-weigh-in) — trimmed lean first.
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(29000);
+    expect(prompt.length).toBeLessThan(29800);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
