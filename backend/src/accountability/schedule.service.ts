@@ -153,14 +153,23 @@ export class ScheduleService {
     }
 
     // Idempotency for user-created daily reminders: one chain per (user, local
-    // time). The coaching model used to spawn a brand-new daily chain every time
-    // it set "remind me each morning", and each chain re-enqueues itself forever
-    // — so redundant reminders stacked and all fired in the same morning window
-    // (Karibi 2026-07-08 — dozens every morning). Collapse a repeat request into
-    // the existing chain, refreshing its message so the latest intent wins.
-    // Scoped to first-of-chain (no parentId): the recurrence re-enqueue below
-    // runs only AFTER the prior occurrence is FIRED, so it never matches here and
-    // is never blocked from continuing a live chain.
+    // time, message). The coaching model used to spawn a brand-new daily chain
+    // every time it set "remind me each morning", and each chain re-enqueues
+    // itself forever — so redundant reminders stacked and all fired in the same
+    // morning window (Karibi 2026-07-08 — dozens every morning). Collapse an
+    // IDENTICAL repeat request into the existing chain.
+    //
+    // The dedup key MUST include the message, not just the time: a user can have
+    // two genuinely different daily reminders at the same clock time — e.g. an
+    // "8pm log dinner" and an "8pm walk/workout check-in". Keying on time alone
+    // silently overwrote one with the other (Karibi 2026-07-16 — "kiba stopped
+    // reminding me to check in on my 8pm walks"). Matching on the exact message
+    // too lets distinct-purpose reminders coexist while still collapsing a true
+    // duplicate. Trade-off: a re-worded same-purpose reminder isn't merged, but
+    // over-merging (silent loss) is worse than under-merging (a visible extra
+    // ping the user can remove). Scoped to first-of-chain (no parentId): the
+    // recurrence re-enqueue below runs only AFTER the prior occurrence is FIRED,
+    // so it never matches here and is never blocked from continuing a live chain.
     if (rec?.rule === ReminderRecurrence.DAILY && rec.localTime && !rec.parentId) {
       const existing = await this.reminderRepo.findOne({
         where: {
@@ -168,11 +177,11 @@ export class ScheduleService {
           status: ScheduledReminderStatus.PENDING,
           recurrence_rule: ReminderRecurrence.DAILY,
           recurrence_local_time: rec.localTime,
+          message: args.message.trim(),
         },
       });
       if (existing) {
         await this.reminderRepo.update(existing.id, {
-          message: args.message.trim(),
           recurrence_offset_minutes: rec.offsetMinutes,
           recurrence_iana_timezone: rec.ianaTimezone ?? null,
         });
@@ -204,9 +213,11 @@ export class ScheduleService {
       });
     } catch (err) {
       // Backstop for the partial-unique index (one pending daily reminder per
-      // user/local-time): if a concurrent create beat us past the findOne dedup
-      // above, the insert hits a 23505 unique violation. Recover by returning
-      // the winner instead of surfacing an error — same outcome as the dedup.
+      // user/local-time/message): if a concurrent create beat us past the findOne
+      // dedup above, the insert hits a 23505 unique violation. Recover by
+      // returning the winner instead of surfacing an error — same outcome as the
+      // dedup. Keyed on message too so we return the matching chain, not an
+      // unrelated same-time reminder.
       if (
         (err as { code?: string }).code === '23505' &&
         rec?.rule === ReminderRecurrence.DAILY &&
@@ -219,6 +230,7 @@ export class ScheduleService {
             status: ScheduledReminderStatus.PENDING,
             recurrence_rule: ReminderRecurrence.DAILY,
             recurrence_local_time: rec.localTime,
+            message: args.message.trim(),
           },
         });
         if (winner) {

@@ -126,7 +126,7 @@ describe('ScheduleService', () => {
     const dailyRec = { rule: ReminderRecurrence.DAILY, localTime: '09:00', offsetMinutes: -300 };
     const fireAt = () => new Date(Date.now() + 60 * 60_000);
 
-    it('collapses a repeat daily reminder at the same local time into the existing chain', async () => {
+    it('collapses an IDENTICAL repeat daily reminder (same time AND message) into the existing chain', async () => {
       reminderRepo.findOne.mockResolvedValueOnce({
         id: 'rem-existing',
         fire_at: new Date(Date.now() + 3 * 60 * 60_000),
@@ -144,10 +144,38 @@ describe('ScheduleService', () => {
       // No duplicate row, no duplicate Bull job.
       expect(reminderRepo.save).not.toHaveBeenCalled();
       expect(queue.add).not.toHaveBeenCalled();
-      // Latest intent wins — the surviving chain's message is refreshed.
+      // The dedup key now includes the message, not just the time.
+      expect(reminderRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ message: 'weigh in' }) }),
+      );
+      // Surviving chain keeps its message (it's part of the key); offset/tz refresh.
       expect(reminderRepo.update).toHaveBeenCalledWith(
         'rem-existing',
-        expect.objectContaining({ message: 'weigh in' }),
+        expect.objectContaining({ recurrence_offset_minutes: -300 }),
+      );
+    });
+
+    // The regression Karibi hit 2026-07-16: an "8pm log dinner" and an "8pm walk"
+    // are DIFFERENT reminders at the same clock time. The old time-only dedup key
+    // overwrote one with the other; keying on message too keeps both alive.
+    it('does NOT collapse a different-message reminder at the same time (distinct purposes coexist)', async () => {
+      reminderRepo.findOne.mockResolvedValueOnce(null); // no same-time+same-message match
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: '8pm walk',
+        recurrence: { ...dailyRec, localTime: '20:00' },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(reminderRepo.save).toHaveBeenCalled();
+      expect(queue.add).toHaveBeenCalled();
+      // Proves the dedup lookup discriminates on message, not just the slot.
+      expect(reminderRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ message: '8pm walk', recurrence_local_time: '20:00' }),
+        }),
       );
     });
 
