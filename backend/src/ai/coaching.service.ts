@@ -457,7 +457,7 @@ export class CoachingService {
   ): Promise<{ ok: true; field: string } | { ok: false; error: string }> {
     const allowed = ['fears', 'avoidance_patterns', 'comparison_figure',
                      'public_failure_scenario', 'typical_failure_moment', 'embarrassment',
-                     'pressure_preference', 'cussing_ok'];
+                     'pressure_preference', 'cussing_ok', 'weigh_in_schedule'];
     if (!allowed.includes(field)) return { ok: false, error: `unknown field: ${field}` };
 
     // cussing_ok takes a boolean; everything else takes a non-empty string.
@@ -586,6 +586,7 @@ export class CoachingService {
       goals: goalsText,
       city: intake.city ?? null,
       why: intake.why_it_matters ?? null,
+      weighInSchedule: intake.weigh_in_schedule ?? null,
       // Layer 3 — durable "never forget" facts (append-only anchor list).
       facts: intake.notes && intake.notes.length ? intake.notes : null,
     };

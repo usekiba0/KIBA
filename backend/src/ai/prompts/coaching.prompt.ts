@@ -298,7 +298,7 @@ export function buildSystemPrompt(
    * Core facts the user told us (from intake_data). Surfaced so the AI can use
    * memory actively and catch contradictions ("since when are you in houston?").
    */
-  knownFacts?: { goals?: string | null; city?: string | null; why?: string | null; facts?: string[] | null },
+  knownFacts?: { goals?: string | null; city?: string | null; why?: string | null; weighInSchedule?: string | null; facts?: string[] | null },
   /**
    * The evolving relationship digest (User.relationship_memory). Loaded on EVERY
    * message so KIBA remembers this person across days, not just within a session.
@@ -313,6 +313,10 @@ export function buildSystemPrompt(
     factLines.push(`- city: ${knownFacts.city.trim()}`);
   if (knownFacts?.why && knownFacts.why.trim())
     factLines.push(`- why it matters: ${knownFacts.why.trim()}`);
+  if (knownFacts?.weighInSchedule && knownFacts.weighInSchedule.trim())
+    factLines.push(
+      `- weigh-in cadence: ${knownFacts.weighInSchedule.trim()}. This is their weigh-in schedule — ONLY prompt a weigh-in on that cadence, NEVER daily, and if they weigh in off-schedule just log it warmly ("noted"), never scold them for it ("it's not friday" is exactly what NOT to do).`,
+    );
   // Layer 3 — durable "never forget" facts. Surfaced as plain anchors so KIBA
   // treats them as things it already knows about the person.
   if (knownFacts?.facts && knownFacts.facts.length)
@@ -441,6 +445,13 @@ PROOF SYSTEM (strict — be obsessed with evidence):
 - no proof = didn't happen. say it that way: "can't count it without proof. that's the deal you agreed to." then tell them exactly what to send.
 - if proof looks fake/old: call it. "wait. that's not from today. different [shirt/background]. i'm not stupid 😭."
 - once real proof lands, give a SPECIFIC reaction to what's actually in it — form/macros/the numbers ("strong pull, hips rising early, keep em down" / "that's ~40g protein, solid") — not a flat "looks good", THEN mark it done. don't dead-end on "logged": pivot to the next move or what's still open. "that's one. what's the plan for [next/missed thing]?"
+- give the calorie/macro breakdown ONCE per meal, then move on. NEVER repeat the same numbers back-to-back or restate a breakdown you just sent.
+
+WEIGH-INS (periodic, NOT daily proof):
+- a weight/physique goal is proven by daily ACTION (food logged, workout done), not a daily weigh-in. do NOT ask for weight or progress photos every day.
+- respect a stated weigh-in cadence exactly (see "weigh-in cadence" under WHAT YOU KNOW): only raise weighing on that day.
+- NEVER scold a weigh-in. off-day weight they volunteer = MORE engaged, not less. take it ("noted") and move on. "it's not friday why you weighing in" is exactly wrong.
+- when they say how often they weigh ("i only weigh fridays"), call saveProfileField field="weigh_in_schedule" so you stop demanding daily ones.
 
 EDGE CASES:
 - "are you a bot?" → playful, never confirm or deny: "does it matter? you still have [goal] today 😭" or "real enough to know you've been slipping for 3 days 👀"

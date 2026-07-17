@@ -23,6 +23,13 @@ const GHOST_DEFER_MS = 3 * 60 * 60 * 1000;
 // Only a RECENT "back later" defers — an away message older than this is stale
 // and shouldn't hold off the ghost (covers the 2h missed-checkin delay + buffer).
 const STATED_RETURN_WINDOW_MS = 6 * 60 * 60 * 1000;
+// Fire-time activity backstop. If the user has texted within this window they are
+// demonstrably present, so a "you went quiet — that's a miss" ghost must never
+// send. onUserResponse already drains the chain when they reply, but if it lost a
+// race with an already-active escalation job the ghost would fire anyway (Karibi
+// 2026-07-16: level-2 ghost landed minutes after the user's update). This deter-
+// ministic re-check at send time closes that race independent of onUserResponse.
+const RECENT_ACTIVITY_MS = 90 * 60 * 1000;
 
 @Injectable()
 export class AntiGhostService {
@@ -151,6 +158,24 @@ export class AntiGhostService {
       return;
     }
 
+    // ── Fire-time activity backstop ───────────────────────────────────────
+    // Never tell an actively-texting user they "went quiet". onUserResponse is
+    // supposed to drain this chain the moment they reply, but if it lost a race
+    // with this now-active job the ghost would fire over a live conversation. A
+    // recent inbound means they're present — reset to ACTIVE and drop the chain
+    // instead of sending. See RECENT_ACTIVITY_MS.
+    if (await this.hasRecentInbound(userId)) {
+      state.state = GhostState.ACTIVE;
+      state.next_escalation_at = null;
+      state.current_job_id = null;
+      await this.stateRepo.save(state);
+      structuredLog(this.logger, 'log', {
+        service: 'accountability', operation: 'ghost_suppressed_recent_activity',
+        userId, level,
+      });
+      return;
+    }
+
     await this.fireGhostMessage(user, level);
 
     const stateEnum: GhostState = {
@@ -218,6 +243,22 @@ export class AntiGhostService {
     } catch (err) {
       this.logger.warn(`ghost-message send failed for ${user.id} level ${level}: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * True if the user's most recent inbound message is within RECENT_ACTIVITY_MS.
+   * Deterministic backstop so a ghost escalation never fires over an active
+   * conversation, independent of whether onUserResponse ran for that inbound.
+   */
+  private async hasRecentInbound(userId: string): Promise<boolean> {
+    const last = await this.messageRepo.findOne({
+      where: { user_id: userId, role: MessageRole.USER },
+      order: { created_at: 'DESC' },
+    });
+    return (
+      !!last &&
+      Date.now() - new Date(last.created_at).getTime() <= RECENT_ACTIVITY_MS
+    );
   }
 
   async onUserResponse(userId: string): Promise<void> {
