@@ -391,7 +391,9 @@ export function correctWeekdayClaims(
     `\\b(today|tomorrow|tmrw|tmw)(’s|'s|s\\b|\\s+is|\\s+was)\\s+(${DAY_ALT})\\b(\\s+equivalent)?`,
     'gi',
   );
-  text = text.replace(anchored, (m, anchor: string, link: string, dayWord: string, hedge: string) => {
+  // The trailing "(\s+equivalent)?" group stays in the pattern so the hedge is
+  // consumed and dropped by the rewrite; it needs no binding here.
+  text = text.replace(anchored, (m, anchor: string, link: string, dayWord: string) => {
     const expected = anchor.toLowerCase() === 'today' ? todayDow : (todayDow + 1) % 7;
     const claimed = DAY_TOKENS[dayWord.toLowerCase()];
     if (claimed === undefined || claimed === expected) return m;
