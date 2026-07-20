@@ -85,7 +85,7 @@ export class CheckoutService {
   planLinkFor(userId: string): string {
     return planLinkFor(
       this.signingSecret(),
-      this.config.get<string>('FRONTEND_URL', 'https://kiba.ai'),
+      this.config.get<string>('FRONTEND_URL', 'https://usekiba.ai'),
       userId,
     );
   }
@@ -181,7 +181,7 @@ export class CheckoutService {
     const priceId = plan === 'yearly' ? ids.yearly : ids.monthly;
     if (!priceId) return { ok: false, reason: 'unknown_plan' };
 
-    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://kiba.ai');
+    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://usekiba.ai');
     const trialDays = this.referralService.trialDaysFor(
       user,
       this.config.get<number>('STRIPE_TRIAL_DAYS', 7),

@@ -1655,7 +1655,7 @@ export class CoachingProcessor {
       this.config.get<string>('CHECKOUT_LINK_SECRET') ||
         this.config.get<string>('INTERNAL_API_KEY') ||
         '',
-      this.config.get<string>('FRONTEND_URL', 'https://kiba.ai'),
+      this.config.get<string>('FRONTEND_URL', 'https://usekiba.ai'),
       liveUser.id,
     );
 

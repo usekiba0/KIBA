@@ -17,7 +17,7 @@ export default function OnboardingSuccessPage() {
           If you didn&apos;t get a text in the next minute, check that you texted from the same number you paid with.
         </div>
         <div style={{ marginTop: 32 }}>
-          <Link href="/" style={{ color: '#7eb4cc', fontSize: 13, textDecoration: 'none', borderBottom: '1px solid rgba(126,180,204,0.3)', paddingBottom: 2 }}>← Back to kiba.ai</Link>
+          <Link href="/" style={{ color: '#7eb4cc', fontSize: 13, textDecoration: 'none', borderBottom: '1px solid rgba(126,180,204,0.3)', paddingBottom: 2 }}>← Back to usekiba.ai</Link>
         </div>
       </div>
     </div>
