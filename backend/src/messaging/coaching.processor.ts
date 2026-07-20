@@ -31,6 +31,7 @@ import { SessionCacheService } from '../data/session-cache.service';
 import { SessionBoundaryService } from '../data/session-boundary.service';
 import { CorrectionService } from '../data/correction.service';
 import { ReferralService } from '../data/referral.service';
+import { planLinkFor } from '../onboarding/checkout-link';
 import { normalizeReferralCode } from '../data/entities/referral-code.entity';
 import { MessagingService } from './messaging.service';
 import { SafetyService } from '../safety/safety.service';
@@ -312,7 +313,10 @@ export class CoachingProcessor {
   }
 
   async process(data: CoachingJob): Promise<void> {
-    const { body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = data;
+    const { body, twilioSid, numMedia: inboundNumMedia, mediaUrls, mediaContentTypes, channel } = data;
+    // Mutable: a shared LINK arrives as an unidentifiable attachment and gets
+    // demoted to a plain text turn below, once byte-sniffing has had its say.
+    let numMedia = inboundNumMedia;
     // Canonicalize to E.164 so a returning user always resolves to their existing
     // row. Twilio/web are already E.164, but SendBlue can hand us looser formats
     // ("7135551234", "+1 (713)...") — without this the lookup below misses and a
@@ -523,6 +527,31 @@ export class CoachingProcessor {
         });
         resolvedMediaCt = sniffed;
       }
+    }
+    // A shared LINK (whop.com, YouTube, an article) reaches us as an iMessage
+    // link-preview attachment, NOT a photo: the URL has no media extension so
+    // guessContentType yields application/octet-stream, and the preview payload
+    // matches no magic number so the sniff above returns null too. It therefore
+    // fell into the unsupported-media branch and got answered "i can't read that
+    // file type. send a jpeg, png, or screenshot." — nonsense for a link — while
+    // the message text (which carries the URL) was discarded without ever
+    // reaching the coach. When the attachment is unidentifiable but the message
+    // has text, drop the attachment and run the turn as plain text so KIBA
+    // actually responds to what they sent. (Karibi 2026-07-21)
+    if (
+      numMedia > 0 &&
+      (!resolvedMediaCt || resolvedMediaCt === 'application/octet-stream') &&
+      (body ?? '').trim().length > 0
+    ) {
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'unidentified_media_demoted_to_text',
+        userId: user.id,
+        channel,
+        contentType: resolvedMediaCt || 'none',
+      });
+      numMedia = 0;
+      resolvedMediaCt = '';
     }
     const inboundIsImage = numMedia > 0 && resolvedMediaCt.startsWith('image/');
 
@@ -1612,66 +1641,23 @@ export class CoachingProcessor {
       }
     }
 
-    const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
-    // 7-day trial is the agreed offer; the intake AI quotes the same number from
-    // STRIPE_TRIAL_DAYS so the checkout trial and the SMS copy always agree.
-    // A redeemed affiliate code overrides it with the length frozen on the user
-    // row at redemption time (see ReferralService.trialDaysFor).
-    const trialDays = this.referralService.trialDaysFor(
-      liveUser,
-      this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
+    // We text a link to OUR plan-selection page, not a raw Stripe Checkout URL.
+    // Stripe can't show a monthly/yearly toggle inside one subscription session,
+    // so the choice happens on our page and only the chosen price reaches Stripe
+    // (Karibi 2026-07-20). The Stripe customer + session are created when they
+    // tap Continue — see CheckoutService.createSession — which also means no
+    // orphaned Stripe customer for a lead who never opens the link.
+    //
+    // Minting is local (HMAC, no network), so unlike the old flow there's no
+    // Stripe round-trip that can fail between "we promised a link" and sending
+    // one.
+    const planUrl = planLinkFor(
+      this.config.get<string>('CHECKOUT_LINK_SECRET') ||
+        this.config.get<string>('INTERNAL_API_KEY') ||
+        '',
+      this.config.get<string>('FRONTEND_URL', 'https://kiba.ai'),
+      liveUser.id,
     );
-    // Checkout return pages (/onboarding/success|cancel) are FRONTEND Next.js
-    // routes, so they must point at FRONTEND_URL — NOT APP_BASE_URL (the NestJS
-    // backend, which has no such route and would 404 the user right after they pay).
-    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://kiba.ai');
-
-    // Create (or reuse) Stripe customer. We don't have a stable customer id on
-    // the user row for SMS leads, so create one each time the link is sent —
-    // the previous customer gets garbage-collected on the Stripe side if unused.
-    // Wrap the Stripe calls: a throw here used to bubble up and get swallowed
-    // into the model's tool-result context (user saw "backend thing", we saw
-    // NOTHING in the logs). Log the real error and return a clean failure.
-    let session: import('stripe').Stripe.Checkout.Session;
-    try {
-      const customer = await this.stripeService.createCustomer(
-        liveUser.name,
-        liveUser.phone_number,
-      );
-      session = await this.stripeService.createCheckoutSession({
-        customerId: customer.id,
-        priceId,
-        trialDays,
-        userId: liveUser.id,
-        successUrl: `${frontendUrl}/onboarding/success`,
-        cancelUrl: `${frontendUrl}/onboarding/cancel`,
-      });
-    } catch (err) {
-      structuredLog(this.logger, 'error', {
-        service: 'onboarding',
-        operation: 'payment_link_stripe_failed',
-        userId: liveUser.id,
-        error: (err as Error).message,
-      });
-      return {
-        ok: false as const,
-        reason: 'error' as const,
-        error: 'stripe checkout creation failed',
-      };
-    }
-
-    if (!session.url) {
-      structuredLog(this.logger, 'error', {
-        service: 'onboarding',
-        operation: 'payment_link_no_url',
-        userId: liveUser.id,
-      });
-      return {
-        ok: false as const,
-        reason: 'error' as const,
-        error: 'stripe did not return a checkout url',
-      };
-    }
 
     // SMS the link directly (rather than letting the AI include it in its reply
     // text) so it lands on its own line and is clickable. CRITICAL: send BEFORE
@@ -1684,7 +1670,7 @@ export class CoachingProcessor {
       // so a rate-limit/failure never leaves a dangling "here's the link" with no
       // link after it.
       if (opts.leadIn) await this.messagingService.send(liveUser.phone_number, opts.leadIn);
-      await this.messagingService.send(liveUser.phone_number, session.url);
+      await this.messagingService.send(liveUser.phone_number, planUrl);
     } catch (err) {
       this.logger.error(
         `[sendPaymentLink] SMS delivery failed for ${liveUser.id} — not persisting PAYMENT_PENDING so user can retry: ${(err as Error).message}`,
@@ -1700,7 +1686,6 @@ export class CoachingProcessor {
     await this.userRepo.update(liveUser.id, {
       onboarding_stage: OnboardingStage.PAYMENT_PENDING,
       payment_link_sent_at: now,
-      stripe_checkout_session_id: session.id,
       sample_coaching_given: false,
     });
     liveUser.onboarding_stage = OnboardingStage.PAYMENT_PENDING;
@@ -1720,11 +1705,10 @@ export class CoachingProcessor {
       service: 'onboarding',
       operation: 'sms_payment_link_sent',
       userId: liveUser.id,
-      sessionId: session.id,
       userMessageId,
     });
 
-    return { ok: true as const, checkout_url: session.url };
+    return { ok: true as const, checkout_url: planUrl };
   }
 
   /**

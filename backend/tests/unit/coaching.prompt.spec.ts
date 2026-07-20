@@ -367,6 +367,22 @@ describe('buildSystemPrompt', () => {
     });
   });
 
+  describe('link handling (Karibi 2026-07-21 "i can\'t read that file type")', () => {
+    const prompt = () => buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+
+    it('tells the model it sees the URL but not the page behind it', () => {
+      expect(prompt().toLowerCase()).toMatch(/you see the url but not the page behind it/);
+    });
+
+    it('bans fabricating page contents it never opened', () => {
+      expect(prompt().toLowerCase()).toMatch(/never state page contents\/prices you didn't see/);
+    });
+
+    it('bans answering a link with the unsupported-file-type line', () => {
+      expect(prompt().toLowerCase()).toMatch(/never call a link an unreadable file or ask them to screenshot it/);
+    });
+  });
+
   describe('weakest-day framing (Bianca 2026-07-20 fake Thursday)', () => {
     const basePatterns = {
       weakestDow: 4, // Thursday
