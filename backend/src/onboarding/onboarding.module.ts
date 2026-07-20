@@ -6,6 +6,8 @@ import { AccountabilityModule } from '../accountability/accountability.module';
 import { OnboardingService } from './onboarding.service';
 import { OnboardingController } from './onboarding.controller';
 import { StripeWebhookController } from './stripe-webhook.controller';
+import { CheckoutController } from './checkout.controller';
+import { CheckoutService } from './checkout.service';
 
 @Module({
   imports: [
@@ -18,7 +20,12 @@ import { StripeWebhookController } from './stripe-webhook.controller';
     // the token injectable in this module's scope — same pattern as 'messaging'.
     BullModule.registerQueue({ name: 'accountability' }),
   ],
-  controllers: [OnboardingController, StripeWebhookController],
-  providers: [OnboardingService],
+  controllers: [OnboardingController, StripeWebhookController, CheckoutController],
+  // CheckoutService stays local to this module. CoachingProcessor mints links
+  // via the dependency-free helpers in checkout-link.ts instead of injecting
+  // this service — sharing a provider across MessagingModule and
+  // OnboardingModule (which already import each other) blew the Nest injector's
+  // stack.
+  providers: [OnboardingService, CheckoutService],
 })
 export class OnboardingModule {}
