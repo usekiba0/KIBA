@@ -159,7 +159,11 @@ export class CheckoutService {
       amount,
       currency: price.currency ?? 'usd',
       interval,
-      per_month: interval === 'year' ? Math.round(amount / 12) : amount,
+      // Floor, not round. $59.99/yr is 4.999/mo — rounding would advertise
+      // "$5.00/mo" for a plan the client describes as "4.99/month", and quoting
+      // a cent MORE than the true rate is the one direction that can look like
+      // a bait-and-switch. Flooring can only ever understate.
+      per_month: interval === 'year' ? Math.floor(amount / 12) : amount,
       savings_pct: null,
     };
   }
