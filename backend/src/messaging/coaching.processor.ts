@@ -30,6 +30,8 @@ import { VisionService } from '../ai/vision.service';
 import { SessionCacheService } from '../data/session-cache.service';
 import { SessionBoundaryService } from '../data/session-boundary.service';
 import { CorrectionService } from '../data/correction.service';
+import { ReferralService } from '../data/referral.service';
+import { normalizeReferralCode } from '../data/entities/referral-code.entity';
 import { MessagingService } from './messaging.service';
 import { SafetyService } from '../safety/safety.service';
 import { AntiGhostService } from '../accountability/anti-ghost.service';
@@ -72,6 +74,12 @@ interface CoachingJob {
   // tapback reaction lands on. Null for SMS (no tapback support). Optional so
   // older callers/tests that don't set it still type-check.
   messageHandle?: string | null;
+  // Wall clock of the first inbound webhook in this batch (set by the debouncer).
+  // Lets turn_latency report the wait the USER actually felt — debounce window
+  // included — instead of only the slice after the buffer flushed. Optional so
+  // older callers/tests that don't set it still type-check; falls back to
+  // turnStart, which just makes debounceMs read 0.
+  receivedAt?: number;
 }
 
 // Context-reset intent. Anchored to the WHOLE message (optional leading filler +
@@ -147,6 +155,20 @@ export const PAYMENT_CLAIM_RE =
 // instead of letting the model loop re-asking build questions (Karibi 2026-06-05).
 export const LINK_REQUEST_RE =
   /\b(send|resend|drop|share|gimme|give\s+me|text|where(?:'?s| is)?)\b[^.\n]{0,15}\blink\b|\bsend\s+it\b|\blink\s+(?:again|now|please|pls)\b|\b(?:don'?t|do\s+not|dont)\s+have\b[^.\n]{0,15}\blink\b/i;
+
+/**
+ * A lead handing us an affiliate / referral code ("my code is KIBA20", "redeem
+ * BETA30", "promo: partner-x"). Capture group 1 is the raw token, canonicalized
+ * by `normalizeReferralCode` before lookup.
+ *
+ * Deliberately loose — the guard that uses it only ACTS when the extracted token
+ * resolves to a real code, and otherwise falls through to the intake AI in
+ * silence. That asymmetry is the point: a chatty false positive ("the code is
+ * broken") costs nothing, whereas replying "that code isn't valid" to someone who
+ * never tried to redeem one is confusing and off-voice.
+ */
+export const REFERRAL_CODE_RE =
+  /\b(?:referral|affiliate|promo(?:tion)?|invite|discount|coupon|redeem|code)\b[\s:=]*(?:(?:code|is|for|my|the|a)\b[\s:=]*)*([A-Za-z0-9][A-Za-z0-9-]{2,31})\b/i;
 
 /**
  * The user is actively asking KIBA to explain itself / prove its value
@@ -263,6 +285,7 @@ export class CoachingProcessor {
     private readonly todoService: TodoService,
     private readonly correctionService: CorrectionService,
     private readonly stripeService: StripeService,
+    private readonly referralService: ReferralService,
     @InjectQueue('accountability') private readonly accountabilityQueue: Queue,
   ) {}
 
@@ -301,6 +324,13 @@ export class CoachingProcessor {
     // elapsed) to the reply being sent, plus the model-generation slice, so we can
     // see where the controllable latency actually goes before tuning it (2026-06-29).
     const turnStart = Date.now();
+    // ...and the full wait the user felt, measured from the first inbound webhook.
+    // `debounceMs` is the buffer window (a config knob), `genMs` the model call
+    // (model-bound), `sendMs` the outbound bubbles (bubble delay × n). Splitting
+    // them is the whole point: "8-10 seconds" is not actionable until we know
+    // which of the three owns it (2026-07-20).
+    const receivedAt = data.receivedAt ?? turnStart;
+    const debounceMs = turnStart - receivedAt;
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Carrier shortcodes (e.g. +195686 from Citi) get misrouted to our SendBlue
@@ -630,6 +660,84 @@ export class CoachingProcessor {
     }
 
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) {
+      // AFFILIATE / REFERRAL CODE (deterministic — Karibi 2026-07-20).
+      // Runs before the payment-claim backstop and before the intake AI: the
+      // model has no tool for this and would either ignore the code or, worse,
+      // promise a free month it can't actually grant. Redemption is a DB fact,
+      // so it's settled here.
+      const codeMatch = body.match(REFERRAL_CODE_RE);
+      if (codeMatch) {
+        const redeemed = await this.referralService.redeem(user.id, codeMatch[1]);
+        if (redeemed.ok) {
+          // Re-read: redeem() wrote referral_trial_days on the row we're holding
+          // a stale copy of, and sendPaymentLink reads it for the trial length.
+          const liveUser = (await this.userRepo.findOne({ where: { id: user.id } })) ?? user;
+          const days = redeemed.trialDays;
+          // If they're already holding a link, it was minted with the OLD trial
+          // length — replace it rather than let them check out on the short one.
+          const hadLink = !!liveUser.payment_link_sent_at;
+          if (hadLink) {
+            const resent = await this.sendPaymentLink(liveUser, inboundMsg.id, {
+              requireFullIntake: true,
+              bypassRateLimit: true,
+              leadIn: `code works — that's ${days} days free instead. here's your fresh link 👇`,
+            });
+            // Intake not finished yet (no goal/timezone), so there's nothing to
+            // re-link. The code is still banked on their row and applies when the
+            // link does go out — just acknowledge it.
+            if (!resent.ok) {
+              await this.saveAndSend(
+                user,
+                boundary.sessionId,
+                `code works — locked in ${days} days free for you. let's finish getting you set up.`,
+              );
+            }
+          } else {
+            await this.saveAndSend(
+              user,
+              boundary.sessionId,
+              `code works — that's ${days} days free once we're done. let's keep going.`,
+            );
+          }
+          structuredLog(this.logger, 'log', {
+            service: 'messaging',
+            operation: 'referral_code_redeemed',
+            userId: user.id,
+            code: redeemed.code,
+            owner: redeemed.owner,
+            trialDays: days,
+            relinked: hadLink,
+          });
+          return;
+        }
+        // 'unknown' is the common case for a false-positive match on ordinary
+        // chat ("the code is broken"), so it falls through to the intake AI in
+        // silence — see REFERRAL_CODE_RE. The other reasons mean they really did
+        // try to redeem something, so answer them.
+        if (redeemed.reason !== 'unknown') {
+          const line =
+            redeemed.reason === 'already_redeemed'
+              ? "you've already got a code on your account — can't stack two."
+              : redeemed.reason === 'exhausted'
+                ? "that code's maxed out, all the spots are claimed. you're still good to keep going though."
+                : "that code's not active anymore. you're still good to keep going though.";
+          await this.saveAndSend(user, boundary.sessionId, line);
+          structuredLog(this.logger, 'log', {
+            service: 'messaging',
+            operation: 'referral_code_refused',
+            userId: user.id,
+            reason: redeemed.reason,
+          });
+          return;
+        }
+        structuredLog(this.logger, 'log', {
+          service: 'messaging',
+          operation: 'referral_code_no_match',
+          userId: user.id,
+          token: normalizeReferralCode(codeMatch[1]),
+        });
+      }
+
       // PAYMENT-CLAIM BACKSTOP (deterministic — don't trust the LLM here).
       // A lead who's been sent the link but still isn't COMPLETE telling us they
       // "already paid" is either lying or hit a webhook lag. Never let the model
@@ -705,10 +813,12 @@ export class CoachingProcessor {
         inboundIsImage ? resolvedMediaCt : undefined,
       );
       const genMs = Date.now() - genStart;
+      const sendStart = Date.now();
       await this.saveAndSend(user, boundary.sessionId, reply);
       structuredLog(this.logger, 'log', {
         service: 'coaching', operation: 'turn_latency', userId: user.id,
-        path: 'intake', genMs, totalMs: Date.now() - turnStart,
+        path: 'intake', debounceMs, genMs, sendMs: Date.now() - sendStart,
+        totalMs: Date.now() - turnStart, e2eMs: Date.now() - receivedAt,
       });
       return;
     }
@@ -975,11 +1085,16 @@ export class CoachingProcessor {
         visionPatterns,
       );
       const genMs = Date.now() - genStart;
-      await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+      // Token-count bookkeeping is nobody's critical path — start it, but let the
+      // user's first bubble go out ahead of the round-trip instead of behind it.
+      const tokenWrite = this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+      const sendStart = Date.now();
       await this.saveAndSend(user, boundary.sessionId, reply);
+      await tokenWrite;
       structuredLog(this.logger, 'log', {
         service: 'coaching', operation: 'turn_latency', userId: user.id,
-        path: 'vision', genMs, totalMs: Date.now() - turnStart, tokenCount,
+        path: 'vision', debounceMs, genMs, sendMs: Date.now() - sendStart,
+        totalMs: Date.now() - turnStart, e2eMs: Date.now() - receivedAt, tokenCount,
       });
       return;
     }
@@ -1029,11 +1144,16 @@ export class CoachingProcessor {
       patterns,
     );
     const genMs = Date.now() - genStart;
-    await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+    // See the vision path: bookkeeping write runs alongside the send, not in
+    // front of it.
+    const tokenWrite = this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+    const sendStart = Date.now();
     await this.saveAndSend(user, boundary.sessionId, reply);
+    await tokenWrite;
     structuredLog(this.logger, 'log', {
       service: 'coaching', operation: 'turn_latency', userId: user.id,
-      path: 'text', genMs, totalMs: Date.now() - turnStart, tokenCount,
+      path: 'text', debounceMs, genMs, sendMs: Date.now() - sendStart,
+      totalMs: Date.now() - turnStart, e2eMs: Date.now() - receivedAt, tokenCount,
     });
   }
 
@@ -1450,7 +1570,9 @@ export class CoachingProcessor {
   private async sendPaymentLink(
     liveUser: User,
     userMessageId: string,
-    opts: { requireFullIntake: boolean; leadIn?: string } = { requireFullIntake: true },
+    opts: { requireFullIntake: boolean; leadIn?: string; bypassRateLimit?: boolean } = {
+      requireFullIntake: true,
+    },
   ): Promise<
     | { ok: true; checkout_url: string }
     | { ok: false; reason: 'incomplete' | 'rate_limited' | 'error'; error: string }
@@ -1475,7 +1597,11 @@ export class CoachingProcessor {
     // "already sent it" rather than the alarming "having trouble / admin will
     // reach out" line (the bug Ali hit: re-asked 90s after a link and got told
     // it was broken).
-    if (liveUser.payment_link_sent_at) {
+    // `bypassRateLimit` exists for one case: the lead just redeemed a referral
+    // code and the link they're holding was minted with the OLD trial length.
+    // Making them wait 5 minutes for the trial they were just promised is worse
+    // than the spam the limiter guards against.
+    if (liveUser.payment_link_sent_at && !opts.bypassRateLimit) {
       const ageMs = Date.now() - new Date(liveUser.payment_link_sent_at).getTime();
       if (ageMs < 5 * 60_000) {
         return {
@@ -1489,7 +1615,12 @@ export class CoachingProcessor {
     const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
     // 7-day trial is the agreed offer; the intake AI quotes the same number from
     // STRIPE_TRIAL_DAYS so the checkout trial and the SMS copy always agree.
-    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
+    // A redeemed affiliate code overrides it with the length frozen on the user
+    // row at redemption time (see ReferralService.trialDaysFor).
+    const trialDays = this.referralService.trialDaysFor(
+      liveUser,
+      this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
+    );
     // Checkout return pages (/onboarding/success|cancel) are FRONTEND Next.js
     // routes, so they must point at FRONTEND_URL — NOT APP_BASE_URL (the NestJS
     // backend, which has no such route and would 404 the user right after they pay).

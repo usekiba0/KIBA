@@ -187,6 +187,21 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   trial_price_revealed_at: Date | null;
 
+  // Affiliate / referral code this lead redeemed over SMS, canonicalized
+  // (uppercase, no whitespace/dashes). NULL = came in organically. Kept as a
+  // plain string rather than an FK so deleting a retired code never orphans the
+  // attribution on the users it brought in.
+  @Index()
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  referral_code: string | null;
+
+  // Trial length the redeemed code promised, FROZEN at redemption time. Read
+  // instead of the code's current `trial_days` so an admin editing a code later
+  // can't shorten a trial a lead was already told they had. NULL = no code, use
+  // STRIPE_TRIAL_DAYS.
+  @Column({ type: 'smallint', nullable: true })
+  referral_trial_days: number | null;
+
   @CreateDateColumn()
   registered_at: Date;
 

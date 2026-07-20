@@ -23,6 +23,8 @@ import { AntiGhostState } from './entities/anti-ghost-state.entity';
 import { Correction } from './entities/correction.entity';
 import { CoachingKnowledge } from './entities/coaching-knowledge.entity';
 import { ScheduledReminder } from './entities/scheduled-reminder.entity';
+import { ReferralCode } from './entities/referral-code.entity';
+import { ReferralService } from './referral.service';
 import { SessionCacheService } from './session-cache.service';
 import { SessionBoundaryService } from './session-boundary.service';
 import { DataRightsService } from './data-rights.service';
@@ -52,6 +54,7 @@ const ENTITIES = [
   Correction,
   CoachingKnowledge,
   ScheduledReminder,
+  ReferralCode,
 ];
 
 @Module({
@@ -75,7 +78,7 @@ const ENTITIES = [
     forwardRef(() => AccountabilityModule),
   ],
   controllers: [DataRightsController, AdminController],
-  providers: [SessionCacheService, SessionBoundaryService, DataRightsService, AdminService, CorrectionService, StripeService],
-  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule, StripeService, CorrectionService],
+  providers: [SessionCacheService, SessionBoundaryService, DataRightsService, AdminService, CorrectionService, StripeService, ReferralService],
+  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule, StripeService, CorrectionService, ReferralService],
 })
 export class DataModule {}

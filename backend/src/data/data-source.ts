@@ -19,6 +19,7 @@ import { AntiGhostState } from './entities/anti-ghost-state.entity';
 import { Correction } from './entities/correction.entity';
 import { CoachingKnowledge } from './entities/coaching-knowledge.entity';
 import { ScheduledReminder } from './entities/scheduled-reminder.entity';
+import { ReferralCode } from './entities/referral-code.entity';
 
 dotenv.config();
 
@@ -32,7 +33,7 @@ export const AppDataSource = new DataSource({
     User, Subscription, ConversationSession, Message,
     NutritionalAnalysis, CrisisAlert, SessionSummary, ProcessedStripeEvent,
     PsychologicalProfile, Goal, DailyTask, DailyTodo, Proof, Strike, ExecutionScore, AntiGhostState,
-    Correction, CoachingKnowledge, ScheduledReminder,
+    Correction, CoachingKnowledge, ScheduledReminder, ReferralCode,
   ],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
   synchronize: false,

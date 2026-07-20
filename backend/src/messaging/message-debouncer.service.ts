@@ -15,6 +15,11 @@ export interface DebouncedMessage {
 interface BufferState {
   messages: DebouncedMessage[];
   timer: NodeJS.Timeout;
+  // Wall clock of the FIRST webhook in this batch. The only honest starting
+  // point for end-to-end latency: `dateSent` is the sender's clock (skewed on
+  // iMessage) and `turnStart` inside the processor is already past the debounce
+  // window, so neither shows the user-perceived wait.
+  firstPushAt: number;
 }
 
 // IMAGE bursts: 3s. People who send photos usually send SEVERAL (a few gym
@@ -67,7 +72,11 @@ export class MessageDebouncerService {
       clearTimeout(buf.timer);
       buf.messages.push(msg);
     } else {
-      buf = { messages: [msg], timer: undefined as unknown as NodeJS.Timeout };
+      buf = {
+        messages: [msg],
+        timer: undefined as unknown as NodeJS.Timeout,
+        firstPushAt: Date.now(),
+      };
       this.buffers.set(msg.from, buf);
     }
     // Recompute the delay from the WHOLE buffer each push: a text burst that
@@ -144,6 +153,7 @@ export class MessageDebouncerService {
       mediaContentTypes,
       channel,
       messageHandle,
+      receivedAt: buf.firstPushAt,
     });
   }
 }
