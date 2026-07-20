@@ -116,4 +116,13 @@ export class StripeService {
   async getCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
     return this.stripe.checkout.sessions.retrieve(sessionId);
   }
+
+  /**
+   * Read a price straight from Stripe. The plan-selection page renders the
+   * amounts this returns, so the dashboard stays the single source of truth for
+   * pricing and nothing has to be mirrored in our config or DB.
+   */
+  async getPrice(priceId: string): Promise<Stripe.Price> {
+    return this.stripe.prices.retrieve(priceId);
+  }
 }

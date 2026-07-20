@@ -187,6 +187,39 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   trial_price_revealed_at: Date | null;
 
+  // Affiliate / referral code this lead redeemed over SMS, canonicalized
+  // (uppercase, no whitespace/dashes). NULL = came in organically. Kept as a
+  // plain string rather than an FK so deleting a retired code never orphans the
+  // attribution on the users it brought in.
+  @Index()
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  referral_code: string | null;
+
+  // Trial length the redeemed code promised, FROZEN at redemption time. Read
+  // instead of the code's current `trial_days` so an admin editing a code later
+  // can't shorten a trial a lead was already told they had. NULL = no code, use
+  // STRIPE_TRIAL_DAYS.
+  @Column({ type: 'smallint', nullable: true })
+  referral_trial_days: number | null;
+
+  // ── Messaging consent (added 2026-07-21) ──────────────────────────────────
+  // Set when the user texts STOP (or another carrier-standard opt-out keyword),
+  // cleared when they text START. Indexed because MessagingService checks it on
+  // every outbound send — the gate has to be cheap or it becomes a reason to
+  // skip it.
+  //
+  // A timestamp rather than a boolean: "when did they revoke consent" is the
+  // question that gets asked in a compliance dispute, and a boolean can't
+  // answer it.
+  @Index()
+  @Column({ type: 'timestamptz', nullable: true })
+  opted_out_at: Date | null;
+
+  // The exact word they sent. Kept for the audit trail — if someone disputes
+  // whether they opted out, "they texted 'quit' at 14:02" is the record.
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  opt_out_keyword: string | null;
+
   @CreateDateColumn()
   registered_at: Date;
 

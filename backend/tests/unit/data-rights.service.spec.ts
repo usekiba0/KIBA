@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
+import { getQueueToken } from '@nestjs/bull';
 import { DataRightsService } from '../../src/data/data-rights.service';
 import { User } from '../../src/data/entities/user.entity';
 import { Subscription } from '../../src/data/entities/subscription.entity';
@@ -14,7 +15,11 @@ describe('DataRightsService — deleteUserData (cascading wipe)', () => {
   let service: DataRightsService;
   let subFindOne: jest.Mock;
   let managerQuery: jest.Mock;
+  let dsQuery: jest.Mock;
   let cancelSubscription: jest.Mock;
+  let getJob: jest.Mock;
+  let getJobs: jest.Mock;
+  let mockDataSource: any;
 
   // Stand-in entity metadata: two user-scoped tables, one global table that
   // must NOT be touched, plus the users table itself.
@@ -28,10 +33,16 @@ describe('DataRightsService — deleteUserData (cascading wipe)', () => {
   beforeEach(async () => {
     subFindOne = jest.fn().mockResolvedValue({ stripe_subscription_id: 'sub_123' });
     managerQuery = jest.fn().mockResolvedValue(undefined);
+    // Top-level dataSource.query — used to read the user's reminder job ids
+    // BEFORE the rows are wiped. Defaults to "no reminder jobs".
+    dsQuery = jest.fn().mockResolvedValue([]);
     cancelSubscription = jest.fn().mockResolvedValue(undefined);
+    getJob = jest.fn().mockResolvedValue(null);
+    getJobs = jest.fn().mockResolvedValue([]);
 
-    const mockDataSource = {
+    mockDataSource = {
       entityMetadatas,
+      query: dsQuery,
       transaction: jest.fn(async (cb: any) => cb({ query: managerQuery })),
     };
 
@@ -48,6 +59,7 @@ describe('DataRightsService — deleteUserData (cascading wipe)', () => {
         { provide: getRepositoryToken(CrisisAlert), useValue: repo() },
         { provide: getRepositoryToken(ConversationSession), useValue: repo() },
         { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: getQueueToken('accountability'), useValue: { getJob, getJobs } },
         { provide: StripeService, useValue: { cancelSubscription } },
       ],
     }).compile();
@@ -86,5 +98,59 @@ describe('DataRightsService — deleteUserData (cascading wipe)', () => {
     cancelSubscription.mockRejectedValueOnce(new Error('stripe down'));
     await expect(service.deleteUserData('user-1')).resolves.toBeUndefined();
     expect(managerQuery).toHaveBeenCalledWith('DELETE FROM "users" WHERE id = $1', ['user-1']);
+  });
+
+  // Karibi 2026-07-08: deleted test accounts left send-checkin / reminder /
+  // recap / surprise / weekly-review jobs orphaned in Bull, firing (or no-oping)
+  // every morning. The row wipe never touched Redis. Now the delete drains them.
+  describe('queue drain', () => {
+    it("removes the user's queued reminder jobs from Bull (keyed by reminderId)", async () => {
+      dsQuery.mockResolvedValueOnce([{ bull_job_id: 'job-r1' }, { bull_job_id: 'job-r2' }]);
+      const remove = jest.fn().mockResolvedValue(undefined);
+      getJob.mockResolvedValue({ remove });
+
+      await service.deleteUserData('user-1');
+
+      expect(getJob).toHaveBeenCalledWith('job-r1');
+      expect(getJob).toHaveBeenCalledWith('job-r2');
+      expect(remove).toHaveBeenCalledTimes(2);
+    });
+
+    it('removes userId-keyed jobs (checkin/recap/surprise) and leaves other users alone', async () => {
+      const rmMine = jest.fn().mockResolvedValue(undefined);
+      const rmOther = jest.fn().mockResolvedValue(undefined);
+      getJobs.mockResolvedValue([
+        { data: { userId: 'user-1' }, remove: rmMine },
+        { data: { userId: 'someone-else' }, remove: rmOther },
+        { data: {}, remove: jest.fn().mockResolvedValue(undefined) },
+      ]);
+
+      await service.deleteUserData('user-1');
+
+      expect(rmMine).toHaveBeenCalled();
+      expect(rmOther).not.toHaveBeenCalled();
+    });
+
+    it('reads reminder job ids BEFORE the rows are wiped', async () => {
+      const order: string[] = [];
+      dsQuery.mockImplementation(async () => {
+        order.push('read-jobs');
+        return [];
+      });
+      mockDataSource.transaction.mockImplementation(async (cb: any) => {
+        order.push('delete');
+        return cb({ query: managerQuery });
+      });
+
+      await service.deleteUserData('user-1');
+
+      expect(order).toEqual(['read-jobs', 'delete']);
+    });
+
+    it('still completes the DB delete when queue draining throws', async () => {
+      getJobs.mockRejectedValueOnce(new Error('redis down'));
+      await expect(service.deleteUserData('user-1')).resolves.toBeUndefined();
+      expect(managerQuery).toHaveBeenCalledWith('DELETE FROM "users" WHERE id = $1', ['user-1']);
+    });
   });
 });

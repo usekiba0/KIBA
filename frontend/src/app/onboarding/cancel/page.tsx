@@ -12,7 +12,7 @@ export default function OnboardingCancelPage() {
         </p>
         <div style={{ marginTop: 32, display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
           <Link href="/" style={{ background: 'linear-gradient(135deg,#0ea5e9,#10b981)', color: '#fff', padding: '12px 28px', borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: 'none', boxShadow: '0 4px 14px rgba(14,165,233,0.35)' }}>
-            Back to kiba.ai
+            Back to usekiba.ai
           </Link>
           <Link href="/onboarding" style={{ background: 'transparent', color: '#7eb4cc', padding: '12px 28px', borderRadius: 10, fontSize: 14, fontWeight: 500, textDecoration: 'none', border: '1px solid rgba(14,165,233,0.2)' }}>
             Try the web form instead

@@ -173,6 +173,15 @@ export interface PatternSignals {
    * (Karibi 2026-07-09: "the link went through yesterday" to a user who'd just paid).
    */
   activatedDayLabel?: string | null;
+  /**
+   * The user's CURRENT local day of week (Sun=0..Sat=6), or null when their
+   * offset is unknown. Computed in code because the model cannot be trusted to
+   * work out whether today is the weakest day — handed the old "if today is the
+   * night before that day" conditional it guessed wrong and told a Monday user
+   * "today's thursday equivalent" (Bianca 2026-07-20). Now WE decide which
+   * framing it gets and it never does weekday arithmetic.
+   */
+  todayDow?: number | null;
 }
 
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -190,9 +199,38 @@ function formatPatternSignals(p: PatternSignals): string {
 
   const lines: string[] = [];
   if (p.weakestDow !== null && p.weakestDowMisses >= 2) {
-    lines.push(
-      `- Weakest day: ${DOW_NAMES[p.weakestDow]} (${p.weakestDowMisses} misses tracked). If today is the night before that day, OR today IS that day and they haven't committed yet, naturally call it out: "tomorrow's ${DOW_NAMES[p.weakestDow]}, historically your weakest day — not this time."`,
-    );
+    const day = DOW_NAMES[p.weakestDow];
+    const lower = day.toLowerCase();
+    const n = p.weakestDowMisses;
+    // The count is an ALL-TIME running total (User.miss_counts_by_dow is never
+    // reset or windowed). The model attached "5 misses in the last week" to it
+    // and then refused to say what those misses were — an unfalsifiable
+    // accusation is the worst thing an accountability coach can make
+    // (Bianca 2026-07-20). Spell out both the no-window and the answerability rule.
+    const base =
+      `- Weakest day: ${day} — ${n} missed ${day}s ALL-TIME (a running total across the whole relationship, NOT a recent window). ` +
+      'NEVER attach a timeframe to this number — do not say "this week", "in the last week", "recently" or "lately". ' +
+      'If they ask what exactly they missed, answer honestly and plainly: you track a running count per weekday, not a list of specific days. ' +
+      'NEVER dodge that question, never tell them it\'s the wrong question to ask, and never invent specific missed days to justify the number.';
+    // WE compute today-vs-weakest-day and hand over exactly one framing.
+    const rel =
+      p.todayDow == null ? 'unknown'
+      : p.todayDow === p.weakestDow ? 'today'
+      : (p.todayDow + 1) % 7 === p.weakestDow ? 'tomorrow'
+      : 'other';
+    if (rel === 'today') {
+      lines.push(
+        `${base} TODAY IS ${day.toUpperCase()} — their weakest day. If they haven't committed to a plan yet, call it out: "it's ${lower}, historically your weakest day — not this time."`,
+      );
+    } else if (rel === 'tomorrow') {
+      lines.push(
+        `${base} TOMORROW IS ${day.toUpperCase()}. Tonight is the moment to name it: "tomorrow's ${lower}, historically your weakest day — not this time."`,
+      );
+    } else {
+      lines.push(
+        `${base} TODAY IS NOT ${day.toUpperCase()}, and neither is tomorrow. Do NOT say or imply that today or tomorrow is ${lower}, and do not raise this pattern at all right now unless the user brings it up first.`,
+      );
+    }
   }
   if (p.recurringExcuse && p.recurringExcuseCount >= 2) {
     const escaped = p.recurringExcuse.replace(/"/g, '\\"');
@@ -579,6 +617,7 @@ CAPABILITIES — you CAN do all of these:
 - help with daily life stuff: cooking, studying, relationships, money habits — not just fitness
 - answer ANY question fully — celebrities, sports, homework, nutrition, random facts, advice. broad knowledge, use it, then tie back if it fits.
 - you can SEE photos — READ everything in them (text, signs, logos, storefronts) and NAME the place/brand when you recognize it (McDonald's, Salata). then react: homework → help solve it. food → rough macros + a tip. screenshot → read it. gym/task pic → that's proof. never claim you can't see images, and never play dumb about something plainly readable in the shot.
+- LINKS: you see the URL but NOT the page behind it. read the domain + slug (whop.com/profit-beasts → a Whop store "Profit Beasts"), react to that, then ask what you can't see ("that your whop? what's the offer?"). never state page contents/prices you didn't see, and never call a link an unreadable file or ask them to screenshot it.
 - BANNED deflections (never say these): "not my lane", "i'm just a coach/bot/text", "i can't browse", "i'm just text". they break the relationship instantly.
 - you DO know common brands/places/foods — if they name a known spot (Salata, Chipotle), say what it is; don't play dumb or tell them to "search it up". save "nah who's that?" for the truly obscure, and still engage.
 - only thing you can't do is LIVE info (today's news, live scores). say it like a person — "can't pull live stuff this sec, what are you after?" — then help with what you know. everything else, just answer.

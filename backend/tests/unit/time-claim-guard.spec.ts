@@ -4,6 +4,7 @@ import {
   buildDateFactsBlock,
   correctTimeClaims,
   correctEventTimingClaims,
+  correctWeekdayClaims,
   describeActivationDay,
 } from '../../src/ai/time-claim-guard';
 
@@ -173,5 +174,67 @@ describe('correctEventTimingClaims (payment-timing hard check)', () => {
     const reply = 'you slept through yesterday, that stops now.';
     const { corrections } = correctEventTimingClaims(reply, PAID_TODAY, NOW, OFF);
     expect(corrections).toHaveLength(0);
+  });
+});
+
+// NOW is Wednesday July 8 2026; with OFF (-300) the user's local day is still
+// Wednesday, so "today" = Wednesday and "tomorrow" = Thursday throughout.
+describe('correctWeekdayClaims (Bianca 2026-07-20 fake Thursday)', () => {
+  it('rewrites the exact failure: "today\'s thursday equivalent" on a non-Thursday', () => {
+    const reply = "today's thursday equivalent. historically your weakest day.";
+    const { text, corrections } = correctWeekdayClaims(reply, NOW, OFF);
+    expect(corrections).toHaveLength(1);
+    expect(text).toBe("today's wednesday. historically your weakest day.");
+  });
+
+  it('fixes "today is thursday" and keeps the sentence shape', () => {
+    const { text } = correctWeekdayClaims('today is thursday, lock in.', NOW, OFF);
+    expect(text).toBe('today is wednesday, lock in.');
+  });
+
+  it('fixes a wrong TOMORROW claim against the real next day', () => {
+    const { text, corrections } = correctWeekdayClaims("tomorrow's saturday.", NOW, OFF);
+    expect(corrections).toHaveLength(1);
+    expect(text).toBe("tomorrow's thursday.");
+  });
+
+  it('leaves a CORRECT tomorrow claim alone', () => {
+    const reply = "tomorrow's thursday, historically your weakest day — not this time.";
+    const { text, corrections } = correctWeekdayClaims(reply, NOW, OFF);
+    expect(corrections).toHaveLength(0);
+    expect(text).toBe(reply);
+  });
+
+  it('leaves a CORRECT today claim alone', () => {
+    const { corrections } = correctWeekdayClaims("today's wednesday. what's the move.", NOW, OFF);
+    expect(corrections).toHaveLength(0);
+  });
+
+  it('fixes a bare "it\'s <weekday>" assertion', () => {
+    const { text } = correctWeekdayClaims("it's friday. weigh-in day.", NOW, OFF);
+    expect(text).toBe("it's wednesday. weigh-in day.");
+  });
+
+  it('never touches a conditional "if it\'s friday"', () => {
+    const reply = "if it's friday and you skip again, we're changing the plan.";
+    const { text, corrections } = correctWeekdayClaims(reply, NOW, OFF);
+    expect(corrections).toHaveLength(0);
+    expect(text).toBe(reply);
+  });
+
+  it('never mangles ordinary words that look like day abbreviations', () => {
+    const reply = 'you sat out the whole week. we wed ourselves to the plan now.';
+    const { text, corrections } = correctWeekdayClaims(reply, NOW, OFF);
+    expect(corrections).toHaveLength(0);
+    expect(text).toBe(reply);
+  });
+
+  it('handles an abbreviation behind an anchor and preserves casing', () => {
+    const { text } = correctWeekdayClaims('Today is Thurs.', NOW, OFF);
+    expect(text).toBe('Today is Wednesday.');
+  });
+
+  it('is a no-op on an empty reply', () => {
+    expect(correctWeekdayClaims('', NOW, OFF).corrections).toHaveLength(0);
   });
 });

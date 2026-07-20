@@ -76,6 +76,26 @@ export function nextDailyFireAt(now: Date, localHHmm: string, offsetMinutes: num
   return new Date(candidateLocal - offsetMinutes * 60_000);
 }
 
+/**
+ * Normalize a local clock time to zero-padded "HH:MM", or null if it isn't a
+ * valid 24h time. The model supplies recurrence.local_time as a raw string and
+ * its formatting drifts ("8:00" one turn, "08:00" the next). Both the daily-
+ * reminder dedup and the partial-unique index key on this exact string, and
+ * nextDailyFireAt's strict regex throws on a non-padded hour — so an
+ * un-normalized value silently defeats dedup AND kills the chain on re-enqueue.
+ * Normalizing here is the single choke point that keeps all of that consistent.
+ * Pure, exported for tests.
+ */
+export function normalizeLocalTime(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const m = String(raw).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hour = parseInt(m[1], 10);
+  const minute = parseInt(m[2], 10);
+  if (hour > 23 || minute > 59) return null;
+  return `${String(hour).padStart(2, '0')}:${m[2]}`;
+}
+
 export interface EnqueueResult {
   ok: true;
   reminderId: string;
@@ -119,20 +139,110 @@ export class ScheduleService {
       return { ok: false, reason: 'message is required' };
     }
 
-    const rec = args.recurrence ?? null;
-    const saved = await this.reminderRepo.save({
-      user_id: args.userId,
-      session_id: args.sessionId ?? null,
-      created_by_message_id: args.createdByMessageId ?? null,
-      fire_at: args.fireAt,
-      message: args.message.trim(),
-      status: ScheduledReminderStatus.PENDING,
-      recurrence_rule: rec?.rule ?? null,
-      recurrence_local_time: rec?.localTime ?? null,
-      recurrence_offset_minutes: rec?.offsetMinutes ?? null,
-      recurrence_iana_timezone: rec?.ianaTimezone ?? null,
-      recurrence_parent_id: rec?.parentId ?? null,
-    });
+    let rec = args.recurrence ?? null;
+
+    // Normalize the daily local time up front so dedup, the unique index, and
+    // nextDailyFireAt all see the same canonical "HH:MM". Reject an unparseable
+    // value rather than storing a string that would later throw on re-enqueue.
+    if (rec?.rule === ReminderRecurrence.DAILY) {
+      const normalized = normalizeLocalTime(rec.localTime);
+      if (!normalized) {
+        return { ok: false, reason: 'recurrence local_time must be a valid "HH:MM" 24h time' };
+      }
+      rec = { ...rec, localTime: normalized };
+    }
+
+    // Idempotency for user-created daily reminders: one chain per (user, local
+    // time, message). The coaching model used to spawn a brand-new daily chain
+    // every time it set "remind me each morning", and each chain re-enqueues
+    // itself forever — so redundant reminders stacked and all fired in the same
+    // morning window (Karibi 2026-07-08 — dozens every morning). Collapse an
+    // IDENTICAL repeat request into the existing chain.
+    //
+    // The dedup key MUST include the message, not just the time: a user can have
+    // two genuinely different daily reminders at the same clock time — e.g. an
+    // "8pm log dinner" and an "8pm walk/workout check-in". Keying on time alone
+    // silently overwrote one with the other (Karibi 2026-07-16 — "kiba stopped
+    // reminding me to check in on my 8pm walks"). Matching on the exact message
+    // too lets distinct-purpose reminders coexist while still collapsing a true
+    // duplicate. Trade-off: a re-worded same-purpose reminder isn't merged, but
+    // over-merging (silent loss) is worse than under-merging (a visible extra
+    // ping the user can remove). Scoped to first-of-chain (no parentId): the
+    // recurrence re-enqueue below runs only AFTER the prior occurrence is FIRED,
+    // so it never matches here and is never blocked from continuing a live chain.
+    if (rec?.rule === ReminderRecurrence.DAILY && rec.localTime && !rec.parentId) {
+      const existing = await this.reminderRepo.findOne({
+        where: {
+          user_id: args.userId,
+          status: ScheduledReminderStatus.PENDING,
+          recurrence_rule: ReminderRecurrence.DAILY,
+          recurrence_local_time: rec.localTime,
+          message: args.message.trim(),
+        },
+      });
+      if (existing) {
+        await this.reminderRepo.update(existing.id, {
+          recurrence_offset_minutes: rec.offsetMinutes,
+          recurrence_iana_timezone: rec.ianaTimezone ?? null,
+        });
+        structuredLog(this.logger, 'log', {
+          service: 'schedule',
+          operation: 'daily_reminder_deduped',
+          userId: args.userId,
+          reminderId: existing.id,
+          localTime: rec.localTime,
+        });
+        return { ok: true, reminderId: existing.id, fireAtIso: existing.fire_at.toISOString() };
+      }
+    }
+
+    let saved: ScheduledReminder;
+    try {
+      saved = await this.reminderRepo.save({
+        user_id: args.userId,
+        session_id: args.sessionId ?? null,
+        created_by_message_id: args.createdByMessageId ?? null,
+        fire_at: args.fireAt,
+        message: args.message.trim(),
+        status: ScheduledReminderStatus.PENDING,
+        recurrence_rule: rec?.rule ?? null,
+        recurrence_local_time: rec?.localTime ?? null,
+        recurrence_offset_minutes: rec?.offsetMinutes ?? null,
+        recurrence_iana_timezone: rec?.ianaTimezone ?? null,
+        recurrence_parent_id: rec?.parentId ?? null,
+      });
+    } catch (err) {
+      // Backstop for the partial-unique index (one pending daily reminder per
+      // user/local-time/message): if a concurrent create beat us past the findOne
+      // dedup above, the insert hits a 23505 unique violation. Recover by
+      // returning the winner instead of surfacing an error — same outcome as the
+      // dedup. Keyed on message too so we return the matching chain, not an
+      // unrelated same-time reminder.
+      if (
+        (err as { code?: string }).code === '23505' &&
+        rec?.rule === ReminderRecurrence.DAILY &&
+        rec.localTime &&
+        !rec.parentId
+      ) {
+        const winner = await this.reminderRepo.findOne({
+          where: {
+            user_id: args.userId,
+            status: ScheduledReminderStatus.PENDING,
+            recurrence_rule: ReminderRecurrence.DAILY,
+            recurrence_local_time: rec.localTime,
+            message: args.message.trim(),
+          },
+        });
+        if (winner) {
+          return { ok: true, reminderId: winner.id, fireAtIso: winner.fire_at.toISOString() };
+        }
+        // The winning row already fired/cancelled between the violation and this
+        // read, so the slot is momentarily free but the duplicate is resolved.
+        // Report a soft rejection rather than leaking a raw QueryFailedError.
+        return { ok: false, reason: 'a daily reminder for that time was just scheduled' };
+      }
+      throw err;
+    }
 
     // First-of-chain: stamp parent_id to its own id so the whole chain shares one.
     if (rec && !rec.parentId) {

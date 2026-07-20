@@ -328,3 +328,99 @@ export function correctEventTimingClaims(
   if (corrections.length > 0) text = text.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.,!?])/g, '$1');
   return { text, corrections };
 }
+
+// ── Weekday guard (Bianca 2026-07-20) ───────────────────────────────────────
+// KIBA told a user on Monday July 20 "today's thursday equivalent" and then
+// leaned a whole coaching turn on it. The clock was never wrong — the prompt
+// stated the right date, and the model read it correctly the second she pushed
+// back. It asserted the weekday anyway because the BEHAVIORAL SIGNALS block used
+// to make it work out for itself whether today was the user's weakest day. That
+// framing is now computed in code (see PatternSignals.todayDow), and this is the
+// backstop for every other way a wrong weekday could reach the user: if the reply
+// says today or tomorrow is a named weekday and it provably isn't, fix the word.
+
+const DAY_TOKENS: Record<string, number> = {
+  sunday: 0, sun: 0,
+  monday: 1, mon: 1,
+  tuesday: 2, tues: 2, tue: 2,
+  wednesday: 3, weds: 3, wed: 3,
+  thursday: 4, thurs: 4, thur: 4, thu: 4,
+  friday: 5, fri: 5,
+  saturday: 6, sat: 6,
+};
+const DAY_ALT = Object.keys(DAY_TOKENS).sort((a, b) => b.length - a.length).join('|');
+const DAY_FULL_ALT = DAYS_FULL.map((d) => d.toLowerCase()).join('|');
+
+/** The user's local day of week for an instant, Sun=0..Sat=6. */
+function localDow(nowUtc: Date, offsetMinutes: number | null): number {
+  return new Date(nowUtc.getTime() + (offsetMinutes ?? 0) * 60_000).getUTCDay();
+}
+
+/** Match the source token's casing so a fix reads like the rest of the reply. */
+function matchCase(sample: string, replacement: string): string {
+  if (sample === sample.toUpperCase() && sample.length > 1) return replacement.toUpperCase();
+  if (sample[0] === sample[0]?.toUpperCase()) return replacement[0].toUpperCase() + replacement.slice(1);
+  return replacement.toLowerCase();
+}
+
+/**
+ * HARD CHECK on weekday claims about today/tomorrow. Rewrites only the day word,
+ * leaving the sentence intact ("today's thursday" → "today's monday"), and drops
+ * a trailing hedge like "equivalent" that only made sense while the claim was
+ * wrong. Conservative by design:
+ *  - only fires on an explicit today/tomorrow anchor, or a bare "it's <weekday>"
+ *    that isn't inside a conditional ("if it's thursday…" is left alone);
+ *  - abbreviations ("thurs") are accepted ONLY behind a today/tomorrow anchor, so
+ *    ordinary words like "sat" and "wed" can never be mangled;
+ *  - a claim that is already correct is never touched.
+ * Offset falls back to UTC, matching the TODAY'S DATE line in the prompt, so the
+ * reply can never contradict the date the model was actually given.
+ */
+export function correctWeekdayClaims(
+  reply: string,
+  nowUtc: Date,
+  offsetMinutes: number | null,
+): { text: string; corrections: ClaimCorrection[] } {
+  if (!reply) return { text: reply, corrections: [] };
+  const todayDow = localDow(nowUtc, offsetMinutes);
+  const corrections: ClaimCorrection[] = [];
+  let text = reply;
+
+  // "today's thursday" / "today is thursday" / "tomorrow's friday" / "tmrw is fri"
+  const anchored = new RegExp(
+    `\\b(today|tomorrow|tmrw|tmw)(’s|'s|s\\b|\\s+is|\\s+was)\\s+(${DAY_ALT})\\b(\\s+equivalent)?`,
+    'gi',
+  );
+  // The trailing "(\s+equivalent)?" group stays in the pattern so the hedge is
+  // consumed and dropped by the rewrite; it needs no binding here.
+  text = text.replace(anchored, (m, anchor: string, link: string, dayWord: string) => {
+    const expected = anchor.toLowerCase() === 'today' ? todayDow : (todayDow + 1) % 7;
+    const claimed = DAY_TOKENS[dayWord.toLowerCase()];
+    if (claimed === undefined || claimed === expected) return m;
+    const fixed = `${anchor}${link} ${matchCase(dayWord, DAYS_FULL[expected])}`;
+    corrections.push({
+      from: m,
+      to: fixed,
+      reason: `${anchor.toLowerCase()} is ${DAYS_FULL[expected]}, not ${DAYS_FULL[claimed]}`,
+    });
+    return fixed;
+  });
+
+  // Bare "it's thursday" — full day names only, and never inside a conditional.
+  const bare = new RegExp(`(^|[^a-z])(it’s|it's|its)\\s+(${DAY_FULL_ALT})\\b`, 'gi');
+  text = text.replace(bare, (m, lead: string, subject: string, dayWord: string, offset: number) => {
+    const before = text.slice(Math.max(0, offset - 24), offset).toLowerCase();
+    if (/\b(if|when|whenever|unless|once|until|by|say|like|come)\s*$/.test(before)) return m;
+    const claimed = DAY_TOKENS[dayWord.toLowerCase()];
+    if (claimed === undefined || claimed === todayDow) return m;
+    const fixed = `${lead}${subject} ${matchCase(dayWord, DAYS_FULL[todayDow])}`;
+    corrections.push({
+      from: m.trim(),
+      to: fixed.trim(),
+      reason: `today is ${DAYS_FULL[todayDow]}, not ${DAYS_FULL[claimed]}`,
+    });
+    return fixed;
+  });
+
+  return { text, corrections };
+}

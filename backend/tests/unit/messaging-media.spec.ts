@@ -14,7 +14,10 @@ function makeService(config: Record<string, string | undefined>): MessagingServi
     get: (k: string) => config[k],
     getOrThrow: (k: string) => config[k] ?? `missing_${k}`,
   };
-  return new MessagingService(configService as any, { add: jest.fn() } as any);
+  // findOne → null means "no opted-out user with this number", i.e. consent
+  // intact, which is the precondition these media tests care about.
+  const userRepo = { findOne: jest.fn().mockResolvedValue(null) };
+  return new MessagingService(configService as any, { add: jest.fn() } as any, userRepo as any);
 }
 
 describe('MessagingService media passthrough', () => {

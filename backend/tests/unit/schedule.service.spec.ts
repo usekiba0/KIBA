@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
-import { ScheduleService } from '../../src/accountability/schedule.service';
+import { ScheduleService, normalizeLocalTime } from '../../src/accountability/schedule.service';
 import { ScheduledReminder, ScheduledReminderStatus, ReminderRecurrence } from '../../src/data/entities/scheduled-reminder.entity';
 import { User } from '../../src/data/entities/user.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
@@ -115,6 +115,152 @@ describe('ScheduleService', () => {
         message: 'hi',
       });
       expect(result.ok).toBe(false);
+    });
+  });
+
+  // Karibi 2026-07-08 "dozens every morning": the coaching model spawned a
+  // brand-new daily chain every time it set "remind me each morning", so
+  // redundant reminders stacked and all fired in the same window. A daily
+  // reminder is now idempotent per (user, local time).
+  describe('enqueue — daily recurrence dedup', () => {
+    const dailyRec = { rule: ReminderRecurrence.DAILY, localTime: '09:00', offsetMinutes: -300 };
+    const fireAt = () => new Date(Date.now() + 60 * 60_000);
+
+    it('collapses an IDENTICAL repeat daily reminder (same time AND message) into the existing chain', async () => {
+      reminderRepo.findOne.mockResolvedValueOnce({
+        id: 'rem-existing',
+        fire_at: new Date(Date.now() + 3 * 60 * 60_000),
+      });
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'weigh in',
+        recurrence: { ...dailyRec },
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.reminderId).toBe('rem-existing');
+      // No duplicate row, no duplicate Bull job.
+      expect(reminderRepo.save).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+      // The dedup key now includes the message, not just the time.
+      expect(reminderRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ message: 'weigh in' }) }),
+      );
+      // Surviving chain keeps its message (it's part of the key); offset/tz refresh.
+      expect(reminderRepo.update).toHaveBeenCalledWith(
+        'rem-existing',
+        expect.objectContaining({ recurrence_offset_minutes: -300 }),
+      );
+    });
+
+    // The regression Karibi hit 2026-07-16: an "8pm log dinner" and an "8pm walk"
+    // are DIFFERENT reminders at the same clock time. The old time-only dedup key
+    // overwrote one with the other; keying on message too keeps both alive.
+    it('does NOT collapse a different-message reminder at the same time (distinct purposes coexist)', async () => {
+      reminderRepo.findOne.mockResolvedValueOnce(null); // no same-time+same-message match
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: '8pm walk',
+        recurrence: { ...dailyRec, localTime: '20:00' },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(reminderRepo.save).toHaveBeenCalled();
+      expect(queue.add).toHaveBeenCalled();
+      // Proves the dedup lookup discriminates on message, not just the slot.
+      expect(reminderRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ message: '8pm walk', recurrence_local_time: '20:00' }),
+        }),
+      );
+    });
+
+    it('creates a fresh chain when no pending daily reminder exists at that time', async () => {
+      reminderRepo.findOne.mockResolvedValueOnce(null);
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'morning weigh in',
+        recurrence: { ...dailyRec },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(reminderRepo.save).toHaveBeenCalled();
+      expect(queue.add).toHaveBeenCalled();
+    });
+
+    it('normalizes the local time before dedup and save so "8:00" and "08:00" collapse', async () => {
+      reminderRepo.findOne.mockResolvedValueOnce(null);
+
+      await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'weigh in',
+        recurrence: { rule: ReminderRecurrence.DAILY, localTime: '8:00', offsetMinutes: -300 },
+      });
+
+      // Dedup lookup AND the stored row use the canonical "08:00", so a later
+      // "08:00" request finds this chain instead of spawning a duplicate.
+      expect(reminderRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ recurrence_local_time: '08:00' }) }),
+      );
+      expect(reminderRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ recurrence_local_time: '08:00' }),
+      );
+    });
+
+    it('rejects a daily reminder with an unparseable local time', async () => {
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'x',
+        recurrence: { rule: ReminderRecurrence.DAILY, localTime: 'half eight', offsetMinutes: -300 },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(reminderRepo.save).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('recovers from a unique-violation race by returning the winning chain', async () => {
+      // findOne #1 (dedup) misses, save races and hits the partial-unique index,
+      // findOne #2 returns the concurrent winner.
+      reminderRepo.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'rem-winner', fire_at: new Date(Date.now() + 60 * 60_000) });
+      reminderRepo.save.mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505' }));
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'weigh in',
+        recurrence: { ...dailyRec },
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.reminderId).toBe('rem-winner');
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('does not dedup a parented occurrence (recurrence re-enqueue keeps the chain alive)', async () => {
+      // A pending sibling is present, but a parented occurrence must still be
+      // created — otherwise the daily chain would stop after its first fire.
+      reminderRepo.findOne.mockResolvedValue({ id: 'rem-existing', fire_at: new Date() });
+
+      const result = await service.enqueue({
+        userId: 'u-1',
+        fireAt: fireAt(),
+        message: 'next day',
+        recurrence: { ...dailyRec, parentId: 'parent-1' },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(reminderRepo.save).toHaveBeenCalled();
     });
   });
 
@@ -243,5 +389,28 @@ describe('ScheduleService', () => {
       reminderRepo.findOne.mockResolvedValue(null);
       expect(await service.cancel('nope')).toBeNull();
     });
+  });
+});
+
+describe('normalizeLocalTime', () => {
+  it('zero-pads a single-digit hour', () => {
+    expect(normalizeLocalTime('8:00')).toBe('08:00');
+    expect(normalizeLocalTime('9:30')).toBe('09:30');
+  });
+
+  it('passes a valid padded time through unchanged', () => {
+    expect(normalizeLocalTime('08:00')).toBe('08:00');
+    expect(normalizeLocalTime('23:59')).toBe('23:59');
+    expect(normalizeLocalTime('0:00')).toBe('00:00');
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(normalizeLocalTime('  8:00 ')).toBe('08:00');
+  });
+
+  it('rejects out-of-range and malformed values', () => {
+    for (const bad of ['24:00', '12:60', '8:5', '800', '8', 'abc', '', ' ', ':', '8:', null, undefined]) {
+      expect(normalizeLocalTime(bad as string)).toBeNull();
+    }
   });
 });

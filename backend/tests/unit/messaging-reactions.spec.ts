@@ -8,7 +8,8 @@ jest.mock('twilio', () => jest.fn(() => ({ messages: { create: jest.fn() } })));
 
 function makeService(config: Record<string, string | undefined>): MessagingService {
   const configService = { get: (k: string) => config[k], getOrThrow: (k: string) => config[k] ?? `missing_${k}` };
-  return new MessagingService(configService as any, { add: jest.fn() } as any);
+  const userRepo = { findOne: jest.fn().mockResolvedValue(null) }; // consent intact
+  return new MessagingService(configService as any, { add: jest.fn() } as any, userRepo as any);
 }
 
 const SB = { SENDBLUE_API_KEY_ID: 'kid', SENDBLUE_API_SECRET_KEY: 'secret', SENDBLUE_FROM_NUMBER: '+15550000000' };

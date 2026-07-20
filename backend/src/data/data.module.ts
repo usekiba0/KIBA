@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bull';
 import { RedisModule } from '@nestjs-modules/ioredis';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AccountabilityModule } from '../accountability/accountability.module';
@@ -22,6 +23,8 @@ import { AntiGhostState } from './entities/anti-ghost-state.entity';
 import { Correction } from './entities/correction.entity';
 import { CoachingKnowledge } from './entities/coaching-knowledge.entity';
 import { ScheduledReminder } from './entities/scheduled-reminder.entity';
+import { ReferralCode } from './entities/referral-code.entity';
+import { ReferralService } from './referral.service';
 import { SessionCacheService } from './session-cache.service';
 import { SessionBoundaryService } from './session-boundary.service';
 import { DataRightsService } from './data-rights.service';
@@ -51,11 +54,15 @@ const ENTITIES = [
   Correction,
   CoachingKnowledge,
   ScheduledReminder,
+  ReferralCode,
 ];
 
 @Module({
   imports: [
     TypeOrmModule.forFeature(ENTITIES),
+    // DataRightsService drains a deleted user's Bull jobs; register the queue
+    // client here so it can be injected without reaching into AccountabilityModule.
+    BullModule.registerQueue({ name: 'accountability' }),
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -71,7 +78,7 @@ const ENTITIES = [
     forwardRef(() => AccountabilityModule),
   ],
   controllers: [DataRightsController, AdminController],
-  providers: [SessionCacheService, SessionBoundaryService, DataRightsService, AdminService, CorrectionService, StripeService],
-  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule, StripeService, CorrectionService],
+  providers: [SessionCacheService, SessionBoundaryService, DataRightsService, AdminService, CorrectionService, StripeService, ReferralService],
+  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule, StripeService, CorrectionService, ReferralService],
 })
 export class DataModule {}

@@ -47,6 +47,13 @@ import { HealthController, VersionController } from './common/health/health.cont
         STRIPE_SECRET_KEY: Joi.string().required(),
         STRIPE_WEBHOOK_SECRET: Joi.string().required(),
         STRIPE_PRICE_ID_INDIVIDUAL: Joi.string().required(),
+        // Annual price for the plan-selection page. OPTIONAL: until it exists in
+        // Stripe the page renders monthly-only, so this deploys safely before
+        // the yearly price is created.
+        STRIPE_PRICE_ID_INDIVIDUAL_ANNUAL: Joi.string().optional(),
+        // Signs the texted plan links. Falls back to INTERNAL_API_KEY when unset
+        // (see CheckoutService.signingSecret) so no new required env at launch.
+        CHECKOUT_LINK_SECRET: Joi.string().optional(),
         STRIPE_TRIAL_DAYS: Joi.number().default(3),
         // Human price label KIBA quotes to users. MUST match the real amount on
         // STRIPE_PRICE_ID_INDIVIDUAL or the bot promises one price and Stripe

@@ -30,6 +30,9 @@ import { VisionService } from '../ai/vision.service';
 import { SessionCacheService } from '../data/session-cache.service';
 import { SessionBoundaryService } from '../data/session-boundary.service';
 import { CorrectionService } from '../data/correction.service';
+import { ReferralService } from '../data/referral.service';
+import { planLinkFor } from '../onboarding/checkout-link';
+import { normalizeReferralCode } from '../data/entities/referral-code.entity';
 import { MessagingService } from './messaging.service';
 import { SafetyService } from '../safety/safety.service';
 import { AntiGhostService } from '../accountability/anti-ghost.service';
@@ -55,6 +58,12 @@ import { referencesRecentPhoto, findRecentInboundImage } from './image-recall';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
+import {
+  detectKeyword,
+  OPT_OUT_CONFIRMATION,
+  OPT_IN_CONFIRMATION,
+  normalizeKeyword,
+} from './opt-out';
 import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone, resolveOffsetMinutes } from './world-time';
 import { isOffsetPlausibleForPhone } from './phone-timezone';
 import { detectQuestionLoop, detectRepeatedChoiceLoop, isLoopCallout } from './question-loop';
@@ -72,6 +81,12 @@ interface CoachingJob {
   // tapback reaction lands on. Null for SMS (no tapback support). Optional so
   // older callers/tests that don't set it still type-check.
   messageHandle?: string | null;
+  // Wall clock of the first inbound webhook in this batch (set by the debouncer).
+  // Lets turn_latency report the wait the USER actually felt — debounce window
+  // included — instead of only the slice after the buffer flushed. Optional so
+  // older callers/tests that don't set it still type-check; falls back to
+  // turnStart, which just makes debounceMs read 0.
+  receivedAt?: number;
 }
 
 // Context-reset intent. Anchored to the WHOLE message (optional leading filler +
@@ -147,6 +162,20 @@ export const PAYMENT_CLAIM_RE =
 // instead of letting the model loop re-asking build questions (Karibi 2026-06-05).
 export const LINK_REQUEST_RE =
   /\b(send|resend|drop|share|gimme|give\s+me|text|where(?:'?s| is)?)\b[^.\n]{0,15}\blink\b|\bsend\s+it\b|\blink\s+(?:again|now|please|pls)\b|\b(?:don'?t|do\s+not|dont)\s+have\b[^.\n]{0,15}\blink\b/i;
+
+/**
+ * A lead handing us an affiliate / referral code ("my code is KIBA20", "redeem
+ * BETA30", "promo: partner-x"). Capture group 1 is the raw token, canonicalized
+ * by `normalizeReferralCode` before lookup.
+ *
+ * Deliberately loose — the guard that uses it only ACTS when the extracted token
+ * resolves to a real code, and otherwise falls through to the intake AI in
+ * silence. That asymmetry is the point: a chatty false positive ("the code is
+ * broken") costs nothing, whereas replying "that code isn't valid" to someone who
+ * never tried to redeem one is confusing and off-voice.
+ */
+export const REFERRAL_CODE_RE =
+  /\b(?:referral|affiliate|promo(?:tion)?|invite|discount|coupon|redeem|code)\b[\s:=]*(?:(?:code|is|for|my|the|a)\b[\s:=]*)*([A-Za-z0-9][A-Za-z0-9-]{2,31})\b/i;
 
 /**
  * The user is actively asking KIBA to explain itself / prove its value
@@ -263,6 +292,7 @@ export class CoachingProcessor {
     private readonly todoService: TodoService,
     private readonly correctionService: CorrectionService,
     private readonly stripeService: StripeService,
+    private readonly referralService: ReferralService,
     @InjectQueue('accountability') private readonly accountabilityQueue: Queue,
   ) {}
 
@@ -289,7 +319,10 @@ export class CoachingProcessor {
   }
 
   async process(data: CoachingJob): Promise<void> {
-    const { body, twilioSid, numMedia, mediaUrls, mediaContentTypes, channel } = data;
+    const { body, twilioSid, numMedia: inboundNumMedia, mediaUrls, mediaContentTypes, channel } = data;
+    // Mutable: a shared LINK arrives as an unidentifiable attachment and gets
+    // demoted to a plain text turn below, once byte-sniffing has had its say.
+    let numMedia = inboundNumMedia;
     // Canonicalize to E.164 so a returning user always resolves to their existing
     // row. Twilio/web are already E.164, but SendBlue can hand us looser formats
     // ("7135551234", "+1 (713)...") — without this the lookup below misses and a
@@ -301,6 +334,13 @@ export class CoachingProcessor {
     // elapsed) to the reply being sent, plus the model-generation slice, so we can
     // see where the controllable latency actually goes before tuning it (2026-06-29).
     const turnStart = Date.now();
+    // ...and the full wait the user felt, measured from the first inbound webhook.
+    // `debounceMs` is the buffer window (a config knob), `genMs` the model call
+    // (model-bound), `sendMs` the outbound bubbles (bubble delay × n). Splitting
+    // them is the whole point: "8-10 seconds" is not actionable until we know
+    // which of the three owns it (2026-07-20).
+    const receivedAt = data.receivedAt ?? turnStart;
+    const debounceMs = turnStart - receivedAt;
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Carrier shortcodes (e.g. +195686 from Citi) get misrouted to our SendBlue
@@ -349,6 +389,13 @@ export class CoachingProcessor {
 
     // Update last active
     await this.userRepo.update(user.id, { last_active_at: new Date() });
+
+    // ── Compliance keywords (STOP / START) ───────────────────────────────────
+    // Runs before EVERYTHING: dedup, crisis detection, intake, coaching. Consent
+    // is not a conversation topic the model gets an opinion on — and the coaching
+    // prompt is explicitly built to talk people out of quitting, which is exactly
+    // the wrong instinct here.
+    if (await this.handleComplianceKeyword(user, body, from)) return;
 
     // Cross-channel dedup — catches same message arriving via both SMS and iMessage webhooks
     const cutoff = new Date(Date.now() - 30_000);
@@ -494,6 +541,31 @@ export class CoachingProcessor {
         resolvedMediaCt = sniffed;
       }
     }
+    // A shared LINK (whop.com, YouTube, an article) reaches us as an iMessage
+    // link-preview attachment, NOT a photo: the URL has no media extension so
+    // guessContentType yields application/octet-stream, and the preview payload
+    // matches no magic number so the sniff above returns null too. It therefore
+    // fell into the unsupported-media branch and got answered "i can't read that
+    // file type. send a jpeg, png, or screenshot." — nonsense for a link — while
+    // the message text (which carries the URL) was discarded without ever
+    // reaching the coach. When the attachment is unidentifiable but the message
+    // has text, drop the attachment and run the turn as plain text so KIBA
+    // actually responds to what they sent. (Karibi 2026-07-21)
+    if (
+      numMedia > 0 &&
+      (!resolvedMediaCt || resolvedMediaCt === 'application/octet-stream') &&
+      (body ?? '').trim().length > 0
+    ) {
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'unidentified_media_demoted_to_text',
+        userId: user.id,
+        channel,
+        contentType: resolvedMediaCt || 'none',
+      });
+      numMedia = 0;
+      resolvedMediaCt = '';
+    }
     const inboundIsImage = numMedia > 0 && resolvedMediaCt.startsWith('image/');
 
     // "what time is it in <place>" — compute deterministically from the runtime's
@@ -630,6 +702,84 @@ export class CoachingProcessor {
     }
 
     if (user.onboarding_stage !== OnboardingStage.COMPLETE) {
+      // AFFILIATE / REFERRAL CODE (deterministic — Karibi 2026-07-20).
+      // Runs before the payment-claim backstop and before the intake AI: the
+      // model has no tool for this and would either ignore the code or, worse,
+      // promise a free month it can't actually grant. Redemption is a DB fact,
+      // so it's settled here.
+      const codeMatch = body.match(REFERRAL_CODE_RE);
+      if (codeMatch) {
+        const redeemed = await this.referralService.redeem(user.id, codeMatch[1]);
+        if (redeemed.ok) {
+          // Re-read: redeem() wrote referral_trial_days on the row we're holding
+          // a stale copy of, and sendPaymentLink reads it for the trial length.
+          const liveUser = (await this.userRepo.findOne({ where: { id: user.id } })) ?? user;
+          const days = redeemed.trialDays;
+          // If they're already holding a link, it was minted with the OLD trial
+          // length — replace it rather than let them check out on the short one.
+          const hadLink = !!liveUser.payment_link_sent_at;
+          if (hadLink) {
+            const resent = await this.sendPaymentLink(liveUser, inboundMsg.id, {
+              requireFullIntake: true,
+              bypassRateLimit: true,
+              leadIn: `code works — that's ${days} days free instead. here's your fresh link 👇`,
+            });
+            // Intake not finished yet (no goal/timezone), so there's nothing to
+            // re-link. The code is still banked on their row and applies when the
+            // link does go out — just acknowledge it.
+            if (!resent.ok) {
+              await this.saveAndSend(
+                user,
+                boundary.sessionId,
+                `code works — locked in ${days} days free for you. let's finish getting you set up.`,
+              );
+            }
+          } else {
+            await this.saveAndSend(
+              user,
+              boundary.sessionId,
+              `code works — that's ${days} days free once we're done. let's keep going.`,
+            );
+          }
+          structuredLog(this.logger, 'log', {
+            service: 'messaging',
+            operation: 'referral_code_redeemed',
+            userId: user.id,
+            code: redeemed.code,
+            owner: redeemed.owner,
+            trialDays: days,
+            relinked: hadLink,
+          });
+          return;
+        }
+        // 'unknown' is the common case for a false-positive match on ordinary
+        // chat ("the code is broken"), so it falls through to the intake AI in
+        // silence — see REFERRAL_CODE_RE. The other reasons mean they really did
+        // try to redeem something, so answer them.
+        if (redeemed.reason !== 'unknown') {
+          const line =
+            redeemed.reason === 'already_redeemed'
+              ? "you've already got a code on your account — can't stack two."
+              : redeemed.reason === 'exhausted'
+                ? "that code's maxed out, all the spots are claimed. you're still good to keep going though."
+                : "that code's not active anymore. you're still good to keep going though.";
+          await this.saveAndSend(user, boundary.sessionId, line);
+          structuredLog(this.logger, 'log', {
+            service: 'messaging',
+            operation: 'referral_code_refused',
+            userId: user.id,
+            reason: redeemed.reason,
+          });
+          return;
+        }
+        structuredLog(this.logger, 'log', {
+          service: 'messaging',
+          operation: 'referral_code_no_match',
+          userId: user.id,
+          token: normalizeReferralCode(codeMatch[1]),
+        });
+      }
+
       // PAYMENT-CLAIM BACKSTOP (deterministic — don't trust the LLM here).
       // A lead who's been sent the link but still isn't COMPLETE telling us they
       // "already paid" is either lying or hit a webhook lag. Never let the model
@@ -705,10 +855,12 @@ export class CoachingProcessor {
         inboundIsImage ? resolvedMediaCt : undefined,
       );
       const genMs = Date.now() - genStart;
+      const sendStart = Date.now();
       await this.saveAndSend(user, boundary.sessionId, reply);
       structuredLog(this.logger, 'log', {
         service: 'coaching', operation: 'turn_latency', userId: user.id,
-        path: 'intake', genMs, totalMs: Date.now() - turnStart,
+        path: 'intake', debounceMs, genMs, sendMs: Date.now() - sendStart,
+        totalMs: Date.now() - turnStart, e2eMs: Date.now() - receivedAt,
       });
       return;
     }
@@ -975,11 +1127,16 @@ export class CoachingProcessor {
         visionPatterns,
       );
       const genMs = Date.now() - genStart;
-      await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+      // Token-count bookkeeping is nobody's critical path — start it, but let the
+      // user's first bubble go out ahead of the round-trip instead of behind it.
+      const tokenWrite = this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+      const sendStart = Date.now();
       await this.saveAndSend(user, boundary.sessionId, reply);
+      await tokenWrite;
       structuredLog(this.logger, 'log', {
         service: 'coaching', operation: 'turn_latency', userId: user.id,
-        path: 'vision', genMs, totalMs: Date.now() - turnStart, tokenCount,
+        path: 'vision', debounceMs, genMs, sendMs: Date.now() - sendStart,
+        totalMs: Date.now() - turnStart, e2eMs: Date.now() - receivedAt, tokenCount,
       });
       return;
     }
@@ -1029,11 +1186,16 @@ export class CoachingProcessor {
       patterns,
     );
     const genMs = Date.now() - genStart;
-    await this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+    // See the vision path: bookkeeping write runs alongside the send, not in
+    // front of it.
+    const tokenWrite = this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
+    const sendStart = Date.now();
     await this.saveAndSend(user, boundary.sessionId, reply);
+    await tokenWrite;
     structuredLog(this.logger, 'log', {
       service: 'coaching', operation: 'turn_latency', userId: user.id,
-      path: 'text', genMs, totalMs: Date.now() - turnStart, tokenCount,
+      path: 'text', debounceMs, genMs, sendMs: Date.now() - sendStart,
+      totalMs: Date.now() - turnStart, e2eMs: Date.now() - receivedAt, tokenCount,
     });
   }
 
@@ -1230,7 +1392,14 @@ export class CoachingProcessor {
       liveUser.utc_offset_minutes !== null &&
       liveUser.utc_offset_minutes !== undefined;
 
-    if (!liveUser.payment_link_sent_at && askedForLink && hasMinimumForLink) {
+    if (askedForLink && hasMinimumForLink) {
+      // An EXPLICIT link request always gets a link — even for a PAYMENT_PENDING
+      // lead who already has one. The original Stripe session expires ~24h out,
+      // and the dunning nudge no longer auto-resends (Karibi 2026-07-08 — "why 2
+      // payment links"), so this deterministic on-ask resend is the ONLY thing
+      // keeping a ready-to-buy lead from being stranded with a dead link when the
+      // model doesn't call the tool. sendPaymentLink's own 5-minute guard blocks
+      // spam, so re-sending on request is safe.
       const sent = await this.sendPaymentLink(liveUser, userMessageId, {
         requireFullIntake: true,
         leadIn: CLOSE_LEAD_IN,
@@ -1433,6 +1602,102 @@ export class CoachingProcessor {
   }
 
   /**
+   * Handle STOP / START. Returns true when the message was a compliance keyword
+   * and the turn is finished — no logging to the conversation, no AI call.
+   *
+   * Deliberate scope limits:
+   *
+   * - The keyword must be the WHOLE message (see opt-out.ts). "cancel my 8pm
+   *   reminder" is coaching, not consent.
+   * - A resume keyword only counts when the user is actually opted out. "yes" is
+   *   a carrier-standard opt-in word AND the single most common reply in normal
+   *   coaching — treating it as a resume would derail live conversations.
+   * - HELP is NOT intercepted for an active user. A lone "help" from someone
+   *   mid-conversation is far more likely distress than a request for terms, and
+   *   swallowing it would bypass crisis detection. It falls through to the normal
+   *   path instead.
+   */
+  private async handleComplianceKeyword(user: User, body: string, from: string): Promise<boolean> {
+    const intent = detectKeyword(body);
+    if (!intent) return false;
+    if (intent === 'help') return false;
+
+    const wasOptedOut = user.opted_out_at !== null && user.opted_out_at !== undefined;
+
+    if (intent === 'opt_in') {
+      if (!wasOptedOut) return false; // ordinary "yes"/"start" — let coaching handle it
+
+      await this.userRepo.update(user.id, { opted_out_at: null, opt_out_keyword: null });
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'opt_in',
+        userId: user.id,
+        keyword: normalizeKeyword(body),
+      });
+      // allowOptedOut: the flag is only cleared above moments earlier and the
+      // outbound gate reads the DB — belt and braces so the confirmation can
+      // never be eaten by its own guard.
+      await this.messagingService.send(from, OPT_IN_CONFIRMATION, undefined, true);
+      return true;
+    }
+
+    // opt_out
+    if (wasOptedOut) {
+      // Already unsubscribed. Silence is correct — re-confirming would mean
+      // sending another message to someone who has asked twice to be left alone.
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'opt_out_repeat_ignored',
+        userId: user.id,
+      });
+      return true;
+    }
+
+    await this.userRepo.update(user.id, {
+      opted_out_at: new Date(),
+      opt_out_keyword: normalizeKeyword(body).slice(0, 20),
+    });
+
+    // Stopping new sends is not enough — check-ins, reminders, ghost chains and
+    // recaps are already sitting in Redis with a delay on them. Without this
+    // drain the user keeps hearing from KIBA for days after unsubscribing, which
+    // is the exact failure the opt-out is meant to prevent.
+    await this.drainScheduledJobs(user.id);
+
+    structuredLog(this.logger, 'log', {
+      service: 'messaging',
+      operation: 'opt_out',
+      userId: user.id,
+      keyword: normalizeKeyword(body),
+    });
+
+    await this.messagingService.send(from, OPT_OUT_CONFIRMATION, undefined, true);
+    return true;
+  }
+
+  /**
+   * Remove a user's not-yet-run accountability jobs. Mirrors the drain in
+   * DataRightsService (user deletion) — same reason, different trigger. Fails
+   * soft: the opted_out_at flag is the real guarantee, since the outbound gate
+   * blocks any job that does fire, so a Redis blip must not fail the opt-out.
+   */
+  private async drainScheduledJobs(userId: string): Promise<void> {
+    try {
+      const jobs = await this.accountabilityQueue.getJobs(['delayed', 'waiting', 'paused']);
+      for (const job of jobs) {
+        if (job?.data?.userId === userId) await job.remove().catch(() => undefined);
+      }
+    } catch (err) {
+      structuredLog(this.logger, 'error', {
+        service: 'messaging',
+        operation: 'opt_out_drain_failed',
+        userId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  /**
    * Create a Stripe checkout session, SMS the URL, mark the user payment_pending,
    * and schedule the dunning auto-nudges. Refuses if a recent link still exists.
    *
@@ -1443,7 +1708,9 @@ export class CoachingProcessor {
   private async sendPaymentLink(
     liveUser: User,
     userMessageId: string,
-    opts: { requireFullIntake: boolean; leadIn?: string } = { requireFullIntake: true },
+    opts: { requireFullIntake: boolean; leadIn?: string; bypassRateLimit?: boolean } = {
+      requireFullIntake: true,
+    },
   ): Promise<
     | { ok: true; checkout_url: string }
     | { ok: false; reason: 'incomplete' | 'rate_limited' | 'error'; error: string }
@@ -1468,7 +1735,11 @@ export class CoachingProcessor {
     // "already sent it" rather than the alarming "having trouble / admin will
     // reach out" line (the bug Ali hit: re-asked 90s after a link and got told
     // it was broken).
-    if (liveUser.payment_link_sent_at) {
+    // `bypassRateLimit` exists for one case: the lead just redeemed a referral
+    // code and the link they're holding was minted with the OLD trial length.
+    // Making them wait 5 minutes for the trial they were just promised is worse
+    // than the spam the limiter guards against.
+    if (liveUser.payment_link_sent_at && !opts.bypassRateLimit) {
       const ageMs = Date.now() - new Date(liveUser.payment_link_sent_at).getTime();
       if (ageMs < 5 * 60_000) {
         return {
@@ -1479,61 +1750,23 @@ export class CoachingProcessor {
       }
     }
 
-    const priceId = this.config.getOrThrow<string>('STRIPE_PRICE_ID_INDIVIDUAL');
-    // 7-day trial is the agreed offer; the intake AI quotes the same number from
-    // STRIPE_TRIAL_DAYS so the checkout trial and the SMS copy always agree.
-    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
-    // Checkout return pages (/onboarding/success|cancel) are FRONTEND Next.js
-    // routes, so they must point at FRONTEND_URL — NOT APP_BASE_URL (the NestJS
-    // backend, which has no such route and would 404 the user right after they pay).
-    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://kiba.ai');
-
-    // Create (or reuse) Stripe customer. We don't have a stable customer id on
-    // the user row for SMS leads, so create one each time the link is sent —
-    // the previous customer gets garbage-collected on the Stripe side if unused.
-    // Wrap the Stripe calls: a throw here used to bubble up and get swallowed
-    // into the model's tool-result context (user saw "backend thing", we saw
-    // NOTHING in the logs). Log the real error and return a clean failure.
-    let session: import('stripe').Stripe.Checkout.Session;
-    try {
-      const customer = await this.stripeService.createCustomer(
-        liveUser.name,
-        liveUser.phone_number,
-      );
-      session = await this.stripeService.createCheckoutSession({
-        customerId: customer.id,
-        priceId,
-        trialDays,
-        userId: liveUser.id,
-        successUrl: `${frontendUrl}/onboarding/success`,
-        cancelUrl: `${frontendUrl}/onboarding/cancel`,
-      });
-    } catch (err) {
-      structuredLog(this.logger, 'error', {
-        service: 'onboarding',
-        operation: 'payment_link_stripe_failed',
-        userId: liveUser.id,
-        error: (err as Error).message,
-      });
-      return {
-        ok: false as const,
-        reason: 'error' as const,
-        error: 'stripe checkout creation failed',
-      };
-    }
-
-    if (!session.url) {
-      structuredLog(this.logger, 'error', {
-        service: 'onboarding',
-        operation: 'payment_link_no_url',
-        userId: liveUser.id,
-      });
-      return {
-        ok: false as const,
-        reason: 'error' as const,
-        error: 'stripe did not return a checkout url',
-      };
-    }
+    // We text a link to OUR plan-selection page, not a raw Stripe Checkout URL.
+    // Stripe can't show a monthly/yearly toggle inside one subscription session,
+    // so the choice happens on our page and only the chosen price reaches Stripe
+    // (Karibi 2026-07-20). The Stripe customer + session are created when they
+    // tap Continue — see CheckoutService.createSession — which also means no
+    // orphaned Stripe customer for a lead who never opens the link.
+    //
+    // Minting is local (HMAC, no network), so unlike the old flow there's no
+    // Stripe round-trip that can fail between "we promised a link" and sending
+    // one.
+    const planUrl = planLinkFor(
+      this.config.get<string>('CHECKOUT_LINK_SECRET') ||
+        this.config.get<string>('INTERNAL_API_KEY') ||
+        '',
+      this.config.get<string>('FRONTEND_URL', 'https://usekiba.ai'),
+      liveUser.id,
+    );
 
     // SMS the link directly (rather than letting the AI include it in its reply
     // text) so it lands on its own line and is clickable. CRITICAL: send BEFORE
@@ -1546,7 +1779,7 @@ export class CoachingProcessor {
       // so a rate-limit/failure never leaves a dangling "here's the link" with no
       // link after it.
       if (opts.leadIn) await this.messagingService.send(liveUser.phone_number, opts.leadIn);
-      await this.messagingService.send(liveUser.phone_number, session.url);
+      await this.messagingService.send(liveUser.phone_number, planUrl);
     } catch (err) {
       this.logger.error(
         `[sendPaymentLink] SMS delivery failed for ${liveUser.id} — not persisting PAYMENT_PENDING so user can retry: ${(err as Error).message}`,
@@ -1562,7 +1795,6 @@ export class CoachingProcessor {
     await this.userRepo.update(liveUser.id, {
       onboarding_stage: OnboardingStage.PAYMENT_PENDING,
       payment_link_sent_at: now,
-      stripe_checkout_session_id: session.id,
       sample_coaching_given: false,
     });
     liveUser.onboarding_stage = OnboardingStage.PAYMENT_PENDING;
@@ -1582,11 +1814,10 @@ export class CoachingProcessor {
       service: 'onboarding',
       operation: 'sms_payment_link_sent',
       userId: liveUser.id,
-      sessionId: session.id,
       userMessageId,
     });
 
-    return { ok: true as const, checkout_url: session.url };
+    return { ok: true as const, checkout_url: planUrl };
   }
 
   /**

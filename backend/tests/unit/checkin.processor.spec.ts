@@ -273,25 +273,17 @@ describe('CheckinProcessor', () => {
       mockUserRepo.update = jest.fn().mockResolvedValue(undefined);
     });
 
-    it('ships a freshly regenerated checkout link (the original Stripe session has expired)', async () => {
-      mockStripeService.createCustomer.mockResolvedValue({ id: 'cus_1' });
-      mockStripeService.createCheckoutSession.mockResolvedValue({ id: 'cs_fresh', url: 'https://checkout.stripe/fresh' });
-
+    it('sends ONE re-engagement nudge and does NOT auto-resend a checkout link', async () => {
+      // Karibi 2026-07-08: the dunning nudge used to append a second bubble with
+      // a fresh checkout link, which read as a duplicate/second payment link.
+      // The link is now sent once at checkout and resent only on request.
       await processor.handlePaymentLinkNudge(makeJob({ userId: 'user-1', nudgeIndex: 0 }));
 
-      expect(mockStripeService.createCheckoutSession).toHaveBeenCalled();
-      expect(mockMessagingService.send).toHaveBeenCalledWith('+15551234567', 'https://checkout.stripe/fresh');
-      expect(mockUserRepo.update).toHaveBeenCalledWith('user-1', expect.objectContaining({ stripe_checkout_session_id: 'cs_fresh' }));
-      expect(mockUserRepo.update).toHaveBeenCalledWith('user-1', { dunning_nudges_sent: 1 });
-    });
-
-    it('falls back to a reply CTA when link regeneration fails, without crashing', async () => {
-      mockStripeService.createCustomer.mockResolvedValue({ id: 'cus_1' });
-      mockStripeService.createCheckoutSession.mockRejectedValue(new Error('stripe down'));
-
-      await processor.handlePaymentLinkNudge(makeJob({ userId: 'user-1', nudgeIndex: 0 }));
-
-      expect(mockMessagingService.send).toHaveBeenCalledWith('+15551234567', "reply 'go' and i'll send you a fresh link.");
+      // No Stripe checkout session is created and no URL is texted.
+      expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
+      expect(mockMessagingService.send).toHaveBeenCalledTimes(1);
+      const sent = mockMessagingService.send.mock.calls[0][1] as string;
+      expect(sent).not.toMatch(/https?:\/\//);
       expect(mockUserRepo.update).toHaveBeenCalledWith('user-1', { dunning_nudges_sent: 1 });
     });
 

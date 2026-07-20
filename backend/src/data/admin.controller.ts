@@ -4,6 +4,7 @@ import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, Max, Mi
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
 import { CorrectionService } from './correction.service';
+import { ReferralService } from './referral.service';
 import { ScheduleService } from '../accountability/schedule.service';
 import { CheckinService } from '../accountability/checkin.service';
 import { UserStatus, OnboardingStage } from './entities/user.entity';
@@ -67,6 +68,21 @@ class UpdateSettingsDto {
   coach_alert_email?: string;
 }
 
+class CreateReferralCodeDto {
+  // Codes are canonicalized (uppercase, whitespace/dashes stripped) before
+  // storage, so validate loosely here and let the service do the narrowing.
+  @IsString() @MinLength(3) @MaxLength(32) code: string;
+  @IsString() @MinLength(1) @MaxLength(120) owner: string;
+  // 1 year is a deliberate ceiling: a typo'd 3650 would hand out a decade of
+  // free product with no way to claw it back from an already-created Stripe sub.
+  @IsInt() @Min(1) @Max(365) trial_days: number;
+  @IsOptional() @IsInt() @Min(1) @Max(100000) max_redemptions?: number;
+}
+
+class ToggleReferralCodeDto {
+  @IsBoolean() active: boolean;
+}
+
 @Controller('admin')
 @UseGuards(InternalApiKeyGuard)
 export class AdminController {
@@ -75,8 +91,34 @@ export class AdminController {
     private readonly correctionService: CorrectionService,
     private readonly scheduleService: ScheduleService,
     private readonly checkinService: CheckinService,
+    private readonly referralService: ReferralService,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
   ) {}
+
+  @Get('referral-codes')
+  listReferralCodes() {
+    return this.referralService.listCodes();
+  }
+
+  @Post('referral-codes')
+  async createReferralCode(@Body() dto: CreateReferralCodeDto) {
+    const created = await this.referralService.createCode({
+      code: dto.code,
+      owner: dto.owner,
+      trialDays: dto.trial_days,
+      maxRedemptions: dto.max_redemptions ?? null,
+    });
+    // Matches the rest of this controller: report the conflict in the body
+    // rather than throwing, so the dashboard can show it inline.
+    if (!created) return { ok: false, error: 'that code already exists' };
+    return { ok: true, code: created };
+  }
+
+  @Patch('referral-codes/:id/active')
+  async toggleReferralCode(@Param('id') id: string, @Body() dto: ToggleReferralCodeDto) {
+    const ok = await this.referralService.setActive(id, dto.active);
+    return ok ? { ok: true } : { ok: false, error: 'code not found' };
+  }
 
   @Get('dashboard')
   getDashboard() {

@@ -1,11 +1,15 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bull';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, IsNull, Not } from 'typeorm';
 import { Queue } from 'bull';
 import * as twilio from 'twilio';
 import axios from 'axios';
 import { structuredLog } from '../common/logger';
 import { humanizeVoice } from './voice';
+import { User } from '../data/entities/user.entity';
+import { normalizePhoneNumber } from '../common/phone';
 
 @Injectable()
 export class MessagingService implements OnModuleInit {
@@ -30,6 +34,7 @@ export class MessagingService implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     @InjectQueue('messaging') private readonly messagingQueue: Queue,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
   ) {
     this.twilioClient = twilio(
       config.getOrThrow('TWILIO_ACCOUNT_SID'),
@@ -69,7 +74,50 @@ export class MessagingService implements OnModuleInit {
    * over iMessage (SendBlue); SMS falls back to Twilio MMS where GIFs render as a
    * static image and video is unreliable.
    */
-  async send(to: string, body: string, mediaUrl?: string): Promise<void> {
+  /**
+   * True if this number has revoked consent. Checked at the outbound chokepoint
+   * rather than at each of the ~10 call sites that generate messages, because a
+   * per-caller check is one forgotten branch away from texting someone who asked
+   * to be left alone — and every new generator we add would have to remember.
+   *
+   * Fails CLOSED on a DB error: if we cannot confirm consent, we do not send.
+   * A missed check-in is recoverable; messaging someone who opted out is not.
+   */
+  async hasOptedOut(to: string): Promise<boolean> {
+    try {
+      const found = await this.userRepo.findOne({
+        where: { phone_number: normalizePhoneNumber(to), opted_out_at: Not(IsNull()) },
+        select: { id: true },
+      });
+      return found !== null;
+    } catch (err) {
+      structuredLog(this.logger, 'error', {
+        service: 'messaging',
+        operation: 'opt_out_check_failed',
+        to,
+        error: (err as Error).message,
+      });
+      return true;
+    }
+  }
+
+  /**
+   * @param allowOptedOut only ever true for the opt-out/opt-in confirmation
+   * itself. Carrier rules permit exactly one final message acknowledging the
+   * opt-out, and the resume path has to be able to reply to START while the
+   * flag is still set.
+   */
+  async send(to: string, body: string, mediaUrl?: string, allowOptedOut = false): Promise<void> {
+    if (!allowOptedOut && (await this.hasOptedOut(to))) {
+      structuredLog(this.logger, 'warn', {
+        service: 'messaging',
+        operation: 'send_blocked_opted_out',
+        to,
+        bodyPreview: (body ?? '').slice(0, 60),
+      });
+      return;
+    }
+
     // SINGLE outbound chokepoint sanitization. The coaching path already cleans
     // via saveAndSend, but every DETERMINISTIC generator (check-in, night recap,
     // weekly review, ghost, surprise, milestone, dunning) calls send() directly
@@ -237,6 +285,9 @@ export class MessagingService implements OnModuleInit {
     if (!keyId || !secret) return { ok: false, error: 'SendBlue not configured' };
     if (!fromNumber) return { ok: false, error: 'SENDBLUE_FROM_NUMBER missing' };
     if (!messageHandle) return { ok: false, error: 'no message_handle to react to' };
+    // A tapback is still an outbound message to their phone. Someone who opted
+    // out should get nothing from us, including a thumbs-up.
+    if (await this.hasOptedOut(to)) return { ok: false, error: 'recipient opted out' };
 
     try {
       const response = await axios.post(

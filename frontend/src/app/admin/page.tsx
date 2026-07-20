@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, Fragment } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/v1';
 
-type Tab = 'dashboard' | 'users' | 'crisis' | 'corrections' | 'settings';
+type Tab = 'dashboard' | 'users' | 'crisis' | 'corrections' | 'referrals' | 'settings';
 type CorrectionStatus = 'pending' | 'accepted' | 'appended' | 'rejected';
 type UserStatus = 'trial' | 'active' | 'paused' | 'cancelled';
 type SubStatus = 'trialing' | 'active' | 'past_due' | 'cancelled';
@@ -18,6 +18,7 @@ interface DashStats { total_users: number; active_users: number; trial_users: nu
 interface CrisisAlert { id: string; user_id: string; user_name: string; user_phone: string; detection_method: string; confidence_score: number | null; coach_alerted: boolean; coach_alerted_at: string | null; coach_alert_channel: string | null; holding_message_sent: boolean; status: AlertStatus; resolved_by: string | null; resolved_at: string | null; created_at: string; }
 interface Correction { id: string; user_id: string; triggering_message_id: string | null; correction_text: string; ai_analysis: string | null; ai_validity_score: number | null; ai_suggested_knowledge: string | null; status: CorrectionStatus; knowledge_id: string | null; admin_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string; }
 interface Knowledge { id: string; title: string; content: string; source_correction_id: string | null; active: boolean; created_by: string; created_at: string; updated_at: string; }
+interface ReferralCode { id: string; code: string; owner: string; trial_days: number; max_redemptions: number | null; times_redeemed: number; active: boolean; created_at: string; signups: number; paid: number; }
 
 function timeAgo(iso: string | null) {
   if (!iso) return 'never';
@@ -37,6 +38,11 @@ function fmt(date: string | null) {
 
 function money(cents: number) {
   return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0 });
+}
+
+// Mirrors the backend canonicalization: uppercase, whitespace + dashes stripped.
+function canonCode(raw: string) {
+  return raw.replace(/[\s-]/g, '').toUpperCase();
 }
 
 function fmtMsgTime(iso: string) {
@@ -158,6 +164,12 @@ export default function AdminPage() {
   const [reviewerName, setReviewerName] = useState('');
   const [correctionDraft, setCorrectionDraft] = useState<Record<string, { title: string; content: string }>>({});
   const [correctingId, setCorrectingId] = useState<string | null>(null);
+  const [referralCodes, setReferralCodes] = useState<ReferralCode[]>([]);
+  const [referralsLoaded, setReferralsLoaded] = useState(false);
+  const [referralForm, setReferralForm] = useState({ code: '', owner: '', trial_days: '30', max_redemptions: '' });
+  const [referralError, setReferralError] = useState('');
+  const [referralCreating, setReferralCreating] = useState(false);
+  const [referralTogglingId, setReferralTogglingId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -264,6 +276,71 @@ export default function AdminPage() {
       setSettingsForm(data);
     }
     if (t === 'corrections' && !correctionsLoaded) await loadCorrections(showReviewedCorrections);
+    if (t === 'referrals' && !referralsLoaded) await loadReferralCodes();
+  }
+
+  async function loadReferralCodes() {
+    try {
+      const data = await apiFetch('/admin/referral-codes');
+      setReferralCodes(data);
+      setReferralsLoaded(true);
+    } catch (err) {
+      setReferralError(`Failed to load referral codes: ${err instanceof Error ? err.message : 'server error'}`);
+    }
+  }
+
+  async function createReferralCode(e: React.FormEvent) {
+    e.preventDefault();
+    setReferralError('');
+    const code = canonCode(referralForm.code);
+    const owner = referralForm.owner.trim();
+    const trialDays = Number(referralForm.trial_days);
+    const maxRaw = referralForm.max_redemptions.trim();
+    const maxRedemptions = maxRaw ? Number(maxRaw) : undefined;
+
+    if (code.length < 3 || code.length > 32) { setReferralError('Code must be 3-32 characters (after stripping spaces and dashes).'); return; }
+    if (owner.length < 1 || owner.length > 120) { setReferralError('Owner must be 1-120 characters.'); return; }
+    if (!Number.isInteger(trialDays) || trialDays < 1 || trialDays > 365) { setReferralError('Trial days must be a whole number between 1 and 365.'); return; }
+    if (maxRedemptions !== undefined && (!Number.isInteger(maxRedemptions) || maxRedemptions < 1 || maxRedemptions > 100000)) {
+      setReferralError('Max redemptions must be a whole number between 1 and 100000, or blank for unlimited.');
+      return;
+    }
+
+    setReferralCreating(true);
+    try {
+      const res = await apiFetch('/admin/referral-codes', {
+        method: 'POST',
+        body: JSON.stringify({ code, owner, trial_days: trialDays, ...(maxRedemptions !== undefined ? { max_redemptions: maxRedemptions } : {}) }),
+      });
+      if (!res.ok) {
+        setReferralError(res.error ?? 'Could not create code');
+      } else {
+        setReferralCodes(prev => [res.code as ReferralCode, ...prev]);
+        setReferralForm({ code: '', owner: '', trial_days: '30', max_redemptions: '' });
+      }
+    } catch (err) {
+      setReferralError(`Create failed: ${err instanceof Error ? err.message : 'server error'}`);
+    }
+    setReferralCreating(false);
+  }
+
+  async function toggleReferralActive(rc: ReferralCode) {
+    setReferralTogglingId(rc.id);
+    setReferralError('');
+    try {
+      const res = await apiFetch(`/admin/referral-codes/${rc.id}/active`, {
+        method: 'PATCH',
+        body: JSON.stringify({ active: !rc.active }),
+      });
+      if (!res.ok) {
+        setReferralError(res.error ?? 'Could not update code');
+      } else {
+        setReferralCodes(prev => prev.map(x => x.id === rc.id ? { ...x, active: !x.active } : x));
+      }
+    } catch (err) {
+      setReferralError(`Toggle failed: ${err instanceof Error ? err.message : 'server error'}`);
+    }
+    setReferralTogglingId(null);
   }
 
   async function loadCorrections(includeReviewed: boolean) {
@@ -404,7 +481,7 @@ export default function AdminPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', borderBottom: '1px solid #27272a', background: '#0c1829', height: 52, flexShrink: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 16 }}>KIBA <span style={{ color: '#38bdf8' }}>Admin</span></div>
         <div style={{ display: 'flex', gap: 4 }}>
-          {(['dashboard', 'users', 'crisis', 'corrections', 'settings'] as Tab[]).map(t => (
+          {(['dashboard', 'users', 'crisis', 'corrections', 'referrals', 'settings'] as Tab[]).map(t => (
             <button key={t} onClick={() => handleTabChange(t)}
               style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: tab === t ? 600 : 400, background: tab === t ? '#1a2d45' : 'transparent', color: tab === t ? '#fafafa' : '#71717a', position: 'relative' }}>
               {t === 'crisis' ? 'Crisis Alerts' : t === 'corrections' ? 'Corrections' : t.charAt(0).toUpperCase() + t.slice(1)}
@@ -921,6 +998,110 @@ export default function AdminPage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Referrals Tab */}
+      {tab === 'referrals' && (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>Referrals</div>
+            <div style={{ fontSize: 13, color: '#3a6080', marginTop: 2 }}>Affiliate codes — new signups who text a code get the trial length below</div>
+          </div>
+
+          {/* Create form */}
+          <form onSubmit={createReferralCode} style={{ background: '#0c1829', border: '1px solid #27272a', borderRadius: 12, padding: '18px 20px', marginBottom: 22 }}>
+            <div style={{ fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 14 }}>New Code</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 0.8fr 1fr auto', gap: 12, alignItems: 'end' }}>
+              <div>
+                <label style={{ fontSize: 11, color: '#3a6080', display: 'block', marginBottom: 6 }}>Code</label>
+                <input
+                  value={referralForm.code}
+                  onChange={e => setReferralForm(f => ({ ...f, code: e.target.value }))}
+                  placeholder="COACHJEN"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', fontSize: 13, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#3a6080', display: 'block', marginBottom: 6 }}>Owner</label>
+                <input
+                  value={referralForm.owner}
+                  onChange={e => setReferralForm(f => ({ ...f, owner: e.target.value }))}
+                  placeholder="Jen — IG @coachjen"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', fontSize: 13, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#3a6080', display: 'block', marginBottom: 6 }}>Trial days</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={referralForm.trial_days}
+                  onChange={e => setReferralForm(f => ({ ...f, trial_days: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', fontSize: 13, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#3a6080', display: 'block', marginBottom: 6 }}>Max redemptions</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100000}
+                  value={referralForm.max_redemptions}
+                  onChange={e => setReferralForm(f => ({ ...f, max_redemptions: e.target.value }))}
+                  placeholder="unlimited"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', fontSize: 13, boxSizing: 'border-box' }}
+                />
+              </div>
+              <button type="submit" disabled={referralCreating}
+                style={{ padding: '9px 20px', borderRadius: 8, background: 'linear-gradient(135deg,#0ea5e9,#10b981)', color: '#fff', fontWeight: 600, border: 'none', cursor: referralCreating ? 'default' : 'pointer', fontSize: 13, opacity: referralCreating ? 0.6 : 1 }}>
+                {referralCreating ? 'Creating...' : 'Create'}
+              </button>
+            </div>
+            {referralForm.code.trim() && canonCode(referralForm.code) !== referralForm.code && (
+              <div style={{ fontSize: 12, color: '#7eb4cc', marginTop: 10 }}>
+                Will be saved as <span style={{ color: '#f0f9ff', fontWeight: 600 }}>{canonCode(referralForm.code)}</span>
+              </div>
+            )}
+            {referralError && <div style={{ fontSize: 13, color: '#f87171', marginTop: 10 }}>{referralError}</div>}
+          </form>
+
+          {/* Code list */}
+          {referralCodes.length === 0 && <div style={{ color: '#3a6080', fontSize: 14 }}>No referral codes yet — create one above.</div>}
+
+          {referralCodes.length > 0 && (
+            <div style={{ background: '#0c1829', border: '1px solid #27272a', borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.6fr 0.7fr 0.9fr 0.6fr 0.6fr 0.9fr auto', gap: 12, padding: '10px 20px', fontSize: 11, color: '#3a6080', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600, borderBottom: '1px solid #1f1f23' }}>
+                <div>Code</div>
+                <div>Owner</div>
+                <div>Trial</div>
+                <div>Redeemed</div>
+                <div>Signups</div>
+                <div>Paid</div>
+                <div>Created</div>
+                <div style={{ width: 92 }} />
+              </div>
+              {referralCodes.map(rc => (
+                <div key={rc.id} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.6fr 0.7fr 0.9fr 0.6fr 0.6fr 0.9fr auto', gap: 12, padding: '12px 20px', alignItems: 'center', borderTop: '1px solid #1f1f23', fontSize: 13, opacity: rc.active ? 1 : 0.55 }}>
+                  <div style={{ fontWeight: 700, color: '#f0f9ff', letterSpacing: 0.5 }}>{rc.code}</div>
+                  <div style={{ color: '#7eb4cc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rc.owner}>{rc.owner}</div>
+                  <div style={{ color: '#7eb4cc' }}>{rc.trial_days}d</div>
+                  <div style={{ color: '#f0f9ff' }}>
+                    {rc.times_redeemed}{rc.max_redemptions != null ? <span style={{ color: '#3a6080' }}> / {rc.max_redemptions}</span> : ''}
+                  </div>
+                  <div style={{ color: '#f0f9ff' }}>{rc.signups}</div>
+                  <div style={{ color: rc.paid > 0 ? '#4ade80' : '#52525b', fontWeight: rc.paid > 0 ? 600 : 400 }}>{rc.paid}</div>
+                  <div style={{ color: '#3a6080', fontSize: 12 }}>{fmt(rc.created_at)}</div>
+                  <button onClick={() => toggleReferralActive(rc)} disabled={referralTogglingId === rc.id}
+                    style={{ width: 92, fontSize: 11, padding: '4px 10px', borderRadius: 5, border: 'none', cursor: 'pointer', fontWeight: 600,
+                      background: rc.active ? '#0a1a0e' : '#27272a', color: rc.active ? '#4ade80' : '#a1a1aa' }}>
+                    {referralTogglingId === rc.id ? '...' : rc.active ? 'Active' : 'Disabled'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
