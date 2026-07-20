@@ -58,6 +58,12 @@ import { referencesRecentPhoto, findRecentInboundImage } from './image-recall';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
 import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
+import {
+  detectKeyword,
+  OPT_OUT_CONFIRMATION,
+  OPT_IN_CONFIRMATION,
+  normalizeKeyword,
+} from './opt-out';
 import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone, resolveOffsetMinutes } from './world-time';
 import { isOffsetPlausibleForPhone } from './phone-timezone';
 import { detectQuestionLoop, detectRepeatedChoiceLoop, isLoopCallout } from './question-loop';
@@ -383,6 +389,13 @@ export class CoachingProcessor {
 
     // Update last active
     await this.userRepo.update(user.id, { last_active_at: new Date() });
+
+    // ── Compliance keywords (STOP / START) ───────────────────────────────────
+    // Runs before EVERYTHING: dedup, crisis detection, intake, coaching. Consent
+    // is not a conversation topic the model gets an opinion on — and the coaching
+    // prompt is explicitly built to talk people out of quitting, which is exactly
+    // the wrong instinct here.
+    if (await this.handleComplianceKeyword(user, body, from)) return;
 
     // Cross-channel dedup — catches same message arriving via both SMS and iMessage webhooks
     const cutoff = new Date(Date.now() - 30_000);
@@ -1584,6 +1597,102 @@ export class CoachingProcessor {
         utcOffsetMinutes: offsetMinutes,
         phone: phone ?? undefined,
         source,
+      });
+    }
+  }
+
+  /**
+   * Handle STOP / START. Returns true when the message was a compliance keyword
+   * and the turn is finished — no logging to the conversation, no AI call.
+   *
+   * Deliberate scope limits:
+   *
+   * - The keyword must be the WHOLE message (see opt-out.ts). "cancel my 8pm
+   *   reminder" is coaching, not consent.
+   * - A resume keyword only counts when the user is actually opted out. "yes" is
+   *   a carrier-standard opt-in word AND the single most common reply in normal
+   *   coaching — treating it as a resume would derail live conversations.
+   * - HELP is NOT intercepted for an active user. A lone "help" from someone
+   *   mid-conversation is far more likely distress than a request for terms, and
+   *   swallowing it would bypass crisis detection. It falls through to the normal
+   *   path instead.
+   */
+  private async handleComplianceKeyword(user: User, body: string, from: string): Promise<boolean> {
+    const intent = detectKeyword(body);
+    if (!intent) return false;
+    if (intent === 'help') return false;
+
+    const wasOptedOut = user.opted_out_at !== null && user.opted_out_at !== undefined;
+
+    if (intent === 'opt_in') {
+      if (!wasOptedOut) return false; // ordinary "yes"/"start" — let coaching handle it
+
+      await this.userRepo.update(user.id, { opted_out_at: null, opt_out_keyword: null });
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'opt_in',
+        userId: user.id,
+        keyword: normalizeKeyword(body),
+      });
+      // allowOptedOut: the flag is only cleared above moments earlier and the
+      // outbound gate reads the DB — belt and braces so the confirmation can
+      // never be eaten by its own guard.
+      await this.messagingService.send(from, OPT_IN_CONFIRMATION, undefined, true);
+      return true;
+    }
+
+    // opt_out
+    if (wasOptedOut) {
+      // Already unsubscribed. Silence is correct — re-confirming would mean
+      // sending another message to someone who has asked twice to be left alone.
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'opt_out_repeat_ignored',
+        userId: user.id,
+      });
+      return true;
+    }
+
+    await this.userRepo.update(user.id, {
+      opted_out_at: new Date(),
+      opt_out_keyword: normalizeKeyword(body).slice(0, 20),
+    });
+
+    // Stopping new sends is not enough — check-ins, reminders, ghost chains and
+    // recaps are already sitting in Redis with a delay on them. Without this
+    // drain the user keeps hearing from KIBA for days after unsubscribing, which
+    // is the exact failure the opt-out is meant to prevent.
+    await this.drainScheduledJobs(user.id);
+
+    structuredLog(this.logger, 'log', {
+      service: 'messaging',
+      operation: 'opt_out',
+      userId: user.id,
+      keyword: normalizeKeyword(body),
+    });
+
+    await this.messagingService.send(from, OPT_OUT_CONFIRMATION, undefined, true);
+    return true;
+  }
+
+  /**
+   * Remove a user's not-yet-run accountability jobs. Mirrors the drain in
+   * DataRightsService (user deletion) — same reason, different trigger. Fails
+   * soft: the opted_out_at flag is the real guarantee, since the outbound gate
+   * blocks any job that does fire, so a Redis blip must not fail the opt-out.
+   */
+  private async drainScheduledJobs(userId: string): Promise<void> {
+    try {
+      const jobs = await this.accountabilityQueue.getJobs(['delayed', 'waiting', 'paused']);
+      for (const job of jobs) {
+        if (job?.data?.userId === userId) await job.remove().catch(() => undefined);
+      }
+    } catch (err) {
+      structuredLog(this.logger, 'error', {
+        service: 'messaging',
+        operation: 'opt_out_drain_failed',
+        userId,
+        error: (err as Error).message,
       });
     }
   }
