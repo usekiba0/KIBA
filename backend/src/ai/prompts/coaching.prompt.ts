@@ -173,6 +173,15 @@ export interface PatternSignals {
    * (Karibi 2026-07-09: "the link went through yesterday" to a user who'd just paid).
    */
   activatedDayLabel?: string | null;
+  /**
+   * The user's CURRENT local day of week (Sun=0..Sat=6), or null when their
+   * offset is unknown. Computed in code because the model cannot be trusted to
+   * work out whether today is the weakest day — handed the old "if today is the
+   * night before that day" conditional it guessed wrong and told a Monday user
+   * "today's thursday equivalent" (Bianca 2026-07-20). Now WE decide which
+   * framing it gets and it never does weekday arithmetic.
+   */
+  todayDow?: number | null;
 }
 
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -190,9 +199,38 @@ function formatPatternSignals(p: PatternSignals): string {
 
   const lines: string[] = [];
   if (p.weakestDow !== null && p.weakestDowMisses >= 2) {
-    lines.push(
-      `- Weakest day: ${DOW_NAMES[p.weakestDow]} (${p.weakestDowMisses} misses tracked). If today is the night before that day, OR today IS that day and they haven't committed yet, naturally call it out: "tomorrow's ${DOW_NAMES[p.weakestDow]}, historically your weakest day — not this time."`,
-    );
+    const day = DOW_NAMES[p.weakestDow];
+    const lower = day.toLowerCase();
+    const n = p.weakestDowMisses;
+    // The count is an ALL-TIME running total (User.miss_counts_by_dow is never
+    // reset or windowed). The model attached "5 misses in the last week" to it
+    // and then refused to say what those misses were — an unfalsifiable
+    // accusation is the worst thing an accountability coach can make
+    // (Bianca 2026-07-20). Spell out both the no-window and the answerability rule.
+    const base =
+      `- Weakest day: ${day} — ${n} missed ${day}s ALL-TIME (a running total across the whole relationship, NOT a recent window). ` +
+      'NEVER attach a timeframe to this number — do not say "this week", "in the last week", "recently" or "lately". ' +
+      'If they ask what exactly they missed, answer honestly and plainly: you track a running count per weekday, not a list of specific days. ' +
+      'NEVER dodge that question, never tell them it\'s the wrong question to ask, and never invent specific missed days to justify the number.';
+    // WE compute today-vs-weakest-day and hand over exactly one framing.
+    const rel =
+      p.todayDow == null ? 'unknown'
+      : p.todayDow === p.weakestDow ? 'today'
+      : (p.todayDow + 1) % 7 === p.weakestDow ? 'tomorrow'
+      : 'other';
+    if (rel === 'today') {
+      lines.push(
+        `${base} TODAY IS ${day.toUpperCase()} — their weakest day. If they haven't committed to a plan yet, call it out: "it's ${lower}, historically your weakest day — not this time."`,
+      );
+    } else if (rel === 'tomorrow') {
+      lines.push(
+        `${base} TOMORROW IS ${day.toUpperCase()}. Tonight is the moment to name it: "tomorrow's ${lower}, historically your weakest day — not this time."`,
+      );
+    } else {
+      lines.push(
+        `${base} TODAY IS NOT ${day.toUpperCase()}, and neither is tomorrow. Do NOT say or imply that today or tomorrow is ${lower}, and do not raise this pattern at all right now unless the user brings it up first.`,
+      );
+    }
   }
   if (p.recurringExcuse && p.recurringExcuseCount >= 2) {
     const escaped = p.recurringExcuse.replace(/"/g, '\\"');

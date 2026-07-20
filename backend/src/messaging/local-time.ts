@@ -57,6 +57,11 @@ export function formatDateWithYear(nowUtc: Date, offsetMinutes: number | null): 
   return `${DAYS[local.getUTCDay()]}, ${MONTHS_FULL[local.getUTCMonth()]} ${local.getUTCDate()}, ${local.getUTCFullYear()}`;
 }
 
+/** The user's local day of week, Sun=0..Sat=6. */
+export function localDayOfWeek(nowUtc: Date, offsetMinutes: number): number {
+  return toLocal(nowUtc, offsetMinutes).getUTCDay();
+}
+
 /**
  * Deterministic time-of-day label from the user's local clock. The model
  * otherwise infers day/night from the CONVERSATION (an older late-night

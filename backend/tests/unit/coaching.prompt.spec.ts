@@ -367,6 +367,75 @@ describe('buildSystemPrompt', () => {
     });
   });
 
+  describe('weakest-day framing (Bianca 2026-07-20 fake Thursday)', () => {
+    const basePatterns = {
+      weakestDow: 4, // Thursday
+      weakestDowMisses: 5,
+      recurringExcuse: null,
+      recurringExcuseCount: 0,
+      lastMilestoneHit: 0,
+      loopingOnQuestion: false,
+    };
+    const onDow = (todayDow: number | null) =>
+      buildSystemPrompt(
+        mockUser as any, mockProfile as any, 72, 0,
+        undefined, undefined, undefined, undefined,
+        { ...basePatterns, todayDow } as any,
+      );
+
+    it('never hands the model the today/tomorrow conditional it used to get wrong', () => {
+      // The old line said "If today is the night before that day, OR today IS
+      // that day" — the model had to do the weekday math and blew it.
+      expect(onDow(1)).not.toMatch(/if today is the night before/i);
+    });
+
+    it('on a NON-weakest day, forbids implying today or tomorrow is that day', () => {
+      const prompt = onDow(1); // Monday — the day Bianca was told it was Thursday
+      expect(prompt).toContain('TODAY IS NOT THURSDAY');
+      expect(prompt.toLowerCase()).toMatch(/do not say or imply that today or tomorrow is thursday/);
+      expect(prompt).not.toContain("tomorrow's thursday, historically");
+    });
+
+    it('on the weakest day itself, gives the today framing', () => {
+      const prompt = onDow(4);
+      expect(prompt).toContain('TODAY IS THURSDAY');
+      expect(prompt).toContain("it's thursday, historically your weakest day");
+    });
+
+    it('on the night before, gives the tomorrow framing', () => {
+      const prompt = onDow(3);
+      expect(prompt).toContain('TOMORROW IS THURSDAY');
+      expect(prompt).toContain("tomorrow's thursday, historically your weakest day");
+    });
+
+    it('falls back to the do-not-raise framing when the local day is unknown', () => {
+      expect(onDow(null)).toContain('TODAY IS NOT THURSDAY');
+    });
+
+    it('labels the count as all-time and bans any timeframe on it', () => {
+      const prompt = onDow(4);
+      expect(prompt).toContain('5 missed Thursdays ALL-TIME');
+      expect(prompt.toLowerCase()).toMatch(/never attach a timeframe/);
+      expect(prompt.toLowerCase()).toMatch(/"in the last week"/);
+    });
+
+    it('requires an honest answer when the user asks what they missed', () => {
+      const prompt = onDow(4).toLowerCase();
+      expect(prompt).toMatch(/running count per weekday, not a list/);
+      expect(prompt).toMatch(/never dodge that question/);
+      expect(prompt).toMatch(/never invent specific missed days/);
+    });
+
+    it('stays silent entirely below the 2-miss threshold', () => {
+      const prompt = buildSystemPrompt(
+        mockUser as any, mockProfile as any, 72, 0,
+        undefined, undefined, undefined, undefined,
+        { ...basePatterns, weakestDow: null, weakestDowMisses: 1, todayDow: 4 } as any,
+      );
+      expect(prompt).not.toMatch(/Weakest day:/);
+    });
+  });
+
   describe('streak ground-truth guardrail (Karibi 2026-07-07 false-praise)', () => {
     const basePatterns = {
       weakestDow: null,

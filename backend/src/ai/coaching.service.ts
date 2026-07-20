@@ -21,9 +21,9 @@ import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt'
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
 import { CorrectionService } from '../data/correction.service';
-import { formatHistoryStamp } from '../messaging/local-time';
+import { formatHistoryStamp, localDayOfWeek } from '../messaging/local-time';
 import { resolveOffsetMinutes } from '../messaging/world-time';
-import { buildDateFactsBlock, correctTimeClaims, correctEventTimingClaims, describeActivationDay } from './time-claim-guard';
+import { buildDateFactsBlock, correctTimeClaims, correctEventTimingClaims, correctWeekdayClaims, describeActivationDay } from './time-claim-guard';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
 /** Coaching-mode tools (post-payment). */
@@ -622,6 +622,11 @@ export class CoachingService {
       loopingOnQuestion: patterns?.loopingOnQuestion,
       currentStreak,
       activatedDayLabel,
+      // Decide today-vs-weakest-day HERE, in code. The prompt used to make the
+      // model figure it out and it told a Monday user "today's thursday
+      // equivalent" (Bianca 2026-07-20). null offset = we genuinely don't know
+      // their local day, and the prompt falls back to "don't raise it".
+      todayDow: liveOffset === null ? null : localDayOfWeek(nowUtc, liveOffset),
     };
     const systemPrompt = buildSystemPrompt(
       { id: user.id, name: userName, phone_number: user.phone_number },
@@ -1041,6 +1046,25 @@ export class CoachingService {
         operation: 'event_timing_corrected',
         userId: args.userId,
         corrections: eventGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on weekday claims. The model asserted "today's thursday
+    // equivalent" to a user on Monday and built a whole accusatory turn on top
+    // of it (Bianca 2026-07-20). If the reply names a weekday for today or
+    // tomorrow and it's provably wrong, swap the word before it ships.
+    const dowGuard = correctWeekdayClaims(
+      finalReply,
+      new Date(),
+      args.userOffsetMinutes ?? null,
+    );
+    if (dowGuard.corrections.length > 0) {
+      finalReply = dowGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'weekday_claim_corrected',
+        userId: args.userId,
+        corrections: dowGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
       });
     }
 
