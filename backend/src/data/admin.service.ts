@@ -12,6 +12,7 @@ import { Subscription } from './entities/subscription.entity';
 import { CrisisAlert, AlertStatus } from './entities/crisis-alert.entity';
 import { ConversationSession } from './entities/conversation-session.entity';
 import { DataRightsService } from './data-rights.service';
+import { DEFAULT_LEGAL, LegalSlug } from './legal-content';
 
 const PLAN_PRICE_CENTS: Record<string, number> = {
   individual: 2000,
@@ -245,6 +246,69 @@ export class AdminService {
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )
     `);
+  }
+
+  /**
+   * Public legal documents, editable from the admin panel.
+   *
+   * Reuses the existing `app_settings` key/value table rather than adding an
+   * entity + migration for two rows of prose. Keyed `legal:<slug>`.
+   *
+   * ALWAYS returns a document: an unedited slug falls back to the compiled-in
+   * default in legal-content.ts. These pages are read by carrier reviewers
+   * during A2P registration, so "blank because nobody saved it yet" is a
+   * failure mode worth designing out entirely.
+   */
+  async getLegalDoc(slug: LegalSlug): Promise<{ slug: LegalSlug; title: string; body: string; updated_at: string | null; customised: boolean }> {
+    await this.ensureSettingsTable();
+    const rows: { value: string; updated_at: string }[] = await this.dataSource.query(
+      `SELECT value, updated_at FROM app_settings WHERE key = $1`,
+      [`legal:${slug}`],
+    );
+    const fallback = DEFAULT_LEGAL[slug];
+    if (!rows.length) {
+      return { slug, title: fallback.title, body: fallback.body, updated_at: null, customised: false };
+    }
+    try {
+      const parsed = JSON.parse(rows[0].value) as { title?: string; body?: string };
+      return {
+        slug,
+        title: parsed.title?.trim() || fallback.title,
+        body: parsed.body?.trim() || fallback.body,
+        updated_at: rows[0].updated_at,
+        customised: true,
+      };
+    } catch {
+      // A corrupted row must not take the page down — serve the default and
+      // log, rather than throwing on a public, unauthenticated endpoint.
+      this.logger.error(`[Legal] Malformed stored document for ${slug}; serving default`);
+      return { slug, title: fallback.title, body: fallback.body, updated_at: null, customised: false };
+    }
+  }
+
+  async updateLegalDoc(slug: LegalSlug, input: { title?: string; body?: string }) {
+    const body = input.body?.trim();
+    if (!body) throw new BadRequestException('body is required');
+    // Guard against an accidental wipe: these are public legal pages, and an
+    // empty or near-empty save would silently gut the page rather than error.
+    if (body.length < 200) {
+      throw new BadRequestException('body looks too short for a legal document — refusing to publish (minimum 200 characters)');
+    }
+    await this.ensureSettingsTable();
+    const title = input.title?.trim() || DEFAULT_LEGAL[slug].title;
+    await this.dataSource.query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+      [`legal:${slug}`, JSON.stringify({ title, body })],
+    );
+    return this.getLegalDoc(slug);
+  }
+
+  /** Drop the override so the page reverts to the compiled-in default. */
+  async resetLegalDoc(slug: LegalSlug) {
+    await this.ensureSettingsTable();
+    await this.dataSource.query(`DELETE FROM app_settings WHERE key = $1`, [`legal:${slug}`]);
+    return this.getLegalDoc(slug);
   }
 
   async getSettings() {
