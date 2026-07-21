@@ -55,9 +55,10 @@ a condition of purchase, and STOP/HELP — with both legal links.
 Contact step), so it only appears after the goal and psychology steps — reach it at
 `<SIGNUP URL>/onboarding`, not on the marketing site.
 
-### 4. The signup lives on a vercel.app host (blocks nothing, but weakens the Campaign)
-See the warning under the opt-in flow above. A CNAME on Karibi's side plus a `FRONTEND_URL`
-change on ours. Worth doing before submitting rather than after.
+### 4. FRONTEND_URL still points at the raw vercel.app host
+The branded domain exists, but `FRONTEND_URL` on Render is still
+`https://kiba-blond.vercel.app` — so that is the link every lead taps in their first text.
+Change it to `https://onboarding.usekiba.ai`. One env field, no code change, no deploy.
 
 ---
 
@@ -107,16 +108,19 @@ scheduled coaching check-ins, and two-way conversational replies, which spans ca
 > they can text STOP to cancel or HELP for help, with links to the SMS Terms and Privacy
 > Policy. No messages are sent to a number that has not been submitted through this form.
 
-> ⚠️ **`<SIGNUP URL>` is NOT `usekiba.ai`.** Verified 2026-07-21: `usekiba.ai` serves
-> Karibi's Base44 marketing site (Base44 favicon, uvicorn origin) — it does not host our
-> signup form and a reviewer following it would never see the consent disclosure, which is
-> an automatic rejection.
+> ✅ **RESOLVED 2026-07-22 — `<SIGNUP URL>` = `https://onboarding.usekiba.ai`.**
 >
-> The signup form is the Next.js app at the value of `FRONTEND_URL`, currently
-> `https://kiba-blond.vercel.app`. **Before submitting**, point a real subdomain
-> (`app.usekiba.ai` / `join.usekiba.ai`) at that app, update `FRONTEND_URL`, and use the
-> subdomain here. A raw `vercel.app` host reads as temporary on an application about trust —
-> and it's also the link every lead taps in their first text.
+> `usekiba.ai` itself serves Karibi's Base44 marketing site (apex A → Render,
+> `www` → `base44.onrender.com`), so it must NOT be used as the opt-in URL — a
+> reviewer following it never reaches the consent disclosure, which is an
+> automatic rejection.
+>
+> But the GoDaddy zone already carried `onboarding` → `…vercel-dns-017.com`,
+> pointing at our Next.js app. Verified live and serving both `/onboarding` and
+> `/sms-terms`. The branded host existed all along; no DNS change was needed.
+>
+> Optional polish: `join.usekiba.ai` reads better than `onboarding.` in the text
+> a lead receives. One CNAME plus a Vercel domain add — nice to have, not a blocker.
 
 **Opt-out / HELP handling:**
 
@@ -162,11 +166,11 @@ confirming in the Render dashboard** — it's silent when wrong.
 [ ] Legal name confirmed character-for-character against the certificate
 [ ] Primary Customer Profile created (not the default starter profile)
 [ ] Brand submitted → status Approved (not Failed / not silently low-trust)
-[ ] Privacy Policy live at a public URL          ← Karibi
-[ ] SMS Terms live at a public URL               ← Karibi
+[ ] Privacy Policy — needs the client's draft, then goes live at /privacy
+[x] SMS Terms live — https://onboarding.usekiba.ai/sms-terms
 [ ] support@usekiba.ai mailbox exists + monitored (it's in the HELP reply)
-[ ] Subdomain (app./join.usekiba.ai) CNAME'd to the Vercel app   ← Karibi
-[ ] FRONTEND_URL updated to the subdomain, links in texts re-checked
+[x] Branded subdomain live — onboarding.usekiba.ai (already existed in the zone)
+[ ] FRONTEND_URL on Render -> https://onboarding.usekiba.ai
 [ ] NEXT_PUBLIC_SMS_TERMS_URL / NEXT_PUBLIC_PRIVACY_URL set to the real paths
 [ ] Opt-in URL in the campaign = the SIGNUP host, NOT usekiba.ai
 [x] Consent language on the signup form
