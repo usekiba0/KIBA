@@ -1,7 +1,8 @@
 import { MessageDebouncerService, DebouncedMessage, debounceDelayFor } from '../../src/messaging/message-debouncer.service';
 
-// Text bursts flush at 1500ms (trimmed from 2000ms 2026-06-29 for latency),
-// image bursts at 3000ms. Use fake timers so tests are deterministic and fast.
+// Text bursts flush immediately (window turned off 2026-07-21 — it never merged
+// real bubbles and was pure latency); image bursts still batch at 3000ms.
+// Use fake timers so tests are deterministic and fast.
 describe('MessageDebouncerService', () => {
   let processCalls: Array<unknown>;
   let service: MessageDebouncerService;
@@ -37,30 +38,39 @@ describe('MessageDebouncerService', () => {
     };
   }
 
-  it('flushes a single text message after the 1.5s text window', async () => {
+  it('flushes a text message with no added delay', async () => {
     service.push(msg());
-    // Still buffered just before the window.
-    jest.advanceTimersByTime(1400);
-    await Promise.resolve();
-    expect(mockProcessor.process).not.toHaveBeenCalled();
 
-    jest.advanceTimersByTime(100);
+    jest.advanceTimersByTime(0);
     await Promise.resolve();
     expect(mockProcessor.process).toHaveBeenCalledTimes(1);
     expect((processCalls[0] as { body: string }).body).toBe('hello');
   });
 
-  it('merges multiple texts that arrive within the window into one process call (V4 Rule 2)', async () => {
-    // The "Bett / Karibi" case — name then correction across two bubbles.
+  it('still merges texts that land in the SAME tick, before the flush runs', async () => {
+    // With the window off this is the only text case that still batches: two
+    // webhooks handled before the event loop reaches the timer phase. Kept so
+    // the merge path itself stays covered.
     service.push(msg({ text: 'Bett', uniqueId: 'h1', dateSent: 1_000_000 }));
-    jest.advanceTimersByTime(800);
     service.push(msg({ text: 'Karibi', uniqueId: 'h2', dateSent: 1_000_001 }));
 
-    jest.advanceTimersByTime(2000);
+    jest.advanceTimersByTime(0);
     await Promise.resolve();
 
     expect(mockProcessor.process).toHaveBeenCalledTimes(1);
     expect((processCalls[0] as { body: string }).body).toBe('Bett Karibi');
+  });
+
+  it('does NOT hold a second text back waiting for a burst — each is its own turn', async () => {
+    service.push(msg({ text: 'Bett', uniqueId: 'h1', dateSent: 1_000_000 }));
+    jest.advanceTimersByTime(0);
+    await Promise.resolve();
+
+    service.push(msg({ text: 'Karibi', uniqueId: 'h2', dateSent: 1_000_001 }));
+    jest.advanceTimersByTime(0);
+    await Promise.resolve();
+
+    expect(mockProcessor.process).toHaveBeenCalledTimes(2);
   });
 
   it('flushes an image burst at the 3s image window', async () => {
@@ -135,8 +145,8 @@ describe('MessageDebouncerService', () => {
 });
 
 describe('debounceDelayFor', () => {
-  it('uses the 1.5s text window for a text-only burst', () => {
-    expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: [] }])).toBe(1500);
+  it('adds no delay for a text-only burst', () => {
+    expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: [] }])).toBe(0);
   });
   it('uses the 3s image window when any message has media', () => {
     expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: ['x'] }])).toBe(3000);

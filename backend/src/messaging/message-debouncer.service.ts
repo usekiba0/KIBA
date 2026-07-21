@@ -29,14 +29,18 @@ interface BufferState {
 // every new image, so the batch always waits for the last one; a ~3s pause
 // before reacting to a photo reads like natural "looking at it" time.
 const IMAGE_DEBOUNCE_MS = 3000;
-// TEXT bursts: 1.5s. Long enough to read a name-then-correction or a 2-3 bubble
-// thought as one message (the "Bett" before "Karibi" case — rapid bubbles land
-// well under 1.5s apart), short enough that a lone message (the common case)
-// isn't sitting in dead air. Trimmed from 2s on 2026-06-29 to cut perceived
-// latency (Karibi's "nearly instant" ask); if real bubble gaps prove longer and
-// KIBA starts reacting to half a message, nudge this back toward 2s. IMAGE stays
-// at 3s (multi-image-spam guard — photos land 1-3s apart on mobile data).
-const TEXT_DEBOUNCE_MS = 1500;
+// TEXT bursts: OFF (Karibi 2026-07-21). Was 2s, then 1.5s. In real use it never
+// merged anything — people leave 3-8s between bubbles, so almost every message
+// flushed alone and the window was pure added latency on the common case (a
+// single message). Widening it far enough to actually catch a burst would have
+// cost every lone message that same delay, which is the worse trade on a product
+// judged on feeling "nearly instant".
+//
+// This does NOT make KIBA reply per-bubble — it already did. Genuinely reading a
+// burst as one turn needs per-user serialization (hold or supersede an in-flight
+// turn when a new inbound lands), not a longer timer. IMAGE stays at 3s: photo
+// webhooks really do land 1-3s apart, so that window merges and is worth its cost.
+const TEXT_DEBOUNCE_MS = 0;
 
 /** Delay before flushing a buffer: image bursts flush fast, text bursts wait a
  * touch longer so quick-succession bubbles are read as one message. */
