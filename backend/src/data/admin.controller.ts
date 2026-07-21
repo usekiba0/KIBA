@@ -1,8 +1,9 @@
-import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards, Res } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards, Res, BadRequestException } from '@nestjs/common';
 import { Response } from 'express';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, Max, MinLength } from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
+import { isLegalSlug } from './legal-content';
 import { CorrectionService } from './correction.service';
 import { ReferralService } from './referral.service';
 import { ScheduleService } from '../accountability/schedule.service';
@@ -123,6 +124,26 @@ export class AdminController {
   @Get('dashboard')
   getDashboard() {
     return this.adminService.getDashboardStats();
+  }
+
+  // Legal documents. Reads are also exposed PUBLICLY via LegalController — a
+  // carrier reviewer has no credentials — but edits stay behind the key.
+  @Get('legal/:slug')
+  getLegalDoc(@Param('slug') slug: string) {
+    if (!isLegalSlug(slug)) throw new BadRequestException('unknown document');
+    return this.adminService.getLegalDoc(slug);
+  }
+
+  @Patch('legal/:slug')
+  updateLegalDoc(@Param('slug') slug: string, @Body() body: { title?: string; body?: string }) {
+    if (!isLegalSlug(slug)) throw new BadRequestException('unknown document');
+    return this.adminService.updateLegalDoc(slug, body);
+  }
+
+  @Delete('legal/:slug')
+  resetLegalDoc(@Param('slug') slug: string) {
+    if (!isLegalSlug(slug)) throw new BadRequestException('unknown document');
+    return this.adminService.resetLegalDoc(slug);
   }
 
   @Get('settings')

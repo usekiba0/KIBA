@@ -31,6 +31,7 @@ import { DataRightsService } from './data-rights.service';
 import { DataRightsController } from './data-rights.controller';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
+import { LegalController } from './legal.controller';
 import { CorrectionService } from './correction.service';
 import { StripeService } from '../onboarding/stripe.service';
 
@@ -77,7 +78,7 @@ const ENTITIES = [
     // AdminController needs ScheduleService for the new reminders endpoints.
     forwardRef(() => AccountabilityModule),
   ],
-  controllers: [DataRightsController, AdminController],
+  controllers: [DataRightsController, AdminController, LegalController],
   providers: [SessionCacheService, SessionBoundaryService, DataRightsService, AdminService, CorrectionService, StripeService, ReferralService],
   exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule, StripeService, CorrectionService, ReferralService],
 })

@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, Fragment } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/v1';
 
-type Tab = 'dashboard' | 'users' | 'crisis' | 'corrections' | 'referrals' | 'settings';
+type Tab = 'dashboard' | 'users' | 'crisis' | 'corrections' | 'referrals' | 'legal' | 'settings';
 type CorrectionStatus = 'pending' | 'accepted' | 'appended' | 'rejected';
 type UserStatus = 'trial' | 'active' | 'paused' | 'cancelled';
 type SubStatus = 'trialing' | 'active' | 'past_due' | 'cancelled';
@@ -155,6 +155,14 @@ export default function AdminPage() {
   const [coachSettings, setCoachSettings] = useState<CoachSettings | null>(null);
   const [settingsForm, setSettingsForm] = useState<CoachSettings>({ coach_alert_phone: '', coach_alert_email: '' });
   const [settingsSaving, setSettingsSaving] = useState(false);
+  // Public legal documents (privacy policy, SMS terms), editable here so the
+  // client can revise them without a developer or a deploy.
+  const [legalSlug, setLegalSlug] = useState<'privacy' | 'sms-terms'>('privacy');
+  const [legalDoc, setLegalDoc] = useState<{ title: string; body: string; updated_at: string | null; customised: boolean } | null>(null);
+  const [legalDraft, setLegalDraft] = useState({ title: '', body: '' });
+  const [legalSaving, setLegalSaving] = useState(false);
+  const [legalSaved, setLegalSaved] = useState(false);
+  const [legalError, setLegalError] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [corrections, setCorrections] = useState<Correction[]>([]);
@@ -277,6 +285,7 @@ export default function AdminPage() {
     }
     if (t === 'corrections' && !correctionsLoaded) await loadCorrections(showReviewedCorrections);
     if (t === 'referrals' && !referralsLoaded) await loadReferralCodes();
+    if (t === 'legal' && !legalDoc) await loadLegal('privacy');
   }
 
   async function loadReferralCodes() {
@@ -427,6 +436,39 @@ export default function AdminPage() {
     }
   }
 
+  async function loadLegal(slug: 'privacy' | 'sms-terms') {
+    setLegalSlug(slug);
+    setLegalError('');
+    const data = await apiFetch(`/admin/legal/${slug}`);
+    setLegalDoc(data);
+    setLegalDraft({ title: data.title, body: data.body });
+  }
+
+  async function saveLegal(e: React.FormEvent) {
+    e.preventDefault();
+    setLegalSaving(true);
+    setLegalError('');
+    try {
+      const data = await apiFetch(`/admin/legal/${legalSlug}`, { method: 'PATCH', body: JSON.stringify(legalDraft) });
+      setLegalDoc(data);
+      setLegalDraft({ title: data.title, body: data.body });
+      setLegalSaved(true);
+      setTimeout(() => setLegalSaved(false), 3000);
+    } catch (err) {
+      // Surface the server's reason — the backend refuses a suspiciously short
+      // body, and silently swallowing that would look like a successful save.
+      setLegalError(err instanceof Error ? err.message : 'save failed');
+    }
+    setLegalSaving(false);
+  }
+
+  async function resetLegal() {
+    if (!confirm('Revert this page to the built-in default text? Your edits will be lost.')) return;
+    const data = await apiFetch(`/admin/legal/${legalSlug}`, { method: 'DELETE' });
+    setLegalDoc(data);
+    setLegalDraft({ title: data.title, body: data.body });
+  }
+
   async function saveSettings(e: React.FormEvent) {
     e.preventDefault();
     setSettingsSaving(true);
@@ -481,7 +523,7 @@ export default function AdminPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', borderBottom: '1px solid #27272a', background: '#0c1829', height: 52, flexShrink: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 16 }}>KIBA <span style={{ color: '#38bdf8' }}>Admin</span></div>
         <div style={{ display: 'flex', gap: 4 }}>
-          {(['dashboard', 'users', 'crisis', 'corrections', 'referrals', 'settings'] as Tab[]).map(t => (
+          {(['dashboard', 'users', 'crisis', 'corrections', 'referrals', 'legal', 'settings'] as Tab[]).map(t => (
             <button key={t} onClick={() => handleTabChange(t)}
               style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: tab === t ? 600 : 400, background: tab === t ? '#1a2d45' : 'transparent', color: tab === t ? '#fafafa' : '#71717a', position: 'relative' }}>
               {t === 'crisis' ? 'Crisis Alerts' : t === 'corrections' ? 'Corrections' : t.charAt(0).toUpperCase() + t.slice(1)}
@@ -1106,6 +1148,75 @@ export default function AdminPage() {
       )}
 
       {/* Settings Tab */}
+      {tab === 'legal' && (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Legal Pages</div>
+          <div style={{ fontSize: 13, color: '#3a6080', marginBottom: 20 }}>
+            These are public pages. Carriers read them during SMS registration, so keep them accurate.
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            {([['privacy', 'Privacy Policy'], ['sms-terms', 'SMS Terms']] as const).map(([slug, label]) => (
+              <button key={slug} type="button" onClick={() => loadLegal(slug)}
+                style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
+                  border: `1px solid ${legalSlug === slug ? '#0ea5e9' : '#1a2d45'}`,
+                  background: legalSlug === slug ? 'rgba(14,165,233,0.12)' : '#0c1829',
+                  color: legalSlug === slug ? '#38bdf8' : '#7f9bb3' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {!legalDoc ? <div style={{ color: '#3a6080', fontSize: 13 }}>Loading…</div> : (
+            <form onSubmit={saveLegal} style={{ maxWidth: 820, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: '#3a6080' }}>
+                <span>{legalDoc.customised ? `Edited${legalDoc.updated_at ? ' ' + new Date(legalDoc.updated_at).toLocaleString() : ''}` : 'Showing the built-in default (never edited)'}</span>
+                <a href={`/${legalSlug}`} target="_blank" rel="noopener noreferrer" style={{ color: '#38bdf8' }}>View live page ↗</a>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, color: '#3a6080', display: 'block', marginBottom: 6 }}>Page title</label>
+                <input value={legalDraft.title}
+                  onChange={e => setLegalDraft(d => ({ ...d, title: e.target.value }))}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', fontSize: 14, boxSizing: 'border-box' }} />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, color: '#3a6080', display: 'block', marginBottom: 6 }}>
+                  Body — start a line with <code style={{ color: '#7dd3fc' }}>## </code> for a heading, <code style={{ color: '#7dd3fc' }}>- </code> for a bullet, and wrap text in <code style={{ color: '#7dd3fc' }}>**stars**</code> for bold. Leave a blank line between paragraphs.
+                </label>
+                <textarea value={legalDraft.body}
+                  onChange={e => setLegalDraft(d => ({ ...d, body: e.target.value }))}
+                  rows={26} spellCheck
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 8, border: '1px solid #1a2d45', background: '#18181b', color: '#f0f9ff', fontSize: 13, lineHeight: 1.6, fontFamily: 'ui-monospace, Menlo, monospace', boxSizing: 'border-box', resize: 'vertical' }} />
+                <div style={{ fontSize: 11, color: '#3a6080', marginTop: 6 }}>{legalDraft.body.length} characters</div>
+              </div>
+
+              {legalError && <div style={{ fontSize: 13, color: '#f87171' }}>{legalError}</div>}
+
+              <div style={{ background: '#0a1628', border: '1px solid #1e3a5f', borderRadius: 12, padding: '14px 18px', fontSize: 12.5, color: '#93c5fd', lineHeight: 1.6 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Before you change these</div>
+                Two lines are there for legal reasons and should not be removed: that numbers are never sold or shared for marketing, and how to stop messages (reply STOP). Removing either can get SMS registration rejected.
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <button type="submit" disabled={legalSaving}
+                  style={{ padding: '10px 24px', borderRadius: 8, background: 'linear-gradient(135deg,#0ea5e9,#10b981)', color: '#fff', fontWeight: 600, border: 'none', cursor: 'pointer', fontSize: 14 }}>
+                  {legalSaving ? 'Publishing…' : 'Publish'}
+                </button>
+                {legalSaved && <span style={{ fontSize: 13, color: '#4ade80' }}>✓ Published — live within 5 minutes</span>}
+                {legalDoc.customised && (
+                  <button type="button" onClick={resetLegal}
+                    style={{ padding: '10px 16px', borderRadius: 8, background: 'transparent', color: '#7f9bb3', border: '1px solid #1a2d45', cursor: 'pointer', fontSize: 13 }}>
+                    Revert to default
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
       {tab === 'settings' && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
           <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Settings</div>
