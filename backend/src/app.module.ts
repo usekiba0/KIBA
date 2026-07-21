@@ -58,7 +58,7 @@ import { HealthController, VersionController } from './common/health/health.cont
         // Human price label KIBA quotes to users. MUST match the real amount on
         // STRIPE_PRICE_ID_INDIVIDUAL or the bot promises one price and Stripe
         // charges another. Defaulted so it can't silently drift to a stale value.
-        STRIPE_PRICE_DISPLAY: Joi.string().default('$20/month'),
+        STRIPE_PRICE_DISPLAY: Joi.string().default('$9.99/month'),
 
         // Anthropic
         ANTHROPIC_API_KEY: Joi.string().required(),

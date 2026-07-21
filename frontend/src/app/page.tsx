@@ -418,7 +418,7 @@ export default function Home() {
       {/* FOOTER */}
       <footer className="footer-inner" style={{ borderTop: `1px solid ${GLOW(0.12)}`, padding: '40px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: TX }}>Kiba<span style={{ color: RL }}>.ai</span></div>
-        <div style={{ fontSize: 13, color: '#2a4a6b' }}>&#169; 2026 Kiba.ai. All rights reserved.</div>
+        <div style={{ fontSize: 13, color: '#2a4a6b' }}>&#169; 2026 KIBA. All rights reserved.</div>
         <div style={{ display: 'flex', gap: 24 }}>
           {['Privacy', 'Terms', 'Contact'].map(l => <a key={l} href="#" style={{ fontSize: 13, color: MT, textDecoration: 'none' }}>{l}</a>)}
         </div>

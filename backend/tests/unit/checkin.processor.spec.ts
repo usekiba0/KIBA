@@ -93,6 +93,7 @@ describe('CheckinProcessor', () => {
   let mockSurpriseService: any;
   let mockRecapService: any;
   let mockWeeklyReviewService: any;
+  let mockConfig: { get: jest.Mock; getOrThrow: jest.Mock };
   let mockScoreService: any;
   let mockQueue: any;
   let mockStripeService: any;
@@ -126,7 +127,7 @@ describe('CheckinProcessor', () => {
     mockScoreService = { countExecutionDays: jest.fn().mockResolvedValue(7) };
     mockQueue = { add: jest.fn().mockResolvedValue({ id: 'missed-job-1' }) };
     mockStripeService = { createCustomer: jest.fn(), createCheckoutSession: jest.fn() };
-    const mockConfig = { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') };
+    mockConfig = { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -321,7 +322,13 @@ describe('CheckinProcessor', () => {
       expect(mockMessagingService.send).toHaveBeenCalledTimes(1);
       const [phone, body] = mockMessagingService.send.mock.calls[0];
       expect(phone).toBe('+15551234567');
-      expect(body).toContain('$20/month');
+      // Assert it quotes the CONFIGURED price, not a literal. Pinning a number
+      // here meant every pricing change broke an unrelated test and taught
+      // whoever fixed it to just edit the number — which would hide the real
+      // regression, a message quoting a price Stripe no longer charges.
+      // ($20 -> $9.99 on 2026-07-21.)
+      const configuredPrice = mockConfig.get('STRIPE_PRICE_DISPLAY', '$9.99/month') as string;
+      expect(body).toContain(configuredPrice);
       expect(body).toContain('scale my clothing brand');
       expect(body).not.toMatch(/free trial/i); // never a SaaS framing
       expect(mockUserRepo.update).toHaveBeenCalledWith(

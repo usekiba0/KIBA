@@ -4,6 +4,12 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import { stripePromise } from '../../lib/stripe';
 import { createSetupIntent, submitOnboarding } from '../../lib/api';
 
+// The price shown on the trial summary. Was hardcoded "$20/mo", which silently
+// became a lie the moment the Stripe price changed — the page would promise $20
+// while the card got charged something else. Env-driven so it moves with the
+// backend's STRIPE_PRICE_DISPLAY instead of needing a code change and a deploy.
+const PRICE_DISPLAY = process.env.NEXT_PUBLIC_PRICE_DISPLAY ?? '$9.99/mo';
+
 interface PaymentFormProps {
   clientSecret: string;
   formData: Record<string, unknown>;
@@ -119,7 +125,7 @@ export default function Step5Payment({ formData, onSuccess, onBack }: Props) {
         <div>
           <div className="trial-summary">
             <div className="trial-row"><span>1-month free trial</span><span className="trial-free">FREE</span></div>
-            <div className="trial-row"><span>Then, Individual Plan</span><span>$20/mo</span></div>
+            <div className="trial-row"><span>Then, Individual Plan</span><span>{PRICE_DISPLAY}</span></div>
             <div className="trial-row"><span>Cancel anytime</span><span>✓</span></div>
           </div>
           {error && <p className="field-error">{error}</p>}
