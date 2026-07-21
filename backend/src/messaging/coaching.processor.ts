@@ -814,7 +814,7 @@ export class CoachingProcessor {
             goal: user.intake_data?.goal_description ?? null,
             cussingOk: user.intake_data?.cussing_ok ?? false,
             trialDays: this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
-            priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month'),
+            priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$9.99/month'),
           });
           await this.saveAndSend(
             user,
@@ -1279,9 +1279,9 @@ export class CoachingProcessor {
       sampleCoachingGiven: !!user.sample_coaching_given,
       variant: user.onboarding_variant ?? OnboardingVariant.STANDARD,
       // Quote trial length + price from config so the AI's copy can never drift
-      // from what Stripe actually bills. Defaults match the agreed offer (7d / $20).
+      // from what Stripe actually bills. Defaults match the agreed offer (7d / $9.99).
       trialDays: this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
-      priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month'),
+      priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$9.99/month'),
       // RC-4: the loop guard now runs for intake too (it was coaching-only). The
       // "today or tomorrow. pick one. ... today or tomorrow morning" circling
       // happened during the SMS build, so intake needs the same hard steer.

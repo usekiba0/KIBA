@@ -3,28 +3,28 @@ import { useState } from 'react';
 
 const FAQS = [
   {
-    q: 'Does Kiba work on Android?',
-    a: 'Yes — Kiba works on any phone that can send and receive SMS. Android users get standard SMS. iPhone users automatically receive iMessages (blue bubbles) via our SendBlue integration, so the experience is native on both platforms.',
+    q: 'Does KIBA work on Android?',
+    a: 'Yes — KIBA works on any phone that can send and receive SMS. Android users get standard SMS. iPhone users automatically receive iMessages (blue bubbles) via our SendBlue integration, so the experience is native on both platforms.',
   },
   {
     q: 'What happens when my free trial ends?',
-    a: "Nothing changes abruptly. Your trial lasts a full 30 days. The day before it ends, Kiba will text you a reminder. After that, your card is charged and accountability continues uninterrupted. You can cancel anytime — just text 'CANCEL' to Kiba.",
+    a: "Nothing changes abruptly. Your trial lasts a full 30 days. The day before it ends, KIBA will text you a reminder. After that, your card is charged and accountability continues uninterrupted. You can cancel anytime — just text 'CANCEL' to KIBA.",
   },
   {
     q: 'Is my conversation private?',
     a: 'Absolutely. Your messages are encrypted in transit and at rest. We never sell your data, share it with third parties, or use it to train AI models. You can request a full export or deletion of your data at any time.',
   },
   {
-    q: 'How is Kiba different from just setting a reminder?',
-    a: "Reminders are passive — you can ignore them. Kiba uses your own words against you. It knows what you said you wanted, what you said you were afraid of, and who you said you were falling behind. It demands proof, not promises.",
+    q: 'How is KIBA different from just setting a reminder?',
+    a: "Reminders are passive — you can ignore them. KIBA uses your own words against you. It knows what you said you wanted, what you said you were afraid of, and who you said you were falling behind. It demands proof, not promises.",
   },
   {
-    q: 'Can Kiba text me at 2am?',
-    a: "Yes — Kiba is available 24 hours a day, 7 days a week. If you committed to a task and haven't reported back, Kiba will follow up. There is no off-hours. There is no snooze.",
+    q: 'Can KIBA text me at 2am?',
+    a: "Yes — KIBA is available 24 hours a day, 7 days a week. If you committed to a task and haven't reported back, KIBA will follow up. There is no off-hours. There is no snooze.",
   },
   {
     q: 'What if I need a real human coach?',
-    a: "Kiba is not a replacement for human coaching — it is a layer of accountability that runs 24/7. For users who want escalation to a live coach, that option is available on Pro and Elite plans.",
+    a: "KIBA is not a replacement for human coaching — it is a layer of accountability that runs 24/7. For users who want escalation to a live coach, that option is available on Pro and Elite plans.",
   },
 ];
 

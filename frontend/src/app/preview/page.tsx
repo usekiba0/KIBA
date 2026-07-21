@@ -302,7 +302,7 @@ export default function Preview() {
               <div style={{ background: `linear-gradient(135deg,${GLOW(0.12)},${VGLOW(0.06)})`, border: `1px solid ${GLOW(0.35)}`, borderRadius: 20, padding: 40, position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, background: `radial-gradient(circle,${GLOW(0.2)},transparent 70%)`, pointerEvents: 'none' }} />
                 <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: RL, marginBottom: 28, fontWeight: 600 }}>The Ryke Way</div>
-                {['$20/month — 1/10th of a real coach, same personalisation', 'Just text — no apps, no logins, no learning curve ever', 'AI handles 24/7 client questions in the coach’s own voice', 'Daily check-ins, progress tracking, and accountability built in', 'Fitness + nutrition + mental wellness in one conversation'].map(s => (
+                {['$9.99/month — a fraction of a real coach, same personalisation', 'Just text — no apps, no logins, no learning curve ever', 'AI handles 24/7 client questions in the coach’s own voice', 'Daily check-ins, progress tracking, and accountability built in', 'Fitness + nutrition + mental wellness in one conversation'].map(s => (
                   <div key={s} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
                     <div style={{ width: 22, height: 22, borderRadius: '50%', background: GLOW(0.2), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: RL }}>&#10003;</div>
                     <p style={{ fontSize: 14, color: TX, lineHeight: 1.6 }}>{s}</p>
@@ -334,7 +334,7 @@ export default function Preview() {
               </div>
               {/* Rows */}
               {[
-                ['Monthly price', '$20', 'Free / $19.99', '$70', '$200–500'],
+                ['Monthly price', '$9.99', 'Free / $19.99', '$70', '$200–500'],
                 ['24/7 availability', '✦', '✦', '✕', '✕'],
                 ['AI-personalised', '✦', '✕', 'Partial', '✕'],
                 ['No app required', '✦', '✕', '✕', '✓'],

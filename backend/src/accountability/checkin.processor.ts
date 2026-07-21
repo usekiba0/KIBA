@@ -481,7 +481,7 @@ export class CheckinProcessor {
       whyItMatters: user.intake_data?.why_it_matters ?? null,
       nudgeIndex,
       trialDays,
-      priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month'),
+      priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$9.99/month'),
       cussingOk: user.intake_data?.cussing_ok === true,
     });
     const text = generated ?? buildDunningNudge(nudgeIndex, { name: user.name, goal, obstacle, trialDays });
@@ -521,7 +521,7 @@ export class CheckinProcessor {
     if (user.crisis_hold) return; // don't push price during a crisis hold
     if (user.trial_price_revealed_at) return; // already revealed (idempotent)
 
-    const priceDisplay = this.config.get<string>('STRIPE_PRICE_DISPLAY', '$20/month');
+    const priceDisplay = this.config.get<string>('STRIPE_PRICE_DISPLAY', '$9.99/month');
     // Gate the opener on real follow-through over the trial window so we never
     // fabricate a "7 days straight, you actually did it" for someone who ghosted
     // (Karibi 2026-07-07). Failure → 0 days → honest ghost copy, never praise.

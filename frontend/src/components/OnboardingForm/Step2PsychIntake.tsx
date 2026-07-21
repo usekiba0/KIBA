@@ -44,7 +44,7 @@ export default function Step2PsychIntake({ data, onChange, onNext, onBack }: Pro
     <div className="step">
       <h2>Let&apos;s get uncomfortable.</h2>
       <p className="step-desc">
-        Kiba uses your answers to apply targeted psychological pressure. The more honest you are, the more effective it gets.
+        KIBA uses your answers to apply targeted psychological pressure. The more honest you are, the more effective it gets.
       </p>
 
       <label className="field-label">
@@ -87,7 +87,7 @@ export default function Step2PsychIntake({ data, onChange, onNext, onBack }: Pro
         />
         {err(data.comparison_figure, 3) && <span className="field-error">{err(data.comparison_figure, 3)}</span>}
         {attempted && !data.comparison_figure.trim() && <span className="field-error">This field is required</span>}
-        {!err(data.comparison_figure, 3) && <span className="field-hint">Kiba will remind you of them. That&apos;s the point.</span>}
+        {!err(data.comparison_figure, 3) && <span className="field-hint">KIBA will remind you of them. That&apos;s the point.</span>}
       </label>
 
       <label className="field-label" style={{ marginTop: 20 }}>
@@ -119,7 +119,7 @@ export default function Step2PsychIntake({ data, onChange, onNext, onBack }: Pro
       </label>
 
       <div className="field-label" style={{ marginTop: 24 }}>
-        How do you want Kiba to talk to you?
+        How do you want KIBA to talk to you?
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10 }}>
           <button
             className={`focus-card ${data.pressure_preference === 'pressure' ? 'selected' : ''}`}
@@ -139,7 +139,7 @@ export default function Step2PsychIntake({ data, onChange, onNext, onBack }: Pro
           </button>
         </div>
         {attempted && !data.pressure_preference && (
-          <span className="field-error" style={{ marginTop: 8, display: 'block' }}>Choose how you want Kiba to communicate</span>
+          <span className="field-error" style={{ marginTop: 8, display: 'block' }}>Choose how you want KIBA to communicate</span>
         )}
       </div>
 

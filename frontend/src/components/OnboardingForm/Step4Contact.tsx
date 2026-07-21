@@ -7,8 +7,13 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/v1';
 // rather than hardcoded — the exact paths are the marketing site's to decide and
 // a carrier reviewer WILL follow both links. If either 404s at submission time
 // the campaign is rejected, so these must be confirmed live before submitting.
-const SMS_TERMS_URL = process.env.NEXT_PUBLIC_SMS_TERMS_URL ?? 'https://usekiba.ai/sms-terms';
-const PRIVACY_URL = process.env.NEXT_PUBLIC_PRIVACY_URL ?? 'https://usekiba.ai/privacy';
+// Relative by default so the links resolve on whatever host is serving the app
+// — the vercel.app URL today, join.usekiba.ai once the CNAME lands — without a
+// rebuild in between. A carrier reviewer follows both during A2P review, and a
+// 404 at that moment fails the campaign. Override with an absolute URL only if
+// these pages ever move to the marketing site.
+const SMS_TERMS_URL = process.env.NEXT_PUBLIC_SMS_TERMS_URL ?? '/sms-terms';
+const PRIVACY_URL = process.env.NEXT_PUBLIC_PRIVACY_URL ?? '/privacy';
 
 interface Props {
   data: { name: string; phone_number: string };
