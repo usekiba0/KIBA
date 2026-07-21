@@ -3,7 +3,7 @@ import { MigrationInterface } from 'typeorm';
 /**
  * NO-OP (neutralised 2026-06-20).
  *
- * This was the legacy RYKE-AI baseline — it created users / subscriptions /
+ * This was the legacy pre-KIBA baseline — it created users / subscriptions /
  * conversation_sessions / messages / nutritional_analyses / crisis_alerts /
  * session_summaries / processed_stripe_events. But the KIBA rebuild,
  * AddKibaAccountabilitySchema1778277013568, is a COMPLETE superset baseline that
