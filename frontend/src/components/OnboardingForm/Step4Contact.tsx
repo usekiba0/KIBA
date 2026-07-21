@@ -3,6 +3,13 @@ import { useState, useRef } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/v1';
 
+// The legal pages live on the marketing site, not this app, so they're env-set
+// rather than hardcoded — the exact paths are the marketing site's to decide and
+// a carrier reviewer WILL follow both links. If either 404s at submission time
+// the campaign is rejected, so these must be confirmed live before submitting.
+const SMS_TERMS_URL = process.env.NEXT_PUBLIC_SMS_TERMS_URL ?? 'https://usekiba.ai/sms-terms';
+const PRIVACY_URL = process.env.NEXT_PUBLIC_PRIVACY_URL ?? 'https://usekiba.ai/privacy';
+
 interface Props {
   data: { name: string; phone_number: string };
   onChange: (data: Partial<Props['data']>) => void;
@@ -106,6 +113,29 @@ export default function Step4Contact({ data, onChange, onNext, onBack }: Props) 
         {checking && <span className="field-hint">Checking availability...</span>}
         {!phoneError && !checking && <span className="field-hint">US numbers work with or without +1. iPhone users get iMessages (blue bubbles).</span>}
       </label>
+
+      {/*
+        A2P 10DLC consent disclosure. Carriers require the consent language to
+        sit on the screen where the number is submitted, and a campaign reviewer
+        asks for a screenshot of exactly this view — a missing or vague
+        disclosure is the most common cause of campaign rejection. It must state
+        who is messaging, that messages are recurring and automated, that
+        frequency varies, that rates may apply, and how to stop or get help.
+
+        Not a checkbox: the button below is the affirmative action, and the
+        disclosure sits directly above it so consent is unambiguous. A checkbox
+        would be equally valid — this is the lower-friction of the two accepted
+        patterns.
+      */}
+      <p className="consent-notice">
+        By tapping Continue you agree to receive recurring automated text messages from KIBA
+        at the number above, including daily check-ins and reminders. Message frequency varies.
+        Message &amp; data rates may apply. Consent is not a condition of purchase.
+        Reply STOP to cancel or HELP for help. See our{' '}
+        <a href={SMS_TERMS_URL} target="_blank" rel="noopener noreferrer">SMS Terms</a>{' '}
+        and{' '}
+        <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+      </p>
 
       <div className="btn-row">
         <button className="btn-secondary" onClick={onBack} type="button">← Back</button>

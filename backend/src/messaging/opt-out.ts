@@ -82,5 +82,9 @@ export const OPT_OUT_CONFIRMATION =
 export const OPT_IN_CONFIRMATION =
   "You're back in. KIBA will pick up where you left off. Text STOP any time to unsubscribe.";
 
+// Carrier HELP requirements: name the program, say rates may apply, give a
+// support contact, and say how to leave. "Msg&data" rather than the longer
+// wording so all four fit one 160-char segment — a compliance reply that splits
+// into two billed parts looks broken to the person reading it.
 export const HELP_REPLY =
-  'KIBA is an AI accountability coach. Message and data rates may apply. Text STOP to unsubscribe.';
+  'KIBA is an AI accountability coach. Msg&data rates may apply. Help: support@usekiba.ai. Text STOP to unsubscribe.';

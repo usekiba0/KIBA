@@ -214,6 +214,11 @@ export default function OnboardingPage() {
         .textarea { resize: vertical; font-family: inherit; line-height: 1.5; }
         .field-error { font-size: 12px; color: #7dd3fc; margin-top: 4px; }
         .field-hint { font-size: 12px; color: #3a6080; margin-top: 5px; line-height: 1.4; }
+        /* A2P consent disclosure. Deliberately legible rather than fine print —
+           a carrier reviewer screenshots this, and grey-on-grey microtext reads
+           as burying the disclosure. */
+        .consent-notice { font-size: 12px; color: #7f9bb3; line-height: 1.5; margin: 4px 0 18px; }
+        .consent-notice a { color: #38bdf8; text-decoration: underline; }
         .btn-primary {
           background: linear-gradient(135deg, #0ea5e9, #10b981); color: white;
           border: none; border-radius: 12px; padding: 13px 26px; font-size: 14px;

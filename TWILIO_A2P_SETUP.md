@@ -21,7 +21,12 @@ can even be created — so this is sequential, not parallel.
 
 ## Blockers, in the order they'll stop you
 
-### 1. EIN + legal business name (blocks the Brand)
+**Resolved 2026-07-21:** the EIN certificate is in hand, so Brand registration can start
+now. The consent language is built (`Step4Contact.tsx`) and the HELP reply carries a support
+contact. The remaining blocker is the two legal pages, which live on the marketing site —
+spec sent to Karibi in `feedback/2026-07-21-karibi-legal-pages-for-a2p.md`.
+
+### 1. EIN + legal business name (blocks the Brand) — ✅ have it
 Twilio verifies the Brand against IRS records. **A legal name that doesn't match the EIN
 character-for-character is the single most common rejection**, and a near-miss can silently
 downgrade you to low trust (worse throughput) rather than failing outright.
@@ -29,16 +34,24 @@ downgrade you to low trust (worse throughput) rather than failing outright.
 You need the EIN confirmation certificate — IRS CP 575, or a 147C if the original is gone.
 The same document covers Stripe activation.
 
-### 2. Reachable Privacy Policy + SMS Terms URLs (blocks the Campaign)
-Carriers check these. They must be live and public at submission time. **Neither exists
-today** — `frontend/src/app` has no `/privacy`, `/terms`, or `/sms-terms` route, and no
-legal pages were found anywhere in the repo.
+### 2. Reachable Privacy Policy + SMS Terms URLs (blocks the Campaign) — ⛔ OUTSTANDING
+Carriers check these and a reviewer follows both links. They must be live and public at
+submission time. Decision 2026-07-21: they live on the **marketing site**, not this app.
+Spec and required content sent to Karibi —
+`feedback/2026-07-21-karibi-legal-pages-for-a2p.md`.
 
-### 3. Opt-in consent language on the signup form (blocks the Campaign)
-This is the #1 campaign rejection reason and **it is currently missing**. Verified: no
-consent string anywhere in `frontend/src` — no "message and data rates", no "text STOP",
-no consent checkbox. The reviewer will ask for a screenshot of the exact screen where the
-user gives consent, and right now that screen doesn't say anything.
+The signup form links to `NEXT_PUBLIC_SMS_TERMS_URL` and `NEXT_PUBLIC_PRIVACY_URL`
+(`frontend/.env.example`), defaulting to `https://usekiba.ai/sms-terms` and
+`https://usekiba.ai/privacy`. **If the real paths differ, set the env vars before
+submitting** — a 404 on either link fails the campaign.
+
+### 3. Opt-in consent language on the signup form — ✅ done
+Added to `frontend/src/components/OnboardingForm/Step4Contact.tsx`, directly above the
+Continue button on the step where the number is entered. States the sender, that messages
+are recurring and automated, that frequency varies, that rates may apply, that consent isn't
+a condition of purchase, and STOP/HELP — with both legal links.
+
+**Screenshot this screen** for the campaign submission.
 
 ---
 
@@ -128,12 +141,16 @@ confirming in the Render dashboard** — it's silent when wrong.
 ## Checklist
 
 ```
-[ ] EIN certificate in hand, legal name confirmed character-for-character
+[x] EIN certificate in hand
+[ ] Legal name confirmed character-for-character against the certificate
 [ ] Primary Customer Profile created (not the default starter profile)
 [ ] Brand submitted → status Approved (not Failed / not silently low-trust)
-[ ] Privacy Policy live at a public URL
-[ ] SMS Terms live at a public URL
-[ ] Consent language added to the signup form + screenshot taken
+[ ] Privacy Policy live at a public URL          ← Karibi
+[ ] SMS Terms live at a public URL               ← Karibi
+[ ] support@usekiba.ai mailbox exists + monitored (it's in the HELP reply)
+[ ] NEXT_PUBLIC_SMS_TERMS_URL / NEXT_PUBLIC_PRIVACY_URL set to the real paths
+[x] Consent language on the signup form
+[ ] Screenshot of the consent screen taken for submission
 [ ] Campaign submitted with description, 4 samples, opt-in flow, STOP/HELP
 [ ] Campaign Approved
 [ ] Messaging Service created, campaign attached, +1 832 735 5182 added as sender

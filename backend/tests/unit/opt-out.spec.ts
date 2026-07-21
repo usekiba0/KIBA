@@ -95,6 +95,10 @@ describe('compliance keyword detection', () => {
       expect(HELP_REPLY).toMatch(/KIBA/);
       expect(HELP_REPLY).toMatch(/rates may apply/i);
       expect(HELP_REPLY).toMatch(/STOP/);
+      // Support contact — carriers generally expect one in the HELP response.
+      expect(HELP_REPLY).toMatch(/support@usekiba\.ai/);
+      // Must not use a domain we don't own.
+      expect(HELP_REPLY).not.toMatch(/\bkiba\.ai\b(?<!usekiba\.ai)/);
       expect(HELP_REPLY.length).toBeLessThanOrEqual(160);
     });
 
