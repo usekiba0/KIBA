@@ -60,7 +60,7 @@ const GLOW = (a: number) => `rgba(14,165,233,${a})`;
 const VGLOW = (a: number) => `rgba(16,185,129,${a})`;
 
 // SMS-first onboarding entry point. The number is shown literally on buttons
-// (clickable on mobile via the `sms:` URI scheme) and is the same number Kiba
+// (clickable on mobile via the `sms:` URI scheme) and is the same number KIBA
 // texts users from. Update both `KIBA_PHONE` and `KIBA_PHONE_DISPLAY` together.
 const KIBA_PHONE = '+14695634418';
 const KIBA_PHONE_DISPLAY = '+1 (469) 563-4418';
@@ -102,7 +102,7 @@ export default function Home() {
       {/* NAV */}
       <nav className="main-nav" style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 48px', background: `rgba(9,9,11,0.92)`, backdropFilter: 'blur(24px)', borderBottom: `1px solid ${GLOW(0.15)}` }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 700, color: TX, letterSpacing: '-0.5px' }}>
-          Kiba<span style={{ color: RL }}>.ai</span>
+          KIBA
         </div>
         <ul style={{ display: 'flex', alignItems: 'center', gap: 40, listStyle: 'none' }}>
           {[['#how', 'How it works'], ['#proof', 'The System'], ['#pricing', 'Pricing']].map(([h, l]) => (
@@ -130,10 +130,10 @@ export default function Home() {
               <strong style={{ fontWeight: 700 }}>doesn&apos;t.</strong>
             </h1>
             <p style={{ fontSize: 18, color: MT, maxWidth: 480, lineHeight: 1.75, marginBottom: 48, fontWeight: 300, animation: 'fadeUp 0.8s ease 0.2s both' }}>
-              Kiba is a psychological accountability system that texts you daily check-ins, demands proof of your work, and scores your execution. No sympathy. No excuses. Just results.
+              KIBA is a psychological accountability system that texts you daily check-ins, demands proof of your work, and scores your execution. No sympathy. No excuses. Just results.
             </p>
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' as const, marginBottom: 14, animation: 'fadeUp 0.8s ease 0.3s both' }}>
-              {/* SMS path — text Kiba directly. Primary on mobile (clickable sms: link). */}
+              {/* SMS path — text KIBA directly. Primary on mobile (clickable sms: link). */}
               <a href={SMS_HREF} style={{ background: `linear-gradient(135deg,${V},#34d399)`, color: 'white', padding: '17px 36px', borderRadius: 12, fontSize: 16, fontWeight: 600, textDecoration: 'none', boxShadow: `0 8px 32px ${VGLOW(0.45)}`, display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 18 }}>💬</span>
                 Text {KIBA_PHONE_DISPLAY}
@@ -144,7 +144,7 @@ export default function Home() {
               </Link>
             </div>
             <div style={{ fontSize: 13, color: '#3a6080', marginBottom: 36, animation: 'fadeUp 0.8s ease 0.35s both' }}>
-              two ways in — same Kiba on the other side. <a href="#how" style={{ color: RL, textDecoration: 'none', borderBottom: `1px dashed ${GLOW(0.4)}`, paddingBottom: 1 }}>see how it works</a>
+              two ways in — same KIBA on the other side. <a href="#how" style={{ color: RL, textDecoration: 'none', borderBottom: `1px dashed ${GLOW(0.4)}`, paddingBottom: 1 }}>see how it works</a>
             </div>
             <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' as const, animation: 'fadeUp 0.8s ease 0.4s both' }}>
               {['1-month free trial', 'No app download', 'Cancel anytime', 'Works on any phone'].map(t => (
@@ -168,7 +168,7 @@ export default function Home() {
               <div style={{ width: 80, height: 7, background: '#1a2d45', borderRadius: 4, margin: '0 auto 18px' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 14 }}>
                 <div style={{ width: 34, height: 34, borderRadius: '50%', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>K</div>
-                <div><div style={{ fontSize: 13, fontWeight: 500, color: TX }}>Kiba</div><div style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Watching</div></div>
+                <div><div style={{ fontSize: 13, fontWeight: 500, color: TX }}>KIBA</div><div style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Watching</div></div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, minHeight: 200 }}>
                 {MSGS.map((m, i) => (
@@ -194,8 +194,8 @@ export default function Home() {
           </div></FadeIn>
           <div className="how-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 32, position: 'relative' }}>
             <div className="how-line" style={{ position: 'absolute', top: 56, left: '18%', right: '18%', height: 1, background: `linear-gradient(90deg,transparent,${GLOW(0.4)},transparent)` }} />
-            {[['01', '🧠', 'Psych intake', 'You answer questions about your fears, your avoidance patterns, and who you compare yourself to. Kiba uses this against you — constructively.'],
-              ['02', '📲', 'Daily check-ins', 'Every day at your chosen time, Kiba texts you. Did you do the work? Send proof. No reply means you\'re ghosting — and Kiba escalates.'],
+            {[['01', '🧠', 'Psych intake', 'You answer questions about your fears, your avoidance patterns, and who you compare yourself to. KIBA uses this against you — constructively.'],
+              ['02', '📲', 'Daily check-ins', 'Every day at your chosen time, KIBA texts you. Did you do the work? Send proof. No reply means you\'re ghosting — and KIBA escalates.'],
               ['03', '📊', 'Execution score', 'Every action builds your score — completion rate, proof rate, response time, streak. Your accountability in a number. No hiding from it.']
             ].map(([n, icon, title, desc], i) => (
               <FadeIn key={n} delay={i * 150}>
@@ -214,18 +214,18 @@ export default function Home() {
       {/* FEATURES */}
       <section id="proof" className="section-pad features-section" style={{ padding: '100px 48px', maxWidth: 1200, margin: '0 auto' }}>
         <FadeIn><div style={{ marginBottom: 60 }}>
-          <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>What Kiba does</div>
+          <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: RL, marginBottom: 14, fontWeight: 500 }}>What KIBA does</div>
           <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(36px,5vw,64px)', fontWeight: 300, lineHeight: 1.1, letterSpacing: '-1px', color: TX }}>
             Every tool built to<br /><em style={{ fontStyle: 'italic', color: V }}>eliminate</em> <strong style={{ fontWeight: 700 }}>excuses.</strong>
           </h2>
         </div></FadeIn>
         <div className="feat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 20 }}>
-          {[['⚡', 'Proof-based accountability', 'No check-box. Send a photo or text proof of your completed task. Kiba validates it. Fake it and you\'re only cheating yourself.'],
-            ['👻', 'Anti-ghost system', 'Miss a check-in? Kiba follows up in 2 hours. Then 24 hours. Then 48. Three strikes and your score reflects exactly who you\'ve been.'],
+          {[['⚡', 'Proof-based accountability', 'No check-box. Send a photo or text proof of your completed task. KIBA validates it. Fake it and you\'re only cheating yourself.'],
+            ['👻', 'Anti-ghost system', 'Miss a check-in? KIBA follows up in 2 hours. Then 24 hours. Then 48. Three strikes and your score reflects exactly who you\'ve been.'],
             ['📈', 'Execution score', 'A real-time score (0–100) based on completion rate, proof rate, response speed, and streak. Your record. Your mirror.'],
-            ['🧠', 'Psychological pressure', 'Kiba knows your fears, your avoidance patterns, your comparison figure. Every message is calibrated to cut through your specific resistance.'],
-            ['📋', 'Adaptive plan', 'Your daily tasks adjust automatically. Score too low? Plan gets easier. Crushing it for 7 days? Kiba makes it harder. No coasting.'],
-            ['🛡️', 'Crisis safety', 'Kiba detects distress. A real human is alerted immediately. Accountability never comes at the cost of your safety.']
+            ['🧠', 'Psychological pressure', 'KIBA knows your fears, your avoidance patterns, your comparison figure. Every message is calibrated to cut through your specific resistance.'],
+            ['📋', 'Adaptive plan', 'Your daily tasks adjust automatically. Score too low? Plan gets easier. Crushing it for 7 days? KIBA makes it harder. No coasting.'],
+            ['🛡️', 'Crisis safety', 'KIBA detects distress. A real human is alerted immediately. Accountability never comes at the cost of your safety.']
           ].map(([icon, title, desc], i) => (
             <FadeIn key={title as string} delay={i * 80}>
               <div className="feat-card">
@@ -238,7 +238,7 @@ export default function Home() {
         </div>
         <FadeIn delay={200}>
           <div className="stats-bar" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: GLOW(0.15), borderRadius: 20, overflow: 'hidden', marginTop: 60, border: `1px solid ${GLOW(0.2)}` }}>
-            {[{ n: 24, s: '/7', l: 'Kiba is watching' }, { n: 0, s: '', l: 'Apps to download' }, { n: 20, s: '+', l: '$ per month only' }].map(stat => (
+            {[{ n: 24, s: '/7', l: 'KIBA is watching' }, { n: 0, s: '', l: 'Apps to download' }, { n: 20, s: '+', l: '$ per month only' }].map(stat => (
               <div key={stat.l} style={{ background: '#081422', padding: '36px 32px', textAlign: 'center' as const }}>
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 52, fontWeight: 700, color: RL, lineHeight: 1, marginBottom: 8 }}><Counter to={stat.n} suffix={stat.s} /></div>
                 <div style={{ fontSize: 13, color: MT, fontWeight: 300 }}>{stat.l}</div>
@@ -276,11 +276,11 @@ export default function Home() {
             <FadeIn delay={100}>
               <div style={{ background: `linear-gradient(135deg,${GLOW(0.12)},${VGLOW(0.06)})`, border: `1px solid ${GLOW(0.35)}`, borderRadius: 20, padding: 40, position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, background: `radial-gradient(circle,${GLOW(0.2)},transparent 70%)`, pointerEvents: 'none' }} />
-                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: RL, marginBottom: 28, fontWeight: 600 }}>The Kiba system</div>
-                {['Kiba knows your psychology — and uses it to cut through resistance',
+                <div style={{ fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' as const, color: RL, marginBottom: 28, fontWeight: 600 }}>The KIBA system</div>
+                {['KIBA knows your psychology — and uses it to cut through resistance',
                   'Daily check-ins via SMS — no app, no excuse not to respond',
                   'Proof required. Words mean nothing. Show the work.',
-                  'Ghost Kiba and escalating pressure follows — strikes, score drops',
+                  'Ghost KIBA and escalating pressure follows — strikes, score drops',
                   'Execution score tracks who you actually are, not who you want to be'].map(s => (
                   <div key={s} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
                     <div style={{ width: 22, height: 22, borderRadius: '50%', background: GLOW(0.2), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 2, color: RL }}>✓</div>
@@ -303,9 +303,9 @@ export default function Home() {
             </h2>
           </div></FadeIn>
           <div className="test-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
-            {[['Marcus D.', 'Entrepreneur, 34', 'Kiba knew I was scared of staying mediocre. Every text referenced that. I shipped my product in 6 weeks. I had been "planning" it for 2 years.'],
-              ['Priya S.', 'Graduate student, 28', 'I told Kiba I feared falling behind my peers. It brought that up every single day. Uncomfortable. Effective. I submitted my thesis early.'],
-              ['Jordan T.', 'Freelancer, 31', 'I ghosted Kiba for 3 days once. The escalating messages were relentless. I haven\'t ghosted since. My execution score is 84. I am a different person.']
+            {[['Marcus D.', 'Entrepreneur, 34', 'KIBA knew I was scared of staying mediocre. Every text referenced that. I shipped my product in 6 weeks. I had been "planning" it for 2 years.'],
+              ['Priya S.', 'Graduate student, 28', 'I told KIBA I feared falling behind my peers. It brought that up every single day. Uncomfortable. Effective. I submitted my thesis early.'],
+              ['Jordan T.', 'Freelancer, 31', 'I ghosted KIBA for 3 days once. The escalating messages were relentless. I haven\'t ghosted since. My execution score is 84. I am a different person.']
             ].map(([name, role, quote], i) => (
               <FadeIn key={name as string} delay={i * 120}>
                 <div style={{ background: S1, border: `1px solid ${GLOW(0.2)}`, borderRadius: 20, padding: 36 }}>
@@ -387,9 +387,9 @@ export default function Home() {
           <div className="mission-card" style={{ background: `linear-gradient(135deg,${GLOW(0.1)},${VGLOW(0.05)})`, border: `1px solid ${GLOW(0.25)}`, borderRadius: 24, padding: '60px 64px', position: 'relative', overflow: 'hidden' }}>
             <div style={{ position: 'absolute', top: -80, right: -80, width: 240, height: 240, background: `radial-gradient(circle,${GLOW(0.15)},transparent 70%)`, pointerEvents: 'none' }} />
             <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(20px,2.5vw,30px)', fontWeight: 300, fontStyle: 'italic', lineHeight: 1.6, color: TX, marginBottom: 28 }}>
-              &ldquo;Motivation is a feeling. It comes and goes. Accountability is a system. It doesn&apos;t care how you feel. Kiba exists to be that system &mdash; relentless, precise, and calibrated to you.&rdquo;
+              &ldquo;Motivation is a feeling. It comes and goes. Accountability is a system. It doesn&apos;t care how you feel. KIBA exists to be that system &mdash; relentless, precise, and calibrated to you.&rdquo;
             </div>
-            <div style={{ fontSize: 14, color: RL, fontWeight: 500, letterSpacing: 1 }}>&mdash; The Kiba Team</div>
+            <div style={{ fontSize: 14, color: RL, fontWeight: 500, letterSpacing: 1 }}>&mdash; The KIBA Team</div>
           </div>
         </div>
       </FadeIn>
@@ -417,10 +417,15 @@ export default function Home() {
 
       {/* FOOTER */}
       <footer className="footer-inner" style={{ borderTop: `1px solid ${GLOW(0.12)}`, padding: '40px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: TX }}>Kiba<span style={{ color: RL }}>.ai</span></div>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: TX }}>KIBA</div>
         <div style={{ fontSize: 13, color: '#2a4a6b' }}>&#169; 2026 KIBA. All rights reserved.</div>
         <div style={{ display: 'flex', gap: 24 }}>
-          {['Privacy', 'Terms', 'Contact'].map(l => <a key={l} href="#" style={{ fontSize: 13, color: MT, textDecoration: 'none' }}>{l}</a>)}
+          {/* Real destinations, not "#". A carrier reviewer checks the site footer
+              for these during A2P review, and a dead link reads as a site with
+              no policies at all. */}
+          {[['Privacy', '/privacy'], ['SMS Terms', '/sms-terms'], ['Contact', 'mailto:support@usekiba.ai']].map(([l, href]) => (
+            <a key={l} href={href} style={{ fontSize: 13, color: MT, textDecoration: 'none' }}>{l}</a>
+          ))}
         </div>
       </footer>
 

@@ -75,7 +75,7 @@ function Wordmark() {
       fontFamily: "'Cormorant Garamond', serif", fontSize: 30, fontWeight: 700,
       color: TX, letterSpacing: '-0.5px', textAlign: 'center', marginBottom: 28,
     }}>
-      Kiba<span style={{ color: RL }}>.ai</span>
+      KIBA
     </div>
   );
 }
@@ -298,7 +298,7 @@ function PlanPageInner() {
         Secure checkout by Stripe. Cancel anytime.
       </p>
       <p style={{ fontSize: 11, color: '#2a4a6b', textAlign: 'center', marginTop: 8, lineHeight: 1.6 }}>
-        By continuing you agree to the Kiba Terms of Service and Privacy Policy.
+        By continuing you agree to the KIBA Terms of Service and Privacy Policy.
       </p>
     </Shell>
   );

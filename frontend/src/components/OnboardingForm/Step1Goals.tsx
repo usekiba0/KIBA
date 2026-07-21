@@ -161,7 +161,7 @@ export default function Step1Goals({ data, onChange, onNext }: Props) {
       <div className="field-label" style={{ marginTop: 24 }}>
         Daily check-in time
         <p style={{ fontSize: 13, color: '#3a6080', marginTop: 4, marginBottom: 10 }}>
-          Kiba texts you at this time every day. Pick when you want to be held accountable.
+          KIBA texts you at this time every day. Pick when you want to be held accountable.
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {CHECKIN_TIMES.map(t => (
@@ -184,7 +184,7 @@ export default function Step1Goals({ data, onChange, onNext }: Props) {
       <div className="field-label" style={{ marginTop: 24 }}>
         Your timezone
         <p style={{ fontSize: 13, color: '#3a6080', marginTop: 4, marginBottom: 10 }}>
-          So Kiba texts you at the right local time — not 3am.
+          So KIBA texts you at the right local time — not 3am.
         </p>
         <select
           className="input"

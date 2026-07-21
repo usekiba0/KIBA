@@ -48,10 +48,10 @@ export default function SmsDemo() {
       <div>
         <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: '#38bdf8', marginBottom: 16, fontWeight: 500 }}>Live demo</div>
         <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(32px,4vw,52px)', fontWeight: 300, letterSpacing: '-1px', color: '#f0f9ff', lineHeight: 1.15, marginBottom: 20 }}>
-          Try Kiba <em style={{ fontStyle: 'italic', color: '#10b981' }}>right now.</em>
+          Try KIBA <em style={{ fontStyle: 'italic', color: '#10b981' }}>right now.</em>
         </h2>
         <p style={{ fontSize: 15, color: '#7eb4cc', lineHeight: 1.7, fontWeight: 300, marginBottom: 32 }}>
-          Pick a scenario below or type your own. See exactly how Kiba responds — no sign-up needed.
+          Pick a scenario below or type your own. See exactly how KIBA responds — no sign-up needed.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
           {CHIPS.map((chip, i) => (
@@ -75,7 +75,7 @@ export default function SmsDemo() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 12 }}>
             <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#0ea5e9,#10b981)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>K</div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#f0f9ff' }}>Kiba</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#f0f9ff' }}>KIBA</div>
               <div style={{ fontSize: 11, color: '#34d399', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} /> Online now
               </div>

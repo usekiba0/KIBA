@@ -54,10 +54,10 @@ export default function SmsDemoLight() {
       <div>
         <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase' as const, color: AC, marginBottom: 16, fontWeight: 600 }}>Live demo</div>
         <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(32px,4vw,52px)', fontWeight: 300, letterSpacing: '-1px', color: TX, lineHeight: 1.15, marginBottom: 20 }}>
-          Try Kiba <em style={{ fontStyle: 'italic', color: AC }}>right now.</em>
+          Try KIBA <em style={{ fontStyle: 'italic', color: AC }}>right now.</em>
         </h2>
         <p style={{ fontSize: 15, color: MT, lineHeight: 1.7, fontWeight: 300, marginBottom: 32 }}>
-          Pick a scenario below or type your own. See exactly how Kiba responds — no sign-up needed.
+          Pick a scenario below or type your own. See exactly how KIBA responds — no sign-up needed.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
           {CHIPS.map((chip, i) => (
@@ -87,7 +87,7 @@ export default function SmsDemoLight() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px 10px', borderBottom: '1px solid rgba(0,0,0,0.07)', marginBottom: 12 }}>
             <div style={{ width: 32, height: 32, borderRadius: '50%', background: AC, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0 }}>K</div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: TX }}>Kiba</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: TX }}>KIBA</div>
               <div style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Online now
               </div>

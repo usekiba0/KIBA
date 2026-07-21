@@ -8,10 +8,10 @@ export default function OnboardingSuccessPage() {
         <div style={{ fontSize: 52, marginBottom: 20 }}>🎉</div>
         <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 30, color: '#f0f9ff', marginBottom: 14 }}>You&apos;re in.</h2>
         <p style={{ fontSize: 15, color: '#7eb4cc', lineHeight: 1.65 }}>
-          Payment confirmed. Kiba just texted you to say coaching mode is unlocked.
+          Payment confirmed. KIBA just texted you to say coaching mode is unlocked.
         </p>
         <p style={{ fontSize: 14, color: '#3a6080', marginTop: 18, lineHeight: 1.6 }}>
-          Reply to that text whenever you&apos;re ready to get started — no app, no login, no logging into a dashboard. Kiba lives in your messages.
+          Reply to that text whenever you&apos;re ready to get started — no app, no login, no logging into a dashboard. KIBA lives in your messages.
         </p>
         <div style={{ marginTop: 28, padding: '14px 18px', background: 'rgba(14,165,233,0.06)', borderRadius: 12, border: '1px solid rgba(14,165,233,0.15)', fontSize: 13, color: '#93c5fd', lineHeight: 1.6 }}>
           If you didn&apos;t get a text in the next minute, check that you texted from the same number you paid with.

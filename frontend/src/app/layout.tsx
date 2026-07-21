@@ -3,7 +3,7 @@ import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Kiba — The system that makes ignoring your goals impossible.',
+  title: 'KIBA — The system that makes ignoring your goals impossible.',
   description: 'AI-powered accountability system. Deep psychological pressure, proof-based check-ins, and zero tolerance for silent failure.',
 };
 

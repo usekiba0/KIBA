@@ -8,7 +8,7 @@ export default function OnboardingCancelPage() {
         <div style={{ fontSize: 44, marginBottom: 20 }}>👋</div>
         <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: '#f0f9ff', marginBottom: 14 }}>No worries — payment cancelled.</h2>
         <p style={{ fontSize: 15, color: '#7eb4cc', lineHeight: 1.65 }}>
-          Your chat with Kiba is still there. The link stays valid — text Kiba whenever you&apos;re ready and we&apos;ll resend it.
+          Your chat with KIBA is still there. The link stays valid — text KIBA whenever you&apos;re ready and we&apos;ll resend it.
         </p>
         <div style={{ marginTop: 32, display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
           <Link href="/" style={{ background: 'linear-gradient(135deg,#0ea5e9,#10b981)', color: '#fff', padding: '12px 28px', borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: 'none', boxShadow: '0 4px 14px rgba(14,165,233,0.35)' }}>
