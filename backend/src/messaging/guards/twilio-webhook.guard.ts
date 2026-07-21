@@ -15,7 +15,12 @@ export class TwilioWebhookGuard implements CanActivate {
 
     // Use APP_BASE_URL to reconstruct the correct full URL.
     // request.protocol is unreliable behind TLS-terminating proxies (returns 'http').
-    // APP_BASE_URL must be the public-facing HTTPS base URL, e.g. https://api.ryke.ai
+    //
+    // APP_BASE_URL must be THIS BACKEND's public HTTPS base URL — e.g.
+    // https://kiba-1.onrender.com — NOT the frontend. Twilio signs the exact URL
+    // it called, so any mismatch fails validation and rejects every inbound SMS
+    // with a 401. The failure is silent: outbound keeps working, so it presents
+    // as carriers dropping replies rather than as a config error.
     const baseUrl = this.config.getOrThrow<string>('APP_BASE_URL').replace(/\/$/, '');
     const url = `${baseUrl}${request.originalUrl}`;
 
