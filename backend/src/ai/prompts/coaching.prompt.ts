@@ -336,7 +336,7 @@ export function buildSystemPrompt(
    * Core facts the user told us (from intake_data). Surfaced so the AI can use
    * memory actively and catch contradictions ("since when are you in houston?").
    */
-  knownFacts?: { goals?: string | null; city?: string | null; why?: string | null; weighInSchedule?: string | null; facts?: string[] | null },
+  knownFacts?: { goals?: string | null; city?: string | null; why?: string | null; weighInSchedule?: string | null; weeklySchedule?: string | null; facts?: string[] | null },
   /**
    * The evolving relationship digest (User.relationship_memory). Loaded on EVERY
    * message so KIBA remembers this person across days, not just within a session.
@@ -354,6 +354,11 @@ export function buildSystemPrompt(
   if (knownFacts?.weighInSchedule && knownFacts.weighInSchedule.trim())
     factLines.push(
       `- weigh-in cadence: ${knownFacts.weighInSchedule.trim()}. This is their weigh-in schedule — ONLY prompt a weigh-in on that cadence, NEVER daily, and if they weigh in off-schedule just log it warmly ("noted"), never scold them for it ("it's not friday" is exactly what NOT to do).`,
+    );
+  if (knownFacts?.weeklySchedule && knownFacts.weeklySchedule.trim())
+    factLines.push(
+      `- their standing weekly schedule: ${knownFacts.weeklySchedule.trim()}. ON FILE — they already told you. ` +
+        'never re-ask them to pick days or times. know which session today is and ask about THAT.',
     );
   // Layer 3 — durable "never forget" facts. Surfaced as plain anchors so KIBA
   // treats them as things it already knows about the person.
@@ -607,7 +612,9 @@ BAD vs GOOD reference (these are the failure modes to avoid):
 CAPABILITIES — you CAN do all of these:
 - send real text messages / iMessages to the user's phone — that's literally how they're reading this right now
 - schedule reminder texts: call the \`schedule_reminder\` tool with a future UTC time and the exact message to send. resolve phrases like "tomorrow morning", "in 30 min", "next Thursday at 6pm" against the CURRENT TIME context above. NEVER claim a reminder is set unless you actually called the tool — if you can't figure out the time, ask the user instead. The system will reply for you after the tool call succeeds, so keep your text short (one short confirmation line).
-- daily recurring reminders: for "every day at 8am", "every morning", "remind me daily to X", "wake me up every day" — call \`schedule_reminder\` ONCE with the optional \`recurrence: { rule: "daily", local_time: "HH:MM" }\` field set. The system handles the daily re-fire automatically; you do NOT loop or schedule 7 reminders. fire_at_iso should be the FIRST occurrence (today if HH:MM hasn't passed in the user's local clock, otherwise tomorrow). NEVER text-promise a recurring reminder you didn't actually tool-call — that's the worst-case failure (user thinks it's set, gets nothing). If their timezone is unknown, ask first.
+- daily recurring reminders: for "every day at 8am", "every morning", "remind me daily to X", "wake me up every day" — call \`schedule_reminder\` ONCE with the optional \`recurrence: { rule: "daily", local_time: "HH:MM" }\` field set. The system handles the daily re-fire automatically; you do NOT loop or schedule 7 reminders. fire_at_iso should be the FIRST occurrence (today if HH:MM hasn't passed in the user's local clock, otherwise tomorrow). If their timezone is unknown, ask first — a claimed-but-unscheduled reminder is stripped from your reply, so the user just sees you ask.
+- a DAILY reminder repeats its text forever, so it can't name a weekday, a session ("leg day"), or a verse — the system rejects those. keep it true any day ("gym time. what are you hitting today?"). never write scripture yourself; for a bible habit schedule the ACTION ("time to read your bible. proof when you're done.").
+- a standing weekly schedule in the facts above is already saved — never re-ask their days/times. when it changes call \`save_weekly_schedule\` with the COMPLETE schedule.
 - cancel reminders: when the user asks to stop, kill, cancel, or turn off a reminder ("stop the morning text", "cancel that"), call \`list_my_reminders\` to get the id, then \`cancel_reminder\`. for a daily series, cancelling any occurrence stops the whole chain.
 - PRE-TASK PING (V5 PART 5): whenever the user commits to a specific time for a goal ("gym at 7am", "post by 12pm", "leg workout at 6"), CALL \`schedule_reminder\` (use local_clock) for 30 min before that local time with a short pre-task ping ("30 min till gym. ready?" / "30 min until you post. lock in"). This is the "I'm checking in before AND after" promise from onboarding — do not skip it. ALSO set the post-task proof check by scheduling a second reminder for 15 min AFTER the committed time ("[goal] time was 15 min ago. proof?"). Two reminders per committed task: pre (-30 min) and proof-check (+15 min). Both fire-and-forget — they handle themselves once scheduled.
 - BE PROACTIVE WITH CHECK-INS (don't wait to be asked): when they lay out their day or commit to work, set those pings AND offer a casual check-in like a friend would — "i'll hit you around 2 to make sure you're locked in. cool?" then schedule it (local_clock). announce it plainly once set, Tomo-style: "just set a 2pm check-in. now go handle it." this is how the day gets covered without a rigid every-X-hours spam — checkpoints land around THEIR actual plan.

@@ -16,6 +16,8 @@ import { Strike } from '../data/entities/strike.entity';
 import { DailyTask } from '../data/entities/daily-task.entity';
 import { Subscription } from '../data/entities/subscription.entity';
 import { currentStreakFromTasks } from '../accountability/score.service';
+import { validateRecurringMessage } from '../accountability/reminder-content';
+import { stripFalseReminderClaims } from './reminder-claim-guard';
 import { buildSystemPrompt, PatternSignals } from './prompts/coaching.prompt';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
@@ -61,6 +63,13 @@ export interface CoachingToolHandlers {
   // into both intake_data JSONB and the PsychologicalProfile row.
   saveProfileField: (input: { field: string; value: string | boolean }) =>
     Promise<{ ok: true; field: string } | { ok: false; error: string }>;
+  // The user's standing weekly commitment (training split, work blocks, class
+  // times). Separate from saveProfileField because that tool's enum is closed to
+  // psychological facts and there was previously nowhere at all to put this —
+  // which is why the morning check-in kept re-asking for a split the user had
+  // already given (Karibi 2026-07-21).
+  saveWeeklySchedule: (input: { schedule: string }) =>
+    Promise<{ ok: true; schedule: string } | { ok: false; error: string }>;
   // React to the user's most recent message with an iMessage tapback. Optional:
   // only present on iMessage conversations (the processor omits it on SMS), so
   // the react_to_message tool is offered to the model only when a tapback can
@@ -294,6 +303,28 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
       value: { description: 'String for free-text fields, boolean for cussing_ok.' },
     },
     required: ['field', 'value'],
+  },
+};
+
+const SAVE_WEEKLY_SCHEDULE_TOOL: Tool = {
+  name: 'save_weekly_schedule',
+  description:
+    "Persist the user's STANDING weekly schedule the moment they give it — which days and times they train " +
+    '(their split), work blocks, class times, anything recurring. Call this for "8am Mon-Fri", ' +
+    '"push Monday, pull Wednesday, legs Friday", "leg day is Thursday because I have PT booked". ' +
+    'Call it AGAIN with the full updated schedule whenever any part of it changes — it overwrites, so always ' +
+    'pass the COMPLETE schedule, not just the changed day. ' +
+    'This is what stops you asking for a schedule the user already gave you. ' +
+    'Keep it short and readable, in their words (e.g. "gym 8am Mon-Fri, legs Thu (PT booked), rest Sun").',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      schedule: {
+        type: 'string',
+        description: 'The complete standing weekly schedule, one short line. Overwrites whatever was stored.',
+      },
+    },
+    required: ['schedule'],
   },
 };
 
@@ -587,6 +618,7 @@ export class CoachingService {
       city: intake.city ?? null,
       why: intake.why_it_matters ?? null,
       weighInSchedule: intake.weigh_in_schedule ?? null,
+      weeklySchedule: user.weekly_schedule ?? null,
       // Layer 3 — durable "never forget" facts (append-only anchor list).
       facts: intake.notes && intake.notes.length ? intake.notes : null,
     };
@@ -652,7 +684,7 @@ export class CoachingService {
       ? [
           SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, CANCEL_REMINDER_TOOL,
           ADD_TODO_TOOL, LIST_TODAY_TODOS_TOOL, MARK_TODO_DONE_TOOL, REMOVE_TODO_TOOL,
-          SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL,
+          SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL, SAVE_WEEKLY_SCHEDULE_TOOL,
           // Only offered on iMessage — the handler is present only then.
           ...(toolHandlers.reactToMessage ? [REACT_TO_MESSAGE_TOOL] : []),
         ]
@@ -876,6 +908,11 @@ export class CoachingService {
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let response: Anthropic.Messages.Message | undefined;
+    // Did this turn actually put a reminder on the books, or read back one that
+    // already exists? Either makes a "your reminder is set" claim TRUE, so the
+    // false-promise guard below must not touch the reply.
+    let reminderWritesOk = 0;
+    let reminderReads = 0;
 
     for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
       try {
@@ -909,6 +946,10 @@ export class CoachingService {
         try {
           const result = await args.dispatch(block);
           const isError = typeof result === 'object' && result !== null && 'ok' in result && !(result as { ok: boolean }).ok;
+          if (!isError) {
+            if (block.name === 'schedule_reminder') reminderWritesOk++;
+            if (block.name === 'list_my_reminders') reminderReads++;
+          }
           toolResults.push({
             type: 'tool_result',
             tool_use_id: block.id,
@@ -1068,6 +1109,24 @@ export class CoachingService {
       });
     }
 
+    // HARD CHECK on reminder promises. Saying "locked, 8am daily" without ever
+    // calling schedule_reminder is the worst failure the product has: the user
+    // stops holding the thing themselves and nothing ever fires. Only runs when
+    // the turn neither created nor read back a reminder — otherwise the claim is
+    // true and deleting it would be its own lie. (Karibi 2026-07-21)
+    if (args.dispatch && reminderWritesOk === 0 && reminderReads === 0) {
+      const claimGuard = stripFalseReminderClaims(finalReply);
+      if (claimGuard.corrected) {
+        finalReply = claimGuard.text;
+        structuredLog(this.logger, 'warn', {
+          service: 'ai',
+          operation: 'false_reminder_claim_stripped',
+          userId: args.userId,
+          dropped: claimGuard.dropped,
+        });
+      }
+    }
+
     return { reply: finalReply, tokenCount: totalInputTokens + totalOutputTokens };
   }
 
@@ -1099,6 +1158,18 @@ export class CoachingService {
           return { ok: false, error: 'recurrence.local_time must be HH:MM 24h' };
         }
         recurrence = { rule: 'daily', local_time: r.local_time };
+
+        // A daily reminder's text is replayed verbatim forever, so day-specific
+        // or single-use wording is a permanent bug. Gate deterministically —
+        // the prompt already said not to and the model did it anyway.
+        const verdict = validateRecurringMessage(input.message);
+        if (!verdict.ok) {
+          structuredLog(this.logger, 'warn', {
+            service: 'ai', operation: 'recurring_reminder_content_rejected',
+            userId, bodyPreview: input.message.slice(0, 80),
+          });
+          return { ok: false, error: verdict.error };
+        }
       }
       const result = await toolHandlers.scheduleReminder({
         delay_minutes: input.delay_minutes,
@@ -1196,6 +1267,18 @@ export class CoachingService {
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_save_profile_field',
         userId, ok: result.ok, field: input.field,
+      });
+      return result;
+    }
+    if (block.name === 'save_weekly_schedule') {
+      const input = block.input as { schedule?: unknown };
+      if (typeof input.schedule !== 'string' || !input.schedule.trim()) {
+        return { ok: false, error: 'schedule must be a non-empty string' };
+      }
+      const result = await toolHandlers.saveWeeklySchedule({ schedule: input.schedule });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_save_weekly_schedule',
+        userId, ok: result.ok,
       });
       return result;
     }

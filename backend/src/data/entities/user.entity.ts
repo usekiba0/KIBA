@@ -287,4 +287,23 @@ export class User {
 
   @Column({ type: 'timestamptz', nullable: true })
   relationship_memory_updated_at: Date | null;
+
+  // ── Recurring weekly commitment (added 2026-07-21) ─────────────────────────
+  // The user's standing schedule in their own words — "8am Mon-Fri, leg day
+  // Thursday (PT booked)". Free text on purpose: a rigid day→session map can't
+  // hold "legs Thursday because I have physio", and the model reads this back
+  // rather than querying it.
+  //
+  // Exists because there was NOWHERE to put it. `save_profile_field` takes a
+  // closed enum of psychological facts, `action_plan.weekly_breakdown` is
+  // generated once at plan time and never updated, and `DailyTodo` is per-day.
+  // So a split named in conversation survived only in the 60-turn raw window
+  // and in the prose relationship digest — and once it aged out, the morning
+  // check-in asked for it again, thirteen hours after the user had answered
+  // (Karibi 2026-07-21).
+  @Column({ type: 'text', nullable: true })
+  weekly_schedule: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  weekly_schedule_updated_at: Date | null;
 }

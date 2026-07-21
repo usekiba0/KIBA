@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull, Between } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { ScheduledReminder, ScheduledReminderStatus, ReminderRecurrence } from '../data/entities/scheduled-reminder.entity';
@@ -8,6 +8,7 @@ import { User } from '../data/entities/user.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
+import { reminderSignature } from './reminder-content';
 
 // 2-minute floor: SendBlue queue + iMessage delivery has 30-90s of inherent
 // latency. Below this we can't promise the user a useful reminder, so we
@@ -15,6 +16,12 @@ import { structuredLog } from '../common/logger';
 export const MIN_DELAY_MS = 2 * 60_000;
 export const MIN_DELAY_MINUTES = MIN_DELAY_MS / 60_000;
 const MAX_DELAY_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
+
+// How far from a new ping we'll look for the stale one it replaces. Kept tight
+// on purpose: a re-committed time moves by hours, not days, and over-merging
+// (a reminder silently disappearing) is worse than under-merging (one extra
+// ping the user can see and remove).
+const SUPERSEDE_WINDOW_MS = 3 * 60 * 60_000;
 
 export interface EnqueueArgs {
   userId: string;
@@ -193,6 +200,39 @@ export class ScheduleService {
           localTime: rec.localTime,
         });
         return { ok: true, reminderId: existing.id, fireAtIso: existing.fire_at.toISOString() };
+      }
+    }
+
+    // One-off pre-task pings and proof checks SUPERSEDE rather than stack. When
+    // a user moves a committed time the model schedules a fresh pair, and the
+    // stale pair used to survive and fire too (Karibi 2026-07-19 — three "30 min
+    // till push" in one minute). Only reminders whose structure we recognize are
+    // ever superseded, and only within a few hours, so an unrelated reminder can
+    // never be silently dropped.
+    if (!rec) {
+      const signature = reminderSignature(args.message);
+      if (signature) {
+        const from = new Date(args.fireAt.getTime() - SUPERSEDE_WINDOW_MS);
+        const to = new Date(args.fireAt.getTime() + SUPERSEDE_WINDOW_MS);
+        const candidates = await this.reminderRepo.find({
+          where: {
+            user_id: args.userId,
+            status: ScheduledReminderStatus.PENDING,
+            recurrence_rule: IsNull(),
+            fire_at: Between(from, to),
+          },
+        });
+        for (const old of candidates) {
+          if (reminderSignature(old.message) !== signature) continue;
+          await this.cancel(old.id);
+          structuredLog(this.logger, 'log', {
+            service: 'schedule',
+            operation: 'reminder_superseded',
+            userId: args.userId,
+            reminderId: old.id,
+            signature,
+          });
+        }
       }
     }
 
