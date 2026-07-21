@@ -63,7 +63,28 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  new Logger('Bootstrap').log(`Kiba AI backend running on port ${port}`);
+  const log = new Logger('Bootstrap');
+  log.log(`KIBA backend running on port ${port}`);
+
+  // APP_BASE_URL must be THIS service's public URL — it's used to reconstruct
+  // the signed URL for Twilio webhook signature validation. Pointing it at the
+  // frontend makes every inbound SMS fail with 401, and the failure is silent:
+  // outbound still works, so it looks like carriers dropped the replies.
+  //
+  // Found set to the frontend URL in production on 2026-07-22, where it would
+  // have detonated the moment A2P registration cleared — the worst possible
+  // time, because it would have read as an A2P problem.
+  //
+  // Warn rather than throw: a wrong value breaks SMS only, and killing boot
+  // would also take down iMessage, which is the primary channel.
+  const appBase = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
+  const frontend = (process.env.FRONTEND_URL ?? '').replace(/\/$/, '');
+  if (appBase && frontend && appBase === frontend) {
+    log.error(
+      `APP_BASE_URL (${appBase}) is the same as FRONTEND_URL. It must be THIS backend's public URL ` +
+      '— every inbound Twilio SMS will fail signature validation with 401 until this is fixed.',
+    );
+  }
 }
 
 bootstrap();
