@@ -47,6 +47,9 @@ BULLET = ParagraphStyle('bullet', parent=BODY, spaceAfter=4)
 def inline(text: str) -> str:
     """**bold** -> <b>, escape the few characters reportlab treats as markup."""
     text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    # `code` -> a monospace run. Left as literal backticks the first time, which
+    # reads as a typo in a document going to a client.
+    text = re.sub(r'`([^`]+)`', r'<font face="Courier">\1</font>', text)
     text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', text)
     return text

@@ -56,14 +56,30 @@ for rejection.
 
 ---
 
-**2. support@usekiba.ai needs to exist and be read**
+**2. A subdomain pointing at the signup — one DNS record**
+
+Right now usekiba.ai is your Base44 site, and the actual KIBA signup form lives on a Vercel
+address that looks like `kiba-blond.vercel.app`. That's the link KIBA texts to every new lead.
+
+Two reasons to fix it before we submit the carrier registration:
+
+- It's the link a lead taps. A raw vercel.app URL in a text message looks like spam, and
+  that's the exact moment we're asking someone to hand over their phone number.
+- The carrier reviewer is given the signup URL as our proof of opt-in consent. A temporary-
+  looking host is a bad look on an application that's specifically about trust.
+
+All I need is a CNAME on usekiba.ai — something like `app.usekiba.ai` or `join.usekiba.ai`,
+pointed at the Vercel app. Pick whichever reads better to you, add the record, and I'll do the
+rest on our side. It's a five-minute job for you.
+
+**3. support@usekiba.ai needs to exist and be read**
 
 It's now in KIBA's automatic HELP reply, so anyone who texts HELP sees it — and the carrier
 reviewer may well email it to check we're real.
 
 ---
 
-**3. Two quick calls on the payment page**
+**4. Two quick calls on the payment page**
 
 **The discount badge.** Monthly is $20 and yearly is $59.99, which works out to about 75% off.
 The Tomo screens you sent showed 50%. Just want to confirm 75% is intentional and not a

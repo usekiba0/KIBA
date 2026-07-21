@@ -51,7 +51,13 @@ Continue button on the step where the number is entered. States the sender, that
 are recurring and automated, that frequency varies, that rates may apply, that consent isn't
 a condition of purchase, and STOP/HELP — with both legal links.
 
-**Screenshot this screen** for the campaign submission.
+**Screenshot this screen** for the campaign submission. It is on step 3 of the form (the
+Contact step), so it only appears after the goal and psychology steps — reach it at
+`<SIGNUP URL>/onboarding`, not on the marketing site.
+
+### 4. The signup lives on a vercel.app host (blocks nothing, but weakens the Campaign)
+See the warning under the opt-in flow above. A CNAME on Karibi's side plus a `FRONTEND_URL`
+change on ours. Worth doing before submitting rather than after.
 
 ---
 
@@ -94,12 +100,23 @@ scheduled coaching check-ins, and two-way conversational replies, which spans ca
 
 **Opt-in flow** (paste, once Step 3 of the blockers above is done):
 
-> Web form at https://usekiba.ai — the user enters their goal, their name, their preferred
-> daily check-in time, and their mobile number, then submits. Directly above the submit
-> button the form states that submitting opts them in to recurring automated text messages
-> from KIBA, that message and data rates may apply, that frequency varies, and that they can
-> text STOP to cancel or HELP for help, with links to the SMS Terms and Privacy Policy.
-> No messages are sent to a number that has not been submitted through this form.
+> Web form at `<SIGNUP URL>/onboarding` — the user enters their goal, their name, their
+> preferred daily check-in time, and their mobile number, then submits. Directly above the
+> submit button the form states that submitting opts them in to recurring automated text
+> messages from KIBA, that message and data rates may apply, that frequency varies, and that
+> they can text STOP to cancel or HELP for help, with links to the SMS Terms and Privacy
+> Policy. No messages are sent to a number that has not been submitted through this form.
+
+> ⚠️ **`<SIGNUP URL>` is NOT `usekiba.ai`.** Verified 2026-07-21: `usekiba.ai` serves
+> Karibi's Base44 marketing site (Base44 favicon, uvicorn origin) — it does not host our
+> signup form and a reviewer following it would never see the consent disclosure, which is
+> an automatic rejection.
+>
+> The signup form is the Next.js app at the value of `FRONTEND_URL`, currently
+> `https://kiba-blond.vercel.app`. **Before submitting**, point a real subdomain
+> (`app.usekiba.ai` / `join.usekiba.ai`) at that app, update `FRONTEND_URL`, and use the
+> subdomain here. A raw `vercel.app` host reads as temporary on an application about trust —
+> and it's also the link every lead taps in their first text.
 
 **Opt-out / HELP handling:**
 
@@ -148,7 +165,10 @@ confirming in the Render dashboard** — it's silent when wrong.
 [ ] Privacy Policy live at a public URL          ← Karibi
 [ ] SMS Terms live at a public URL               ← Karibi
 [ ] support@usekiba.ai mailbox exists + monitored (it's in the HELP reply)
+[ ] Subdomain (app./join.usekiba.ai) CNAME'd to the Vercel app   ← Karibi
+[ ] FRONTEND_URL updated to the subdomain, links in texts re-checked
 [ ] NEXT_PUBLIC_SMS_TERMS_URL / NEXT_PUBLIC_PRIVACY_URL set to the real paths
+[ ] Opt-in URL in the campaign = the SIGNUP host, NOT usekiba.ai
 [x] Consent language on the signup form
 [ ] Screenshot of the consent screen taken for submission
 [ ] Campaign submitted with description, 4 samples, opt-in flow, STOP/HELP
