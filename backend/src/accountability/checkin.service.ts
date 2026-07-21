@@ -70,6 +70,16 @@ export class CheckinService implements OnApplicationBootstrap {
           error: (err as Error).message,
         });
       });
+
+      // Install the hourly intake-stall sweep — recovery for leads who go quiet
+      // partway through signup, who previously had none at all.
+      this.installIntakeStallCron().catch((err) => {
+        structuredLog(this.logger, 'error', {
+          service: 'accountability',
+          operation: 'intake_stall_cron_install_failed',
+          error: (err as Error).message,
+        });
+      });
     });
   }
 
@@ -111,6 +121,30 @@ export class CheckinService implements OnApplicationBootstrap {
    * is a no-op. removeOnComplete prevents the completed-jobs list from growing
    * unbounded.
    */
+  /**
+   * Hourly sweep for leads who stalled mid-intake. Hourly rather than a per-lead
+   * timer because the eligibility window is hours wide and the sweep re-checks
+   * quiet hours each pass — so a lead who stalls at 3am is picked up when their
+   * morning opens, not messaged at 3am.
+   */
+  private async installIntakeStallCron(): Promise<void> {
+    await this.queue.add(
+      'intake-stall-sweep',
+      {},
+      {
+        repeat: { every: 60 * 60 * 1000 },
+        jobId: 'intake-stall-sweep',
+        removeOnComplete: true,
+        removeOnFail: 5,
+      },
+    );
+    structuredLog(this.logger, 'log', {
+      service: 'accountability',
+      operation: 'intake_stall_cron_installed',
+      intervalMs: 60 * 60 * 1000,
+    });
+  }
+
   private async installSafetyRescheduleCron(): Promise<void> {
     await this.queue.add(
       'safety-reschedule-checkins',
