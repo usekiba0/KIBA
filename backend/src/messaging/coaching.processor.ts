@@ -62,6 +62,7 @@ import {
   detectKeyword,
   OPT_OUT_CONFIRMATION,
   OPT_IN_CONFIRMATION,
+  HELP_REPLY,
   normalizeKeyword,
 } from './opt-out';
 import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone, resolveOffsetMinutes } from './world-time';
@@ -1620,7 +1621,27 @@ export class CoachingProcessor {
   private async handleComplianceKeyword(user: User, body: string, from: string): Promise<boolean> {
     const intent = detectKeyword(body);
     if (!intent) return false;
-    if (intent === 'help') return false;
+
+    // HELP: carriers require a bare "HELP" to be answered with what the program
+    // is and how to leave — it's a hard A2P campaign requirement. But a lone
+    // "help" from someone mid-conversation can also be distress, and swallowing
+    // it would bypass crisis detection entirely.
+    //
+    // So we do BOTH: send the compliance reply, then return false so the message
+    // still flows through crisis detection and coaching. Only a bare keyword
+    // reaches here — detectKeyword already returns null for "i need help",
+    // "help me", "please help im struggling" — so this never intercepts a
+    // sentence, only the single word. `allowOptedOut` because carriers require
+    // HELP to be answerable even after someone has opted out.
+    if (intent === 'help') {
+      await this.messagingService.send(user.phone_number, HELP_REPLY, undefined, true);
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'help_keyword_answered',
+        from,
+      });
+      return false;
+    }
 
     const wasOptedOut = user.opted_out_at !== null && user.opted_out_at !== undefined;
 

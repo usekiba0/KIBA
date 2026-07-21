@@ -3,6 +3,7 @@ import {
   normalizeKeyword,
   OPT_OUT_CONFIRMATION,
   OPT_IN_CONFIRMATION,
+  HELP_REPLY,
 } from '../../src/messaging/opt-out';
 
 /**
@@ -84,6 +85,17 @@ describe('compliance keyword detection', () => {
   describe('help', () => {
     it.each(['HELP', 'help', 'info'])('treats %j as help', (msg) => {
       expect(detectKeyword(msg)).toBe('help');
+    });
+
+    it('carries what carriers require in the HELP reply', () => {
+      // A2P campaign requirement: a bare HELP must answer with what the program
+      // is, that rates may apply, and how to leave. The processor sends this and
+      // then lets the message continue to crisis detection — answering HELP must
+      // never become a way to swallow a cry for help.
+      expect(HELP_REPLY).toMatch(/KIBA/);
+      expect(HELP_REPLY).toMatch(/rates may apply/i);
+      expect(HELP_REPLY).toMatch(/STOP/);
+      expect(HELP_REPLY.length).toBeLessThanOrEqual(160);
     });
 
     it('does not treat a plea for help as a keyword', () => {
