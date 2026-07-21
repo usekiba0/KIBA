@@ -265,8 +265,14 @@ describe('buildSystemPrompt', () => {
     // hedge, greetings-are-human, mirror one-word replies) — trimmed lean first.
     // Raised 29k->29.8k for the 2026-07-16 batch (macro-breakdown-once + WEIGH-INS
     // periodic-not-daily / never-scold-an-off-day-weigh-in) — trimmed lean first.
+    // Raised 29.8k->30.3k for the 2026-07-21 batch (recurring-reminder text must
+    // hold any day / never author scripture; weekly schedule is on file, stop
+    // re-asking) — trimmed lean first: the old "NEVER text-promise a reminder you
+    // didn't tool-call" argument shrank to one clause, because that rule is now
+    // enforced deterministically by stripFalseReminderClaims rather than by
+    // persuading the model.
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(29800);
+    expect(prompt.length).toBeLessThan(30300);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {

@@ -23,6 +23,7 @@ import { WeeklyReviewService } from './weekly-review.service';
 import { ScoreService } from './score.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { buildFaithBlock } from './faith-content';
+import { isSchedulingTask } from './reminder-content';
 import { CoachingService } from '../ai/coaching.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
@@ -223,9 +224,23 @@ export class CheckinProcessor {
         const localHour = offset !== null
           ? new Date(Date.now() + offset * 60_000).getUTCHours()
           : null;
-        const baseMessage = task
-          ? buildCheckinMessage(safeName, profile, task.task_description, { localDow, localHour })
+        // A plan item that asks the user to DECIDE their schedule is stale the
+        // moment they've decided. Nothing marked it done, so the check-in kept
+        // reading it out — "pick your PPL days and times" went out thirteen
+        // hours after the user answered it in chat (Karibi 2026-07-21). If a
+        // schedule is on file, drop the task and check in on the day instead.
+        const taskText = task?.task_description ?? null;
+        const stale = Boolean(user.weekly_schedule?.trim()) && isSchedulingTask(taskText);
+        const baseMessage = task && !stale
+          ? buildCheckinMessage(safeName, profile, taskText, { localDow, localHour })
           : buildCheckinMessage(safeName, profile, null, { localDow, localHour });
+        if (stale) {
+          structuredLog(this.logger, 'log', {
+            service: 'accountability',
+            operation: 'checkin_scheduling_task_suppressed',
+            userId: user.id,
+          });
+        }
 
         // PER-GOAL VALUE HOOK — FAITH (Rule 5). If they named a "closer to god" /
         // faith goal, their morning starts with a verse + affirmation ("head

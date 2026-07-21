@@ -1961,6 +1961,15 @@ export class CoachingProcessor {
       saveProfileField: async (input: { field: string; value: string }) => {
         return this.coachingService.saveProfileField(userId, input.field, input.value);
       },
+      saveWeeklySchedule: async (input: { schedule: string }) => {
+        const schedule = input.schedule.trim().slice(0, 500);
+        if (!schedule) return { ok: false as const, error: 'schedule must be a non-empty string' };
+        await this.userRepo.update(userId, {
+          weekly_schedule: schedule,
+          weekly_schedule_updated_at: new Date(),
+        });
+        return { ok: true as const, schedule };
+      },
     };
 
     // Tapbacks are iMessage-only and need the message_handle to target. Attach

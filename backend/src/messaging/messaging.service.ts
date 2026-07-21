@@ -10,6 +10,7 @@ import { structuredLog } from '../common/logger';
 import { humanizeVoice } from './voice';
 import { User } from '../data/entities/user.entity';
 import { normalizePhoneNumber } from '../common/phone';
+import { dedupKey } from './send-dedup';
 
 @Injectable()
 export class MessagingService implements OnModuleInit {
@@ -25,7 +26,10 @@ export class MessagingService implements OnModuleInit {
   // a legit exact repeat is implausible, so short confirmations ("ok", "done")
   // are never suppressed. In-memory, so it protects within a single instance.
   private readonly recentSends = new Map<string, number>();
-  private static readonly SEND_DEDUP_WINDOW_MS = 90_000;
+  // Widened from 90s on 2026-07-21. Two duplicate daily-reminder chains fired the
+  // same verse minutes apart and both landed; 90s was never long enough to span
+  // separate Bull jobs that merely share a scheduled minute.
+  private static readonly SEND_DEDUP_WINDOW_MS = 10 * 60_000;
   private static readonly SEND_DEDUP_MIN_LEN = 25;
 
   /** The six iMessage tapbacks SendBlue accepts. */
@@ -134,7 +138,7 @@ export class MessagingService implements OnModuleInit {
       for (const [k, ts] of this.recentSends) {
         if (now - ts >= MessagingService.SEND_DEDUP_WINDOW_MS) this.recentSends.delete(k);
       }
-      const key = `${to}::${clean}`;
+      const key = dedupKey(to, clean);
       const last = this.recentSends.get(key);
       if (last !== undefined && now - last < MessagingService.SEND_DEDUP_WINDOW_MS) {
         structuredLog(this.logger, 'warn', {
