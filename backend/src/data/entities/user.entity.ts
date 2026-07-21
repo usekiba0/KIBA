@@ -306,4 +306,11 @@ export class User {
 
   @Column({ type: 'timestamptz', nullable: true })
   weekly_schedule_updated_at: Date | null;
+
+  // Set when the one-and-only intake-stall nudge goes out. A marker, not a
+  // counter — leads who stall during signup get exactly one follow-up, ever.
+  // NULL means "never nudged", so this is also what stops a redeploy from
+  // re-chasing everyone. See intake-nudge.ts.
+  @Column({ type: 'timestamptz', nullable: true })
+  intake_nudged_at: Date | null;
 }

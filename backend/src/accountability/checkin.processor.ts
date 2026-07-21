@@ -2,7 +2,7 @@ import { Process, Processor } from '@nestjs/bull';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not, IsNull, Between } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Job, Queue } from 'bull';
 import { User, OnboardingStage, UserStatus } from '../data/entities/user.entity';
@@ -24,6 +24,9 @@ import { ScoreService } from './score.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { buildFaithBlock } from './faith-content';
 import { isSchedulingTask } from './reminder-content';
+import {
+  shouldNudgeIntake, buildIntakeNudge, STALL_MIN_MS, STALL_MAX_MS,
+} from './intake-nudge';
 import { CoachingService } from '../ai/coaching.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
@@ -348,6 +351,79 @@ export class CheckinProcessor {
     await this.recapService.scheduleAllRecaps();
     // Same re-arm for the weekly review.
     await this.weeklyReviewService.scheduleAllReviews();
+  }
+
+  /**
+   * Hourly sweep for leads who stalled mid-intake. See intake-nudge.ts for why
+   * this exists and why every guard in `shouldNudgeIntake` is there.
+   *
+   * Runs hourly rather than on a timer per lead because the eligibility window
+   * is hours wide, and an hourly pass means a lead who stalls at 3am is picked
+   * up when their local morning opens rather than being messaged at 3am.
+   *
+   * The DB query is a coarse pre-filter; `shouldNudgeIntake` is the authority.
+   * Deliberately fail-soft per user — one bad row must not abort the sweep.
+   */
+  @Process('intake-stall-sweep')
+  async handleIntakeStallSweep(): Promise<void> {
+    const now = new Date();
+    const candidates = await this.userRepo.find({
+      where: {
+        onboarding_stage: Not(OnboardingStage.COMPLETE),
+        intake_nudged_at: IsNull(),
+        opted_out_at: IsNull(),
+        last_active_at: Between(new Date(now.getTime() - STALL_MAX_MS), new Date(now.getTime() - STALL_MIN_MS)),
+      },
+      take: 200,
+    });
+
+    let sent = 0;
+    for (const user of candidates) {
+      const decision = shouldNudgeIntake(
+        {
+          onboardingStage: user.onboarding_stage,
+          status: user.status,
+          name: user.name,
+          lastActiveAt: user.last_active_at,
+          intakeNudgedAt: user.intake_nudged_at,
+          optedOutAt: user.opted_out_at,
+          utcOffsetMinutes: user.utc_offset_minutes,
+        },
+        now,
+      );
+      if (!decision.nudge) continue;
+
+      try {
+        // Claim BEFORE sending. A send that throws must not leave the lead
+        // eligible for a retry next hour — one nudge means one, and a duplicate
+        // "you still there?" to someone who hasn't finished opting in is worse
+        // than missing them entirely.
+        await this.userRepo.update(user.id, { intake_nudged_at: now });
+        await this.messagingService.send(user.phone_number, buildIntakeNudge(user.name as string));
+        sent++;
+        structuredLog(this.logger, 'log', {
+          service: 'accountability',
+          operation: 'intake_nudge_sent',
+          userId: user.id,
+        });
+      } catch (err) {
+        structuredLog(this.logger, 'error', {
+          service: 'accountability',
+          operation: 'intake_nudge_failed',
+          userId: user.id,
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    if (candidates.length) {
+      structuredLog(this.logger, 'log', {
+        service: 'accountability',
+        operation: 'intake_stall_sweep',
+        candidates: candidates.length,
+        sent,
+      });
+    }
   }
 
   /**
