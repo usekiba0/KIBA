@@ -6,6 +6,7 @@ import { AntiGhostState, GhostState } from '../../src/data/entities/anti-ghost-s
 import { User, UserStatus } from '../../src/data/entities/user.entity';
 import { Goal } from '../../src/data/entities/goal.entity';
 import { Message, MessageRole } from '../../src/data/entities/message.entity';
+import { DailyTask, TaskStatus } from '../../src/data/entities/daily-task.entity';
 import { PsychologicalProfile } from '../../src/data/entities/psychological-profile.entity';
 import { StrikeService } from '../../src/accountability/strike.service';
 import { MessagingService } from '../../src/messaging/messaging.service';
@@ -47,6 +48,7 @@ describe('AntiGhostService', () => {
   let mockMessageRepo: any;
   let mockMessagingService: any;
   let mockRecorder: any;
+  let mockTaskRepo: any;
 
   beforeEach(async () => {
     mockStateRepo = {
@@ -72,6 +74,11 @@ describe('AntiGhostService', () => {
     mockMessageRepo = { findOne: jest.fn().mockResolvedValue(null) };
     mockMessagingService = { send: jest.fn().mockResolvedValue(undefined) };
     mockRecorder = { record: jest.fn().mockResolvedValue(undefined) };
+    // Default: today's task exists and is NOT completed — the miss is real, so
+    // the pre-guard tests keep exercising the fire path unchanged.
+    mockTaskRepo = {
+      findOne: jest.fn().mockResolvedValue({ id: taskId, user_id: userId, status: TaskStatus.PENDING }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -81,6 +88,7 @@ describe('AntiGhostService', () => {
         { provide: getRepositoryToken(Goal), useValue: mockGoalRepo },
         { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
         { provide: getRepositoryToken(Message), useValue: mockMessageRepo },
+        { provide: getRepositoryToken(DailyTask), useValue: mockTaskRepo },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
         { provide: StrikeService, useValue: mockStrikeService },
         { provide: MessagingService, useValue: mockMessagingService },
@@ -177,8 +185,15 @@ describe('AntiGhostService', () => {
       );
     });
 
-    it('fires normally on the deferred re-run even if still saying they are away', async () => {
-      mockMessageRepo.findOne.mockResolvedValue(recentAway('going to sleep, talk later'));
+    it('fires normally on the deferred re-run when they stayed quiet', async () => {
+      // The away message is 4h old by the re-run — they never came back. (A
+      // NEWER inbound during the defer window means they're active and the
+      // replied-since-check-in guard suppresses instead — covered below.)
+      mockMessageRepo.findOne.mockResolvedValue({
+        content: 'going to sleep, talk later',
+        role: MessageRole.USER,
+        created_at: new Date(Date.now() - 4 * 60 * 60 * 1000),
+      });
       await service.onMissedCheckin(userId, taskId, /* alreadyDeferred */ true);
       // Second time around it does NOT defer again — a permanent "gn" can't
       // suppress the ghost forever.
@@ -203,8 +218,76 @@ describe('AntiGhostService', () => {
     });
 
     it('does NOT defer when the last inbound is a normal message', async () => {
-      mockMessageRepo.findOne.mockResolvedValue(recentAway('yeah that plan works for me'));
+      // 4h old: outside the replied-since-check-in window, so the only thing
+      // being tested here is the stated-return regex NOT matching.
+      mockMessageRepo.findOne.mockResolvedValue({
+        content: 'yeah that plan works for me',
+        role: MessageRole.USER,
+        created_at: new Date(Date.now() - 4 * 60 * 60 * 1000),
+      });
       await service.onMissedCheckin(userId, taskId);
+      expect(mockStrikeService.logStrike).toHaveBeenCalledWith(userId, taskId, 1);
+      expect(mockMessagingService.send).toHaveBeenCalled();
+    });
+  });
+
+  // Retraining doc B1 (#48, #118, #129): a strike ASSERTS FAILURE. It must
+  // never fire when the ledger or the thread disproves the miss.
+  describe('onMissedCheckin — verified-miss guards', () => {
+    it('does not strike or ghost when the task was already completed', async () => {
+      mockTaskRepo.findOne.mockResolvedValue({
+        id: taskId, user_id: userId, status: TaskStatus.COMPLETED,
+      });
+
+      await service.onMissedCheckin(userId, taskId);
+
+      expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+      expect(mockStateRepo.save).not.toHaveBeenCalled();
+      expect(mockQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('does not strike or ghost when the user replied since the check-in fired', async () => {
+      // Normal (non-away) reply 30 min ago — they answered the check-in; the
+      // live layer owns the conversation. "You went quiet" would be a lie.
+      mockMessageRepo.findOne.mockResolvedValue({
+        content: 'yea gym at 6',
+        role: MessageRole.USER,
+        created_at: new Date(Date.now() - 30 * 60 * 1000),
+      });
+
+      await service.onMissedCheckin(userId, taskId);
+
+      expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+      expect(mockStateRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('suppresses the deferred re-run too when the user texted during the defer window', async () => {
+      mockMessageRepo.findOne.mockResolvedValue({
+        content: 'game just ended, heading out now',
+        role: MessageRole.USER,
+        created_at: new Date(Date.now() - 20 * 60 * 1000),
+      });
+
+      await service.onMissedCheckin(userId, taskId, /* alreadyDeferred */ true);
+
+      expect(mockStrikeService.logStrike).not.toHaveBeenCalled();
+      expect(mockMessagingService.send).not.toHaveBeenCalled();
+    });
+
+    it('still strikes + ghosts a genuinely quiet user with an incomplete task', async () => {
+      mockTaskRepo.findOne.mockResolvedValue({
+        id: taskId, user_id: userId, status: TaskStatus.PENDING,
+      });
+      mockMessageRepo.findOne.mockResolvedValue({
+        content: 'morning',
+        role: MessageRole.USER,
+        created_at: new Date(Date.now() - 5 * 60 * 60 * 1000),
+      });
+
+      await service.onMissedCheckin(userId, taskId);
+
       expect(mockStrikeService.logStrike).toHaveBeenCalledWith(userId, taskId, 1);
       expect(mockMessagingService.send).toHaveBeenCalled();
     });
