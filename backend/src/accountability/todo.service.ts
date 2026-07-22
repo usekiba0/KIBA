@@ -169,7 +169,32 @@ export function splitPlanDayIntoItems(entry: string): string[] {
   // over-split — we keep commas inside items so "chicken, rice, broccoli" stays one item.
   const parts = stripped.split(/(?<=[.!?])\s+(?=[A-Z0-9])/);
 
-  return parts
-    .map((p) => p.trim().replace(/[.!?]+$/, '').trim())
-    .filter((p) => p.length >= 4);
+  const items = parts.map((p) => p.trim().replace(/[.!?]+$/, '').trim()).filter((p) => p.length >= 4);
+
+  // Fold trailing MODIFIER sentences back into the item they belong to. A plan
+  // entry like "Write down exactly why you skip legs. Be honest." is ONE task
+  // with an instruction attached — but the sentence split above made "Be
+  // honest" a standalone todo, which appeared on the user's list, was never
+  // completable, and counted as a MISS in the weekly review
+  // (KIBA_Retraining_Doc B4 — the ledger inventing items).
+  //
+  // What separates a modifier from a real short task is the OPENER, not the
+  // length: modifiers start with copulas/connectives ("Be honest", "No
+  // excuses", "Because consistency matters"), real tasks start with action
+  // verbs ("Eat clean", "Run 5K", "Map the journey" — all legitimate items
+  // pinned by tests). So fold only short sentences that open with a
+  // non-actionable word. Folding is lossless either way — the text stays,
+  // attached to the task it was modifying, instead of becoming a phantom
+  // checkable.
+  const MODIFIER_OPENER = /^(be|being|no|not|don'?t|do it|just|stay|keep it|because|why|so|and|also|then|remember|honestly|seriously|for real)\b/i;
+  const folded: string[] = [];
+  for (const item of items) {
+    const isModifier = item.split(/\s+/).length <= 4 && MODIFIER_OPENER.test(item);
+    if (isModifier && folded.length > 0) {
+      folded[folded.length - 1] = `${folded[folded.length - 1]}. ${item}`;
+    } else {
+      folded.push(item);
+    }
+  }
+  return folded;
 }

@@ -38,11 +38,18 @@ describe('buildWeeklyReviewMessage', () => {
     expect(msg.toLowerCase()).toMatch(/strong week/);
   });
 
-  it('calls out a no-show week', () => {
+  it('states the board and invites correction on a zero-done week — never a verdict', () => {
+    // Same rule as the nightly fold line: the weekly board can be wrong
+    // (chat completions the AI never marked, seeded plan rows), so "you
+    // didn't really show up this week" was a fabricatable accusation
+    // (Retraining msg #126). State the board's view, ask, keep the push.
     const msg = buildWeeklyReviewMessage({
       userName: 'Alex', doneCount: 0, missedCount: 5, proofCount: 0, score: 20,
     })!;
-    expect(msg.toLowerCase()).toMatch(/didn'?t really show up/);
+    expect(msg.toLowerCase()).not.toMatch(/didn'?t really show up/);
+    expect(msg.toLowerCase()).toContain('my board');
+    expect(msg.toLowerCase()).toContain('tell me what i missed');
+    expect(msg.toLowerCase()).toContain('you in?');
   });
 });
 
@@ -86,10 +93,28 @@ describe('buildNightRecapMessage', () => {
     expect(msg.toLowerCase()).toMatch(/clean day|locked-in/);
   });
 
-  it('calls out a fold when everything was dropped', () => {
+  it('states the board and invites correction on a zero-done day — never a verdict', () => {
+    // Was "you folded on everything today. no spin." — a verdict the recap
+    // cannot verify. It fired on a user who HAD trained that day, after the
+    // coaching layer negotiated proof to tomorrow (Karibi 2026-07-21;
+    // Retraining B4: no scheduled message asserts failure without verified
+    // thread history). The copy now owns that it's the board's view and asks.
     const msg = buildNightRecapMessage({ ...base, missed: ['gym'], score: 10 })!;
-    expect(msg.toLowerCase()).toContain('folded');
+    expect(msg.toLowerCase()).not.toContain('folded');
+    expect(msg.toLowerCase()).toContain('my board');
+    expect(msg.toLowerCase()).toContain("if you did the work and i missed it");
     expect(msg).toContain('gym');
+  });
+
+  it('renders long items as their first clause — never a mid-word cut (Karibi 2026-07-21)', () => {
+    // The live recap showed "❌ breakfast photo before eating. 2 slices PB s…"
+    // and then QUOTED that mangled fragment back in the closing line. Long
+    // AI-written todos carry task + detail; the first clause is the task.
+    const longItem = 'breakfast photo before eating. 2 slices PB smeared with almond butter and berries';
+    const msg = buildNightRecapMessage({ ...base, missed: [longItem], score: null })!;
+    expect(msg).toContain('❌ breakfast photo before eating');
+    expect(msg).not.toContain('PB s…');
+    expect(msg).not.toMatch(/\w…/); // no truncation ending mid-word anywhere
   });
 
   it('escalates on a repeated excuse instead of the normal verdict', () => {

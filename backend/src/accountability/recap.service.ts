@@ -20,6 +20,19 @@ import { structuredLog } from '../common/logger';
 const RECAP_LOCAL_TIME = '21:00';
 
 /**
+ * Mid-conversation deferral (KIBA_Retraining_Doc B1 — first slice). A recap
+ * that lands while the user is actively talking to KIBA reads as a bot barging
+ * into its own conversation with a stale summary — the retraining test's
+ * weekly review fired MID-CHAT with numbers the chat had already disproven.
+ * If the user sent anything in the last ACTIVE_WINDOW_MS, push tonight's recap
+ * back by DEFER_MS and check again. Bounded by local hour (< DEFER_CUTOFF_HOUR)
+ * so deferral can never walk the recap past midnight into the wrong local day.
+ */
+const ACTIVE_WINDOW_MS = 15 * 60_000;
+const DEFER_MS = 45 * 60_000;
+const DEFER_CUTOFF_HOUR = 23;
+
+/**
  * Night Recap (V1 spec PART 7). A nightly per-user job that mirrors the day
  * back: completed vs dropped missions, proof sent, the day's score, and
  * tomorrow's correction.
@@ -128,6 +141,29 @@ export class RecapService implements OnApplicationBootstrap {
     if (!user.crisis_hold) {
       const offset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
       const localDate = localDateString(offset);
+
+      // Defer rather than interrupt an active conversation — but only while
+      // there's still runway before local midnight; past the cutoff we send
+      // regardless, because a deferred recap that crosses midnight would claim
+      // and summarize the WRONG local day.
+      const localHour = new Date(Date.now() + (offset ?? 0) * 60_000).getUTCHours();
+      if (localHour < DEFER_CUTOFF_HOUR && (await this.userActiveWithin(userId, ACTIVE_WINDOW_MS))) {
+        const retryMinute = Math.floor((Date.now() + DEFER_MS) / 60_000);
+        await this.queue.add(
+          'send-recap',
+          { userId },
+          { delay: DEFER_MS, jobId: `recap-defer:${userId}:${retryMinute}`, removeOnComplete: true, removeOnFail: 5 },
+        );
+        structuredLog(this.logger, 'log', {
+          service: 'accountability',
+          operation: 'recap_deferred_active_conversation',
+          userId,
+          retryInMs: DEFER_MS,
+        });
+        await this.rescheduleTomorrow(user);
+        return;
+      }
+
       const claim = await this.userRepo
         .createQueryBuilder()
         .update(User)
@@ -147,13 +183,47 @@ export class RecapService implements OnApplicationBootstrap {
       }
     }
 
+    await this.rescheduleTomorrow(user);
+  }
+
+  /**
+   * The score, but only when it means something. The 0-100 score is computed
+   * EXCLUSIVELY from photo-proofed DailyTask completions — a ledger that text
+   * conversation cannot touch — so a user who does everything in chat is
+   * structurally pinned at 0/100, and the recap printed that 0 directly under
+   * a list of ✅ items (Karibi 2026-07-21, KIBA_Retraining_Doc B4). Until the
+   * proof ledger has recorded at least one real execution day, the score line
+   * is fabricated failure and is omitted. Best-effort: any scoring hiccup also
+   * omits the line rather than sinking the recap.
+   */
+  private async honestScore(userId: string): Promise<number | null> {
+    try {
+      const snapshot = await this.scoreService.updateScore(userId);
+      const fed = await this.scoreService.countExecutionDays(userId, 14);
+      return fed > 0 ? snapshot.current_score : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** True if the user sent anything within the window — we're mid-conversation. */
+  private async userActiveWithin(userId: string, windowMs: number): Promise<boolean> {
+    const last = await this.messageRepo.findOne({
+      where: { user_id: userId, role: MessageRole.USER },
+      order: { created_at: 'DESC' },
+      select: { id: true, created_at: true },
+    });
+    return !!last && Date.now() - new Date(last.created_at).getTime() < windowMs;
+  }
+
+  private async rescheduleTomorrow(user: User): Promise<void> {
     try {
       await this.scheduleRecap(user);
     } catch (err) {
       structuredLog(this.logger, 'error', {
         service: 'accountability',
         operation: 'recap_reenqueue_failed',
-        userId,
+        userId: user.id,
         error: (err as Error).message,
       });
     }
@@ -163,9 +233,7 @@ export class RecapService implements OnApplicationBootstrap {
     const [todos, proofCount, scoreSnapshot] = await Promise.all([
       this.todoRepo.find({ where: { user_id: user.id, scheduled_date: localDate as unknown as Date } }),
       this.countProofsForLocalDay(user.id, localDate, offset),
-      // Refresh + read today's score. Best-effort: a scoring hiccup shouldn't
-      // sink the whole recap, so fall back to null (the line is then omitted).
-      this.scoreService.updateScore(user.id).then((s) => s.current_score).catch(() => null),
+      this.honestScore(user.id),
     ]);
 
     // Done counts for any source — completing an auto-seeded plan task is real engagement.
