@@ -346,7 +346,7 @@ describe('CheckinProcessor', () => {
       expect(mockScoreService.countExecutionDays).toHaveBeenCalledWith('user-1', expect.any(Number));
       const body: string = mockMessagingService.send.mock.calls[0][1];
       expect(body).not.toMatch(/you actually did it/i);
-      expect(body).not.toMatch(/most people fall off by day 3/i);
+      expect(body).not.toMatch(/most people fold before the trial/i);
       expect(body).toContain('scale my clothing brand'); // still personalised + sells
     });
 
@@ -384,7 +384,7 @@ describe('buildTrialPriceReveal', () => {
     expect(msg).toContain('Alex');
     expect(msg).toContain('get to 100k');
     expect(msg).toContain('$20/month');
-    expect(msg).toMatch(/most people fall off by day 3/i); // social proof, earned
+    expect(msg).toMatch(/most people fold before the trial/i); // social proof, earned
     expect(msg).toMatch(/7 days/i);
     expect(msg).not.toMatch(/free trial/i);
   });
@@ -394,7 +394,7 @@ describe('buildTrialPriceReveal', () => {
     // The false-praise regression: no "you actually did it", no "fall off by day 3",
     // no fabricated day count.
     expect(msg).not.toMatch(/you actually did it/i);
-    expect(msg).not.toMatch(/most people fall off by day 3/i);
+    expect(msg).not.toMatch(/most people fold before the trial/i);
     expect(msg).not.toMatch(/days straight/i);
     expect(msg).not.toMatch(/\bshowed up\b/i);
     // Still sells: names the goal + price, honest about the ghosting.
@@ -405,13 +405,13 @@ describe('buildTrialPriceReveal', () => {
   it('defaults to the honest (non-praise) copy when no execution signal is given', () => {
     const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month' });
     expect(msg).not.toMatch(/you actually did it/i);
-    expect(msg).not.toMatch(/most people fall off by day 3/i);
+    expect(msg).not.toMatch(/most people fold before the trial/i);
   });
 
   it('uses an honest partial-week frame for light engagement (1-3 days)', () => {
     const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 2 });
     expect(msg).toMatch(/2 days/i);
-    expect(msg).not.toMatch(/most people fall off by day 3/i); // didn't earn the boast
+    expect(msg).not.toMatch(/most people fold before the trial/i); // didn't earn the boast
     expect(msg).toContain('$20/month');
   });
 
