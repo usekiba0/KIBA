@@ -271,8 +271,13 @@ describe('buildSystemPrompt', () => {
     // didn't tool-call" argument shrank to one clause, because that rule is now
     // enforced deterministically by stripFalseReminderClaims rather than by
     // persuading the model.
+    // Raised 30.3k->31.1k for the 2026-07-22 Retraining B7 batch (HARD LINES:
+    // ego stakes, identity verdicts, invented patterns, fork honored,
+    // ownership-with-repair). These are behavioral bans a live 133-message test
+    // showed the model violating six distinct ways under stress; they earn
+    // their tokens. Kept to one compact block instead of five scattered rules.
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(30300);
+    expect(prompt.length).toBeLessThan(31100);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
@@ -604,5 +609,41 @@ describe('buildSystemPrompt', () => {
       expect(prompt).not.toContain('USER LOCAL CLOCK');
       expect(prompt).not.toContain('USER TIMEZONE: unknown');
     });
+  });
+});
+
+describe('B7 hard lines (KIBA_Retraining_Doc — the dark-pattern cluster)', () => {
+  // The 133-message live test caught ego stakes ("don't make me look stupid"),
+  // identity referendums ("you just told me you don't actually want this" x2),
+  // a fabricated behavior pattern asserted at a user 3 days old ("the move you
+  // always make"), fake forks (choice offered, user's pick rejected — twice),
+  // and deflection when KIBA's own promised ping never fired. These rules are
+  // tone-independent: the founder's line is that toxic-push is a VOICE, never
+  // a mechanics package. Pinned so a future prompt trim can't silently drop
+  // them.
+  const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
+
+  it('bans ego stakes — the stakes are always the user’s goal', () => {
+    expect(prompt).toContain('stakes are THEIR goal, never yours');
+    expect(prompt).toContain(`don't make me look stupid`);
+  });
+
+  it('bans identity verdicts while keeping roasts legal', () => {
+    expect(prompt).toContain('no identity verdicts');
+    expect(prompt).toContain('a roast dares them to prove it wrong TODAY');
+  });
+
+  it('bans invented patterns — pattern claims need real data', () => {
+    expect(prompt).toContain('no invented patterns');
+    expect(prompt).toContain('move you always make');
+  });
+
+  it('a fork offered is a fork honored', () => {
+    expect(prompt).toContain('a fork offered is a fork honored');
+  });
+
+  it('demands ownership-with-repair of KIBA’s own misses', () => {
+    expect(prompt).toContain('own YOUR misses');
+    expect(prompt).toContain('never deflect it onto them');
   });
 });
