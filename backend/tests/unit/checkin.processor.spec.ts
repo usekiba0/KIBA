@@ -408,11 +408,20 @@ describe('buildTrialPriceReveal', () => {
     expect(msg).not.toMatch(/most people fold before the trial/i);
   });
 
-  it('uses an honest partial-week frame for light engagement (1-3 days)', () => {
-    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 2 });
-    expect(msg).toMatch(/2 days/i);
+  it('uses an honest partial frame for a single day of engagement', () => {
+    // Tier boundary recalibrated for the live 3-day trial (was days>=4, a
+    // 7-day-trial threshold that made the celebration nearly unreachable):
+    // one day = started but not earned; two days of a 3-day trial = showed up.
+    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 1 });
+    expect(msg).toMatch(/1 day/i);
     expect(msg).not.toMatch(/most people fold before the trial/i); // didn't earn the boast
     expect(msg).toContain('$20/month');
+  });
+
+  it('celebrates two days — on a 3-day trial that IS showing up', () => {
+    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 2 });
+    expect(msg).toMatch(/2 days you actually showed up/i);
+    expect(msg).toMatch(/most people fold before the trial/i);
   });
 
   it('degrades gracefully with no name or goal', () => {
