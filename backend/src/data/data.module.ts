@@ -27,6 +27,7 @@ import { ReferralCode } from './entities/referral-code.entity';
 import { ReferralService } from './referral.service';
 import { SessionCacheService } from './session-cache.service';
 import { SessionBoundaryService } from './session-boundary.service';
+import { OutboundRecorderService } from './outbound-recorder.service';
 import { DataRightsService } from './data-rights.service';
 import { DataRightsController } from './data-rights.controller';
 import { AdminService } from './admin.service';
@@ -79,7 +80,7 @@ const ENTITIES = [
     forwardRef(() => AccountabilityModule),
   ],
   controllers: [DataRightsController, AdminController, LegalController],
-  providers: [SessionCacheService, SessionBoundaryService, DataRightsService, AdminService, CorrectionService, StripeService, ReferralService],
-  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, RedisModule, StripeService, CorrectionService, ReferralService],
+  providers: [SessionCacheService, SessionBoundaryService, OutboundRecorderService, DataRightsService, AdminService, CorrectionService, StripeService, ReferralService],
+  exports: [TypeOrmModule, SessionCacheService, SessionBoundaryService, OutboundRecorderService, RedisModule, StripeService, CorrectionService, ReferralService],
 })
 export class DataModule {}

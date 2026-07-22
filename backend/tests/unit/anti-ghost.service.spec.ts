@@ -9,6 +9,7 @@ import { Message, MessageRole } from '../../src/data/entities/message.entity';
 import { PsychologicalProfile } from '../../src/data/entities/psychological-profile.entity';
 import { StrikeService } from '../../src/accountability/strike.service';
 import { MessagingService } from '../../src/messaging/messaging.service';
+import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
 
 const userId = 'user-1';
 const taskId = 'task-1';
@@ -45,6 +46,7 @@ describe('AntiGhostService', () => {
   let mockProfileRepo: any;
   let mockMessageRepo: any;
   let mockMessagingService: any;
+  let mockRecorder: any;
 
   beforeEach(async () => {
     mockStateRepo = {
@@ -69,6 +71,7 @@ describe('AntiGhostService', () => {
     // fires as before. Individual defer tests override findOne.
     mockMessageRepo = { findOne: jest.fn().mockResolvedValue(null) };
     mockMessagingService = { send: jest.fn().mockResolvedValue(undefined) };
+    mockRecorder = { record: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -81,6 +84,7 @@ describe('AntiGhostService', () => {
         { provide: getQueueToken('accountability'), useValue: mockQueue },
         { provide: StrikeService, useValue: mockStrikeService },
         { provide: MessagingService, useValue: mockMessagingService },
+        { provide: OutboundRecorderService, useValue: mockRecorder },
       ],
     }).compile();
 
@@ -99,6 +103,16 @@ describe('AntiGhostService', () => {
     it('logs a strike at escalation_level 1', async () => {
       await service.onMissedCheckin(userId, taskId);
       expect(mockStrikeService.logStrike).toHaveBeenCalledWith(userId, taskId, 1);
+    });
+
+    it('records the ghost outbound as a Message row (kind=ghost)', async () => {
+      await service.onMissedCheckin(userId, taskId);
+      expect(mockMessagingService.send).toHaveBeenCalled();
+      expect(mockRecorder.record).toHaveBeenCalledWith(
+        userId,
+        expect.any(String),
+        'ghost',
+      );
     });
 
     it('queues a ghost_2 escalation job (~3h after ghost_1, = 5h since miss)', async () => {

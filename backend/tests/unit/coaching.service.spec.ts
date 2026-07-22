@@ -353,7 +353,7 @@ describe('CoachingService', () => {
       role: MessageRole.USER, message_type: MessageType.TEXT,
       content: 'I ran 1K yesterday', media_url: null,
       media_content_type: null, twilio_sid: null, provider_message_id: null, token_count: null,
-      is_checkin_prompt: false, is_proof_submission: false,
+      is_checkin_prompt: false, is_proof_submission: false, scheduled_kind: null,
       flagged: false, flag_reason: null, created_at: new Date(),
     }];
     await service.generateReply(testUser, history, 'What next?');

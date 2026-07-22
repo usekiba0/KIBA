@@ -13,6 +13,7 @@ import { StrikeService } from './strike.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { buildGhostMessage } from '../ai/prompts/ghost.prompt';
 import { statesTemporaryReturn } from './ghost-context';
+import { OutboundRecorderService } from '../data/outbound-recorder.service';
 import { structuredLog } from '../common/logger';
 
 // Ghost context-suppression (Rule 13). If the user's last inbound said they'd be
@@ -44,6 +45,7 @@ export class AntiGhostService {
     @InjectQueue('accountability') private readonly queue: Queue,
     private readonly strikeService: StrikeService,
     private readonly messagingService: MessagingService,
+    private readonly recorder: OutboundRecorderService,
   ) {}
 
   /**
@@ -240,6 +242,9 @@ export class AntiGhostService {
         goal?.goal_type ?? GoalType.OUTCOME,
       );
       await this.messagingService.send(user.phone_number, message);
+      // Visible to the live coaching layer + admin API (Retraining doc B1) —
+      // KIBA must be able to see (and own) the ghosts it sent.
+      await this.recorder.record(user.id, message, 'ghost');
     } catch (err) {
       this.logger.warn(`ghost-message send failed for ${user.id} level ${level}: ${(err as Error).message}`);
     }

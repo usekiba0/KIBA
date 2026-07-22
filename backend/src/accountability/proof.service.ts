@@ -8,6 +8,7 @@ import { PsychologicalProfile } from '../data/entities/psychological-profile.ent
 import { AntiGhostService } from './anti-ghost.service';
 import { ScoreService } from './score.service';
 import { MessagingService } from '../messaging/messaging.service';
+import { OutboundRecorderService } from '../data/outbound-recorder.service';
 import { buildMilestoneMessage, pickMilestone } from '../ai/prompts/milestone.prompt';
 import { structuredLog } from '../common/logger';
 
@@ -31,6 +32,7 @@ export class ProofService {
     private readonly antiGhostService: AntiGhostService,
     private readonly scoreService: ScoreService,
     private readonly messagingService: MessagingService,
+    private readonly recorder: OutboundRecorderService,
   ) {}
 
   async submitProof(dto: SubmitProofDto): Promise<Proof> {
@@ -101,6 +103,8 @@ export class ProofService {
     if (!message) return;
 
     await this.messagingService.send(user.phone_number, message);
+    // Visible to the live coaching layer + admin API (Retraining doc B1).
+    await this.recorder.record(userId, message, 'milestone');
     await this.userRepo.update(userId, { last_milestone_hit: milestone });
 
     structuredLog(this.logger, 'log', {

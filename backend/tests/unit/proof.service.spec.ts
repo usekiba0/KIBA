@@ -8,6 +8,7 @@ import { ScoreService } from '../../src/accountability/score.service';
 import { User } from '../../src/data/entities/user.entity';
 import { PsychologicalProfile } from '../../src/data/entities/psychological-profile.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
+import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
 
 const testTask: DailyTask = {
   id: 'task-1',
@@ -30,6 +31,7 @@ describe('ProofService', () => {
   let mockUserRepo: any;
   let mockProfileRepo: any;
   let mockMessagingService: any;
+  let mockRecorder: any;
 
   beforeEach(async () => {
     mockProofRepo = {
@@ -59,6 +61,7 @@ describe('ProofService', () => {
     mockMessagingService = {
       send: jest.fn().mockResolvedValue(undefined),
     };
+    mockRecorder = { record: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -70,6 +73,7 @@ describe('ProofService', () => {
         { provide: AntiGhostService, useValue: mockAntiGhostService },
         { provide: ScoreService, useValue: mockScoreService },
         { provide: MessagingService, useValue: mockMessagingService },
+        { provide: OutboundRecorderService, useValue: mockRecorder },
       ],
     }).compile();
 
@@ -77,6 +81,32 @@ describe('ProofService', () => {
   });
 
   describe('submitProof', () => {
+    it('records a fired milestone as a Message row (kind=milestone)', async () => {
+      // 3 consecutive completed days ending today → streak 3 → milestone fires.
+      // Dates built exactly like computeCurrentStreak's walk (local midnight).
+      const day = (d: number) => {
+        const t = new Date();
+        t.setHours(0, 0, 0, 0);
+        t.setDate(t.getDate() - d);
+        return t;
+      };
+      mockTaskRepo.find.mockResolvedValue([
+        { scheduled_date: day(0), status: TaskStatus.COMPLETED },
+        { scheduled_date: day(1), status: TaskStatus.COMPLETED },
+        { scheduled_date: day(2), status: TaskStatus.COMPLETED },
+      ]);
+
+      await service.submitProof({
+        userId: 'user-1',
+        taskId: 'task-1',
+        type: ProofType.PHOTO,
+        mediaUrl: 'https://example.com/proof.jpg',
+      });
+
+      expect(mockMessagingService.send).toHaveBeenCalled();
+      expect(mockRecorder.record).toHaveBeenCalledWith('user-1', expect.any(String), 'milestone');
+    });
+
     it('creates a proof record with the correct type and user', async () => {
       await service.submitProof({
         userId: 'user-1',

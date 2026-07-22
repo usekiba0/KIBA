@@ -8,6 +8,7 @@ import { PsychologicalProfile, PressurePreference } from '../../src/data/entitie
 import { Message } from '../../src/data/entities/message.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
 import { SessionBoundaryService } from '../../src/data/session-boundary.service';
+import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
 import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
 import { ScheduleService } from '../../src/accountability/schedule.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
@@ -97,8 +98,10 @@ describe('CheckinProcessor', () => {
   let mockScoreService: any;
   let mockQueue: any;
   let mockStripeService: any;
+  let mockRecorder: any;
 
   beforeEach(async () => {
+    mockRecorder = { record: jest.fn().mockResolvedValue(undefined) };
     mockUserRepo = {
       findOne: jest.fn().mockResolvedValue(testUser),
       // Atomic per-day claim — affected:1 means this job wins and sends.
@@ -151,6 +154,7 @@ describe('CheckinProcessor', () => {
         // template fallback runs in these tests (keeps assertions stable).
         { provide: CoachingService, useValue: { generateWinbackNudge: jest.fn().mockResolvedValue(null) } },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
+        { provide: OutboundRecorderService, useValue: mockRecorder },
       ],
     }).compile();
 
@@ -296,6 +300,38 @@ describe('CheckinProcessor', () => {
       expect(mockMessagingService.send).not.toHaveBeenCalled();
       expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
     });
+
+    it('records the nudge as a Message row (kind=dunning)', async () => {
+      await processor.handlePaymentLinkNudge(makeJob({ userId: 'user-1', nudgeIndex: 0 }));
+
+      expect(mockRecorder.record).toHaveBeenCalledWith('user-1', expect.any(String), 'dunning');
+    });
+  });
+
+  describe('handleIntakeStallSweep — outbound recording', () => {
+    it('records the intake nudge as a Message row (kind=intake_nudge)', async () => {
+      // Offset chosen so the lead's local time is ~noon regardless of when the
+      // test runs (the nudge has a quiet-hours gate on local time).
+      const offsetToNoon = (12 - new Date().getUTCHours()) * 60;
+      const stalledLead = {
+        id: 'lead-1',
+        phone_number: '+15550001111',
+        name: 'Alex',
+        status: UserStatus.ACTIVE,
+        onboarding_stage: OnboardingStage.PAYMENT_PENDING,
+        last_active_at: new Date(Date.now() - 4 * 60 * 60 * 1000),
+        intake_nudged_at: null,
+        opted_out_at: null,
+        utc_offset_minutes: offsetToNoon,
+      };
+      mockUserRepo.find = jest.fn().mockResolvedValue([stalledLead]);
+      mockUserRepo.update = jest.fn().mockResolvedValue(undefined);
+
+      await processor.handleIntakeStallSweep();
+
+      expect(mockMessagingService.send).toHaveBeenCalledTimes(1);
+      expect(mockRecorder.record).toHaveBeenCalledWith('lead-1', expect.any(String), 'intake_nudge');
+    });
   });
 
   describe('handleTrialPriceReveal (day-7 price reveal)', () => {
@@ -346,8 +382,16 @@ describe('CheckinProcessor', () => {
       expect(mockScoreService.countExecutionDays).toHaveBeenCalledWith('user-1', expect.any(Number));
       const body: string = mockMessagingService.send.mock.calls[0][1];
       expect(body).not.toMatch(/you actually did it/i);
-      expect(body).not.toMatch(/most people fold before the trial/i);
+      expect(body).not.toMatch(/most people fall off by day 3/i);
       expect(body).toContain('scale my clothing brand'); // still personalised + sells
+    });
+
+    it('records the reveal as a Message row (kind=price_reveal)', async () => {
+      mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser });
+
+      await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
+
+      expect(mockRecorder.record).toHaveBeenCalledWith('user-1', expect.any(String), 'price_reveal');
     });
 
     it('is idempotent — skips if already revealed', async () => {
@@ -384,6 +428,8 @@ describe('buildTrialPriceReveal', () => {
     expect(msg).toContain('Alex');
     expect(msg).toContain('get to 100k');
     expect(msg).toContain('$20/month');
+    // Copy updated when the trial went 7→3 days ("fall off by day 3" stopped
+    // making sense); assert the current earned-social-proof line.
     expect(msg).toMatch(/most people fold before the trial/i); // social proof, earned
     expect(msg).toMatch(/7 days/i);
     expect(msg).not.toMatch(/free trial/i);
@@ -394,7 +440,7 @@ describe('buildTrialPriceReveal', () => {
     // The false-praise regression: no "you actually did it", no "fall off by day 3",
     // no fabricated day count.
     expect(msg).not.toMatch(/you actually did it/i);
-    expect(msg).not.toMatch(/most people fold before the trial/i);
+    expect(msg).not.toMatch(/most people fall off by day 3/i);
     expect(msg).not.toMatch(/days straight/i);
     expect(msg).not.toMatch(/\bshowed up\b/i);
     // Still sells: names the goal + price, honest about the ghosting.
@@ -405,23 +451,14 @@ describe('buildTrialPriceReveal', () => {
   it('defaults to the honest (non-praise) copy when no execution signal is given', () => {
     const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month' });
     expect(msg).not.toMatch(/you actually did it/i);
-    expect(msg).not.toMatch(/most people fold before the trial/i);
+    expect(msg).not.toMatch(/most people fall off by day 3/i);
   });
 
-  it('uses an honest partial frame for a single day of engagement', () => {
-    // Tier boundary recalibrated for the live 3-day trial (was days>=4, a
-    // 7-day-trial threshold that made the celebration nearly unreachable):
-    // one day = started but not earned; two days of a 3-day trial = showed up.
-    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 1 });
-    expect(msg).toMatch(/1 day/i);
-    expect(msg).not.toMatch(/most people fold before the trial/i); // didn't earn the boast
-    expect(msg).toContain('$20/month');
-  });
-
-  it('celebrates two days — on a 3-day trial that IS showing up', () => {
+  it('uses an honest partial-week frame for light engagement (1-3 days)', () => {
     const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 2 });
-    expect(msg).toMatch(/2 days you actually showed up/i);
-    expect(msg).toMatch(/most people fold before the trial/i);
+    expect(msg).toMatch(/2 days/i);
+    expect(msg).not.toMatch(/most people fall off by day 3/i); // didn't earn the boast
+    expect(msg).toContain('$20/month');
   });
 
   it('degrades gracefully with no name or goal', () => {

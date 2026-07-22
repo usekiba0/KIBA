@@ -9,6 +9,7 @@ import { MessagingService } from '../messaging/messaging.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
 import { reminderSignature } from './reminder-content';
+import { OutboundRecorderService } from '../data/outbound-recorder.service';
 
 // 2-minute floor: SendBlue queue + iMessage delivery has 30-90s of inherent
 // latency. Below this we can't promise the user a useful reminder, so we
@@ -123,6 +124,7 @@ export class ScheduleService {
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectQueue('accountability') private readonly queue: Queue,
     private readonly messagingService: MessagingService,
+    private readonly recorder: OutboundRecorderService,
   ) {}
 
   /**
@@ -344,6 +346,9 @@ export class ScheduleService {
     let sendErr: Error | null = null;
     try {
       await this.messagingService.send(user.phone_number, reminder.message);
+      // Visible to the live coaching layer + admin API (Retraining doc B1) —
+      // fired reminders were previously invisible to the conversation thread.
+      await this.recorder.record(user.id, reminder.message, 'reminder');
       await this.reminderRepo.update(reminderId, {
         status: ScheduledReminderStatus.FIRED,
         fired_at: new Date(),
