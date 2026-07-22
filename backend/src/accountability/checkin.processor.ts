@@ -13,6 +13,7 @@ import { PsychologicalProfile } from '../data/entities/psychological-profile.ent
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { SessionBoundaryService } from '../data/session-boundary.service';
+import { OutboundRecorderService } from '../data/outbound-recorder.service';
 import { AntiGhostService } from './anti-ghost.service';
 import { ScheduleService } from './schedule.service';
 import { CheckinService } from './checkin.service';
@@ -172,6 +173,7 @@ export class CheckinProcessor {
     @Inject(forwardRef(() => CoachingService))
     private readonly coachingService: CoachingService,
     @InjectQueue('accountability') private readonly queue: Queue,
+    private readonly recorder: OutboundRecorderService,
   ) {}
 
   @Process('send-checkin')
@@ -294,6 +296,7 @@ export class CheckinProcessor {
             message_type: MessageType.TEXT,
             content: message,
             is_checkin_prompt: true,
+            scheduled_kind: 'checkin',
           });
           await this.sessionBoundary.recordMessage(boundary.sessionId);
         } catch (err) {
@@ -403,7 +406,10 @@ export class CheckinProcessor {
         // "you still there?" to someone who hasn't finished opting in is worse
         // than missing them entirely.
         await this.userRepo.update(user.id, { intake_nudged_at: now });
-        await this.messagingService.send(user.phone_number, buildIntakeNudge(user.name as string));
+        const nudgeText = buildIntakeNudge(user.name as string);
+        await this.messagingService.send(user.phone_number, nudgeText);
+        // Visible to the live coaching layer + admin API (Retraining doc B1).
+        await this.recorder.record(user.id, nudgeText, 'intake_nudge');
         sent++;
         structuredLog(this.logger, 'log', {
           service: 'accountability',
@@ -490,6 +496,8 @@ export class CheckinProcessor {
     });
     const text = generated ?? buildDunningNudge(nudgeIndex, { name: user.name, goal, obstacle, trialDays });
     await this.messagingService.send(user.phone_number, text);
+    // Visible to the live coaching layer + admin API (Retraining doc B1).
+    await this.recorder.record(userId, text, 'dunning');
 
     await this.userRepo.update(userId, { dunning_nudges_sent: user.dunning_nudges_sent + 1 });
 
@@ -540,6 +548,8 @@ export class CheckinProcessor {
       executionDays,
     });
     await this.messagingService.send(user.phone_number, text);
+    // Visible to the live coaching layer + admin API (Retraining doc B1).
+    await this.recorder.record(userId, text, 'price_reveal');
     await this.userRepo.update(userId, { trial_price_revealed_at: new Date() });
 
     structuredLog(this.logger, 'log', {

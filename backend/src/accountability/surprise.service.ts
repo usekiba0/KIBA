@@ -8,6 +8,7 @@ import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { AntiGhostState, GhostState } from '../data/entities/anti-ghost-state.entity';
 import { MessagingService } from '../messaging/messaging.service';
+import { OutboundRecorderService } from '../data/outbound-recorder.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import {
   buildSurpriseMessage,
@@ -51,6 +52,7 @@ export class SurpriseService {
     @InjectRepository(AntiGhostState) private readonly ghostRepo: Repository<AntiGhostState>,
     @Inject(forwardRef(() => MessagingService)) private readonly messagingService: MessagingService,
     @InjectQueue('accountability') private readonly queue: Queue,
+    private readonly recorder: OutboundRecorderService,
   ) {}
 
   /**
@@ -143,6 +145,8 @@ export class SurpriseService {
 
     try {
       await this.messagingService.send(user.phone_number, message);
+      // Visible to the live coaching layer + admin API (Retraining doc B1).
+      await this.recorder.record(userId, message, 'surprise');
       structuredLog(this.logger, 'log', {
         service: 'accountability', operation: 'surprise_sent',
         userId, flavor, daysIn, completedCount,

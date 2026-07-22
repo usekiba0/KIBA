@@ -138,3 +138,78 @@ describe('buildSurpriseMessage', () => {
     }
   });
 });
+
+// ── SurpriseService.fire — outbound recording ────────────────────────────────
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { getQueueToken } from '@nestjs/bull';
+import { SurpriseService } from '../../src/accountability/surprise.service';
+import { User, UserStatus, OnboardingStage } from '../../src/data/entities/user.entity';
+import { DailyTask } from '../../src/data/entities/daily-task.entity';
+import { PsychologicalProfile } from '../../src/data/entities/psychological-profile.entity';
+import { AntiGhostState } from '../../src/data/entities/anti-ghost-state.entity';
+import { MessagingService } from '../../src/messaging/messaging.service';
+import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
+
+describe('SurpriseService.fire', () => {
+  let service: SurpriseService;
+  let userRepo: any;
+  let taskRepo: any;
+  let profileRepo: any;
+  let ghostRepo: any;
+  let messagingService: any;
+  let recorder: any;
+
+  const eligibleUser = {
+    id: 'u-1',
+    phone_number: '+15551234567',
+    name: 'Alex',
+    status: UserStatus.ACTIVE,
+    onboarding_stage: OnboardingStage.COMPLETE,
+    crisis_hold: false,
+    iana_timezone: null,
+    utc_offset_minutes: -300,
+    // active recently enough to not be dormant, but outside the 6h skip window
+    last_active_at: new Date(Date.now() - 8 * 60 * 60 * 1000),
+    registered_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+  } as unknown as User;
+
+  beforeEach(async () => {
+    userRepo = { findOne: jest.fn().mockResolvedValue(eligibleUser) };
+    taskRepo = { count: jest.fn().mockResolvedValue(4) };
+    profileRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    ghostRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    messagingService = { send: jest.fn().mockResolvedValue(undefined) };
+    recorder = { record: jest.fn().mockResolvedValue(undefined) };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        SurpriseService,
+        { provide: getRepositoryToken(User), useValue: userRepo },
+        { provide: getRepositoryToken(DailyTask), useValue: taskRepo },
+        { provide: getRepositoryToken(PsychologicalProfile), useValue: profileRepo },
+        { provide: getRepositoryToken(AntiGhostState), useValue: ghostRepo },
+        { provide: MessagingService, useValue: messagingService },
+        { provide: getQueueToken('accountability'), useValue: { add: jest.fn() } },
+        { provide: OutboundRecorderService, useValue: recorder },
+      ],
+    }).compile();
+
+    service = module.get(SurpriseService);
+  });
+
+  it('records the surprise outbound as a Message row (kind=surprise)', async () => {
+    await service.fire('u-1');
+
+    expect(messagingService.send).toHaveBeenCalled();
+    expect(recorder.record).toHaveBeenCalledWith('u-1', expect.any(String), 'surprise');
+  });
+
+  it('does NOT record when the send fails', async () => {
+    messagingService.send.mockRejectedValueOnce(new Error('down'));
+
+    await service.fire('u-1');
+
+    expect(recorder.record).not.toHaveBeenCalled();
+  });
+});

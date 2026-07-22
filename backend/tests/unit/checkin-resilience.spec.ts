@@ -7,6 +7,7 @@ import { PsychologicalProfile } from '../../src/data/entities/psychological-prof
 import { Message } from '../../src/data/entities/message.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
 import { SessionBoundaryService } from '../../src/data/session-boundary.service';
+import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
 import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
 import { ScheduleService } from '../../src/accountability/schedule.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
@@ -105,6 +106,7 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
         { provide: ConfigService, useValue: { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') } },
         { provide: CoachingService, useValue: { generateWinbackNudge: jest.fn().mockResolvedValue(null) } },
         { provide: getQueueToken('accountability'), useValue: queue },
+        { provide: OutboundRecorderService, useValue: { record: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 

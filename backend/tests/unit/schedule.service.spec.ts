@@ -5,6 +5,7 @@ import { ScheduleService, normalizeLocalTime } from '../../src/accountability/sc
 import { ScheduledReminder, ScheduledReminderStatus, ReminderRecurrence } from '../../src/data/entities/scheduled-reminder.entity';
 import { User } from '../../src/data/entities/user.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
+import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
 
 describe('ScheduleService', () => {
   let service: ScheduleService;
@@ -12,8 +13,10 @@ describe('ScheduleService', () => {
   let userRepo: { findOne: jest.Mock };
   let queue: { add: jest.Mock; getJob: jest.Mock };
   let messagingService: { send: jest.Mock };
+  let recorder: { record: jest.Mock };
 
   beforeEach(async () => {
+    recorder = { record: jest.fn().mockResolvedValue(undefined) };
     reminderRepo = {
       save: jest.fn().mockImplementation(async (row) => ({ id: 'rem-1', ...row })),
       find: jest.fn(),
@@ -31,6 +34,7 @@ describe('ScheduleService', () => {
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getQueueToken('accountability'), useValue: queue },
         { provide: MessagingService, useValue: messagingService },
+        { provide: OutboundRecorderService, useValue: recorder },
       ],
     }).compile();
 
@@ -281,6 +285,35 @@ describe('ScheduleService', () => {
         status: ScheduledReminderStatus.FIRED,
         fired_at: expect.any(Date),
       }));
+    });
+
+    it('records the fired reminder as a Message row (kind=reminder)', async () => {
+      reminderRepo.findOne.mockResolvedValue({
+        id: 'rem-1',
+        user_id: 'u-1',
+        status: ScheduledReminderStatus.PENDING,
+        message: 'go time',
+      });
+      userRepo.findOne.mockResolvedValue({ id: 'u-1', phone_number: '+15551234567', crisis_hold: false });
+
+      await service.fire('rem-1');
+
+      expect(recorder.record).toHaveBeenCalledWith('u-1', 'go time', 'reminder');
+    });
+
+    it('does NOT record a Message row when the send fails', async () => {
+      reminderRepo.findOne.mockResolvedValue({
+        id: 'rem-1',
+        user_id: 'u-1',
+        status: ScheduledReminderStatus.PENDING,
+        message: 'go time',
+      });
+      userRepo.findOne.mockResolvedValue({ id: 'u-1', phone_number: '+15551234567', crisis_hold: false });
+      messagingService.send.mockRejectedValueOnce(new Error('twilio down'));
+
+      await expect(service.fire('rem-1')).rejects.toThrow();
+
+      expect(recorder.record).not.toHaveBeenCalled();
     });
 
     it('skips silently when reminder already fired (idempotent re-delivery)', async () => {

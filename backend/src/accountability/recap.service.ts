@@ -292,6 +292,7 @@ export class RecapService implements OnApplicationBootstrap {
         role: MessageRole.AI,
         message_type: MessageType.TEXT,
         content: message,
+        scheduled_kind: 'recap',
       });
       await this.sessionBoundary.recordMessage(boundary.sessionId);
     } catch (err) {

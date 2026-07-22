@@ -56,6 +56,14 @@ export class Message {
   @Column({ type: 'boolean', default: false })
   is_checkin_prompt: boolean;
 
+  // Which scheduled/triggered sender class produced this AI row (checkin, recap,
+  // ghost, reminder, surprise, dunning, intake_nudge, price_reveal, milestone,
+  // weekly_review). NULL for live coaching replies and user rows. Gives every
+  // scheduled class a DB-visible fired record and lets the coaching context
+  // label machine-sent turns.
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  scheduled_kind: string | null;
+
   @Column({ type: 'boolean', default: false })
   is_proof_submission: boolean;
 
