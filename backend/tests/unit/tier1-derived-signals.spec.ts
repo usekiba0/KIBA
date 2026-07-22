@@ -102,13 +102,19 @@ describe('buildGhostMessage', () => {
     expect(l6.length).toBeGreaterThan(l3.length);
   });
 
-  it('level 3 (day 2) references the user\'s avoidance pattern when present', () => {
+  it('level 3 (day 2) quotes the user\'s stated avoidance as THEIR words, and asks', () => {
+    // B7 rewrite: the old copy asserted "…is kinda your pattern" as a verdict
+    // (and did so even with an empty profile). The data still gets used — but
+    // as a quote of what they told us, ending in a question, never a diagnosis.
     const msg = buildGhostMessage(
       3, 'A', 'g',
       { avoidance_patterns: 'going quiet when things get hard' } as any,
       2,
     );
-    expect(msg.toLowerCase()).toContain('pattern');
+    expect(msg.toLowerCase()).toContain('going quiet when things get hard');
+    expect(msg).toContain('you told me');
+    expect(msg).toContain('?');
+    expect(msg.toLowerCase()).not.toContain('your pattern');
   });
 
   it('null profile still produces usable messages at all levels', () => {

@@ -48,7 +48,7 @@ export function buildSurpriseMessage(input: SurpriseInput): string {
       return `haven't heard much from you today.\nhow are things actually?`;
 
     case 'playful':
-      return `scale of 1-10 how locked in are you feeling rn.\nbe honest 😂`;
+      return `scale of 1-10 how locked in are you feeling rn.\nbe honest`;
 
     case 'curiosity': {
       // Karibi "Curiosity Engine" — interest with no goal attached. Humans get
