@@ -18,6 +18,8 @@ import { Subscription } from '../data/entities/subscription.entity';
 import { currentStreakFromTasks } from '../accountability/score.service';
 import { validateRecurringMessage } from '../accountability/reminder-content';
 import { stripFalseReminderClaims } from './reminder-claim-guard';
+import { evaluate } from './calc';
+import { correctArithmeticClaims } from './math-claim-guard';
 import { buildSystemPrompt, PatternSignals } from './prompts/coaching.prompt';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
@@ -330,6 +332,23 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
       value: { description: 'String for free-text fields, boolean for cussing_ok.' },
     },
     required: ['field', 'value'],
+  },
+};
+
+const CALCULATE_TOOL: Tool = {
+  name: 'calculate',
+  description:
+    'Do arithmetic EXACTLY. Call this for ANY number you derive rather than were told — meal/macro totals, ' +
+    'savings plans, per-week splits, "that adds up to", price comparisons. Founder rule: arithmetic is never ' +
+    'estimated in prose; a coach whose numbers are plausibly wrong is worse than one with no numbers. ' +
+    'Pass a plain expression using only digits and + - * / % ( ) — no units, no $ signs, no commas ' +
+    '(e.g. "500*6" or "(350+450+120)*7"). Use the exact result in your reply.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      expression: { type: 'string', description: 'Arithmetic expression: digits and + - * / % ( ) only.' },
+    },
+    required: ['expression'],
   },
 };
 
@@ -713,6 +732,7 @@ export class CoachingService {
           ADD_TODO_TOOL, LIST_TODAY_TODOS_TOOL, MARK_TODO_DONE_TOOL, REMOVE_TODO_TOOL,
           CORRECT_MISSED_TASK_TOOL,
           SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL, SAVE_WEEKLY_SCHEDULE_TOOL,
+          CALCULATE_TOOL,
           // Only offered on iMessage — the handler is present only then.
           ...(toolHandlers.reactToMessage ? [REACT_TO_MESSAGE_TOOL] : []),
         ]
@@ -1137,6 +1157,21 @@ export class CoachingService {
       });
     }
 
+    // HARD CHECK on inline arithmetic (Retraining B5 — founder priority).
+    // The calculate tool is the front door; this is the backstop for equations
+    // the model still writes in prose. Only provably-wrong sums/products with
+    // all operands present in the sentence are touched — see math-claim-guard.
+    const mathGuard = correctArithmeticClaims(finalReply);
+    if (mathGuard.corrections.length > 0) {
+      finalReply = mathGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'math_claim_corrected',
+        userId: args.userId,
+        corrections: mathGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
     // HARD CHECK on reminder promises. Saying "locked, 8am daily" without ever
     // calling schedule_reminder is the worst failure the product has: the user
     // stops holding the thing themselves and nothing ever fires. Only runs when
@@ -1272,6 +1307,20 @@ export class CoachingService {
       const result = await toolHandlers.removeTodo({ todo_id: input.todo_id });
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_remove_todo', userId, ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'calculate') {
+      const input = block.input as { expression?: unknown };
+      if (typeof input.expression !== 'string') {
+        return { ok: false, error: 'expression must be a string' };
+      }
+      const result = evaluate(input.expression);
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_calculate',
+        userId, ok: result.ok,
+        expression: input.expression.slice(0, 80),
+        result: result.ok ? result.result : null,
       });
       return result;
     }

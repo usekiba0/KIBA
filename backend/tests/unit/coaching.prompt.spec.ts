@@ -280,7 +280,10 @@ describe('buildSystemPrompt', () => {
     // #49/#127): one line making correct_missed_task mandatory behind any
     // "score's fixed" — the tool that turns a worded apology into a DB fix.
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(31200);
+    // Raised 31.2k->31.6k for the 2026-07-22 B5 math rule (derived numbers go
+    // through the calculate tool — founder priority: zero math errors; six
+    // misses in the 133-message live test).
+    expect(prompt.length).toBeLessThan(31600);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
