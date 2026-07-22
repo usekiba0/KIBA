@@ -26,7 +26,10 @@ describe('buildPaymentNotActivePrompt', () => {
     const p = buildPaymentNotActivePrompt(ctx({ name: 'Ali', goal: 'gym', trialDays: 14, priceDisplay: '$29/month' }));
     expect(p).toContain('name: Ali');
     expect(p).toContain('goal: gym');
-    expect(p).toContain('14 days free');
+    // "N days free" became "a N-day trial" — founder kill-list bans "free" /
+    // "zero risk" phrasing in outbound instructions (KIBA_Retraining_Doc P0).
+    expect(p).toContain('a 14-day trial');
+    expect(p).not.toContain('days free');
     expect(p).toContain('$29/month');
   });
 

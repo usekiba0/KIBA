@@ -725,7 +725,7 @@ export class CoachingProcessor {
             const resent = await this.sendPaymentLink(liveUser, inboundMsg.id, {
               requireFullIntake: true,
               bypassRateLimit: true,
-              leadIn: `code works — that's ${days} days free instead. here's your fresh link 👇`,
+              leadIn: `code works — that's ${days} days free instead. here's your fresh link:`,
             });
             // Intake not finished yet (no goal/timezone), so there's nothing to
             // re-link. The code is still banked on their row and applies when the
@@ -805,7 +805,7 @@ export class CoachingProcessor {
           await this.saveAndSend(
             user,
             boundary.sessionId,
-            "got it — your payment's processing on my end. give it a sec and i'll have your plan ready 🔥",
+            "got it — your payment's processing on my end. give it a sec and i'll have your plan ready",
           );
         } else {
           // Deterministic decision (distrust the claim) but LLM-varied wording so a
@@ -822,7 +822,7 @@ export class CoachingProcessor {
             user,
             boundary.sessionId,
             generated ??
-              "hmm not seeing it active on my end yet 🤔 tap the link i sent and it kicks in the second it goes through. lmk if the link's giving you trouble.",
+              "hmm not seeing it active on my end yet. tap the link i sent and it kicks in the second it goes through. lmk if the link's giving you trouble.",
           );
         }
         structuredLog(this.logger, 'log', {
@@ -920,7 +920,7 @@ export class CoachingProcessor {
           await this.saveAndSend(
             user,
             boundary.sessionId,
-            'i just sent you that link a sec ago. tap it above to start back up 👆',
+            'i just sent you that link a sec ago. tap it above to start back up',
           );
         } else {
           this.logger.warn(
@@ -963,7 +963,7 @@ export class CoachingProcessor {
             await this.saveAndSend(
               user,
               boundary.sessionId,
-              'already sent you that link a sec ago. tap it above 👆',
+              'already sent you that link a sec ago. tap it above',
             );
           } else {
             this.logger.warn(
