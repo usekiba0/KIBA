@@ -29,7 +29,19 @@ const MAX_LIST_ITEMS = 4;
 
 function shorten(item: string): string {
   const s = item.trim().replace(/\s+/g, ' ');
-  return s.length <= 48 ? s : `${s.slice(0, 45).trimEnd()}…`;
+  if (s.length <= 48) return s;
+  // Long items are usually AI-written todos carrying task + detail
+  // ("breakfast photo before eating. 2 slices PB smeared…"). The first clause
+  // IS the task; the rest is detail. Prefer it over a character cut — the old
+  // slice(0,45) produced mid-word fragments like "2 slices PB s…" in the recap,
+  // and the closing line then QUOTED the mangled fragment back at the user
+  // (Karibi 2026-07-21 screenshot).
+  const clause = s.split(/(?<=[.;])\s+/)[0].replace(/[.;]+$/, '').trim();
+  if (clause.length >= 8 && clause.length <= 60) return clause;
+  // Fall back to a word-boundary cut — never mid-word.
+  const cut = s.slice(0, 46);
+  const at = cut.lastIndexOf(' ');
+  return `${(at > 20 ? cut.slice(0, at) : cut).trimEnd()}…`;
 }
 
 function renderList(items: string[], mark: string): string {
@@ -85,9 +97,16 @@ function closingLine(data: NightRecapData): string {
     return variants[Math.floor(Math.random() * variants.length)];
   }
 
-  // Total fold.
+  // Zero items checked off. The recap CANNOT verify what actually happened —
+  // it reads a ledger the conversation doesn't reliably update, and it has
+  // repeatedly called a day "folded" hours after the coaching layer negotiated
+  // proof to tomorrow (Karibi 2026-07-21: trained, sent two gym photos, got
+  // "you folded on everything. no spin." at 9pm). So the copy states the
+  // BOARD's view and invites correction — it never delivers a verdict on the
+  // user's day (KIBA_Retraining_Doc B4: no scheduled message may assert
+  // failure without verified thread history).
   if (done.length === 0 && missed.length > 0) {
-    return `real talk${tail} — you folded on everything today. no spin. tomorrow we start with "${shorten(missed[0])}" first thing, before the day talks you out of it.`;
+    return `nothing got checked off on my board today${tail}. if you did the work and i missed it, say so — i'll fix it. if not, tomorrow starts with "${shorten(missed[0])}" first thing, before the day talks you out of it.`;
   }
 
   // Mixed day — most common. Name the win, set tomorrow's first move.
@@ -137,7 +156,10 @@ export function buildWeeklyReviewMessage(data: WeeklyReviewData): string | null 
 
 function weeklyClose(doneCount: number, missedCount: number, tail: string): string {
   if (doneCount === 0) {
-    return `straight up${tail} — you didn't really show up this week. next week we fix that. one thing, day one. you in?`;
+    // Same rule as the night recap's zero-done branch: the board can be wrong
+    // (un-marked chat completions, seeded items), so state its view and invite
+    // correction — never a verdict on the user's week.
+    return `my board says nothing got checked off this week${tail}. if that's not the real story, tell me what i missed. if it is — next week we fix it. one thing, day one. you in?`;
   }
   const ratio = doneCount / Math.max(1, doneCount + missedCount);
   if (ratio >= 0.8) {

@@ -4,7 +4,7 @@ import { Between, In, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
-import { DailyTodo, DailyTodoStatus } from '../data/entities/daily-todo.entity';
+import { DailyTodo, DailyTodoStatus, DailyTodoSource } from '../data/entities/daily-todo.entity';
 import { Proof, ProofValidationStatus } from '../data/entities/proof.entity';
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { MessagingService } from '../messaging/messaging.service';
@@ -19,6 +19,16 @@ import { structuredLog } from '../common/logger';
 /** Weekday (0=Sun) and user-local time the weekly review fires at: Sunday 6pm. */
 const REVIEW_WEEKDAY = 0;
 const REVIEW_LOCAL_TIME = '18:00';
+
+/**
+ * Mid-conversation deferral — same rule as RecapService (see the constants
+ * there). The retraining test's weekly review fired MID-CHAT with numbers the
+ * chat had already disproven (KIBA_Retraining_Doc msg #126). Bounded by local
+ * hour so deferral can never walk a Sunday review past midnight into Monday.
+ */
+const ACTIVE_WINDOW_MS = 15 * 60_000;
+const DEFER_MS = 45 * 60_000;
+const DEFER_CUTOFF_HOUR = 21;
 
 /**
  * Weekly Review (the 7-day mock's "Day 7" one-week review). A once-a-week
@@ -118,6 +128,25 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
     if (!user.crisis_hold) {
       const offset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
       const localDate = localDateString(offset);
+
+      const localHour = new Date(Date.now() + (offset ?? 0) * 60_000).getUTCHours();
+      if (localHour < DEFER_CUTOFF_HOUR && (await this.userActiveWithin(userId, ACTIVE_WINDOW_MS))) {
+        const retryMinute = Math.floor((Date.now() + DEFER_MS) / 60_000);
+        await this.queue.add(
+          'send-weekly-review',
+          { userId },
+          { delay: DEFER_MS, jobId: `weekly-defer:${userId}:${retryMinute}`, removeOnComplete: true, removeOnFail: 5 },
+        );
+        structuredLog(this.logger, 'log', {
+          service: 'accountability',
+          operation: 'weekly_review_deferred_active_conversation',
+          userId,
+          retryInMs: DEFER_MS,
+        });
+        await this.rescheduleNext(user);
+        return;
+      }
+
       const claim = await this.userRepo
         .createQueryBuilder()
         .update(User)
@@ -137,15 +166,44 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
       }
     }
 
+    await this.rescheduleNext(user);
+  }
+
+  /** True if the user sent anything within the window — we're mid-conversation. */
+  private async userActiveWithin(userId: string, windowMs: number): Promise<boolean> {
+    const last = await this.messageRepo.findOne({
+      where: { user_id: userId, role: MessageRole.USER },
+      order: { created_at: 'DESC' },
+      select: { id: true, created_at: true },
+    });
+    return !!last && Date.now() - new Date(last.created_at).getTime() < windowMs;
+  }
+
+  private async rescheduleNext(user: User): Promise<void> {
     try {
       await this.scheduleReview(user);
     } catch (err) {
       structuredLog(this.logger, 'error', {
         service: 'accountability',
         operation: 'weekly_review_reenqueue_failed',
-        userId,
+        userId: user.id,
         error: (err as Error).message,
       });
+    }
+  }
+
+  /**
+   * Same rule as RecapService.honestScore: the 0-100 score only reflects
+   * photo-proofed DailyTask completions, so until that ledger has recorded a
+   * real execution day, printing it is fabricated failure — omit the line.
+   */
+  private async honestScore(userId: string): Promise<number | null> {
+    try {
+      const snapshot = await this.scoreService.updateScore(userId);
+      const fed = await this.scoreService.countExecutionDays(userId, 14);
+      return fed > 0 ? snapshot.current_score : null;
+    } catch {
+      return null;
     }
   }
 
@@ -156,11 +214,19 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
         where: { user_id: user.id, scheduled_date: In(weekDates) as unknown as Date },
       }),
       this.countProofsForWeek(user.id, weekDates[weekDates.length - 1], offset),
-      this.scoreService.updateScore(user.id).then((s) => s.current_score).catch(() => null),
+      this.honestScore(user.id),
     ]);
 
     const doneCount = todos.filter((t) => t.status === DailyTodoStatus.DONE).length;
-    const missedCount = todos.filter((t) => t.status === DailyTodoStatus.OPEN).length;
+    // Only count a miss the user actually owned: auto-seeded PLAN items the
+    // conversation never touched are not commitments. The night recap got this
+    // exclusion on 2026-06-29 (commit 6e61c51) and the weekly review was missed,
+    // so it kept telling users "you didn't really show up this week" over plan
+    // rows that merely existed (KIBA_Retraining_Doc msg #126 — fabricated
+    // "0 done / N missed" during a week the user visibly worked).
+    const missedCount = todos.filter(
+      (t) => t.status === DailyTodoStatus.OPEN && t.source !== DailyTodoSource.PLAN,
+    ).length;
 
     const message = buildWeeklyReviewMessage({
       userName: user.name ?? '',

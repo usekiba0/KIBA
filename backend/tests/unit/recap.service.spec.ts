@@ -46,6 +46,7 @@ describe('RecapService.fire', () => {
   let messageRepo: any;
   let messaging: any;
   let queue: any;
+  let scoreService: any;
   let claimAffected: number;
 
   beforeEach(async () => {
@@ -56,10 +57,17 @@ describe('RecapService.fire', () => {
     };
     todoRepo = { find: jest.fn().mockResolvedValue([doneTodo, openTodo]) };
     proofRepo = { count: jest.fn().mockResolvedValue(2) };
-    messageRepo = { save: jest.fn().mockResolvedValue({ id: 'm-1' }) };
+    // findOne -> null = "user not mid-conversation", so the defer guard passes
+    // and these tests exercise the send path they were written for.
+    messageRepo = { save: jest.fn().mockResolvedValue({ id: 'm-1' }), findOne: jest.fn().mockResolvedValue(null) };
     messaging = { send: jest.fn().mockResolvedValue(undefined) };
     queue = { add: jest.fn().mockResolvedValue({ id: 'job-1' }) };
-    const scoreService = { updateScore: jest.fn().mockResolvedValue({ current_score: 72 }) };
+    scoreService = {
+      updateScore: jest.fn().mockResolvedValue({ current_score: 72 }),
+      // Default: the proof ledger HAS been fed, so the score line renders and
+      // pre-existing tests keep their meaning.
+      countExecutionDays: jest.fn().mockResolvedValue(3),
+    };
     const sessionBoundary = {
       checkAndHandle: jest.fn().mockResolvedValue({ sessionId: 's-1' }),
       recordMessage: jest.fn().mockResolvedValue(undefined),
@@ -152,4 +160,57 @@ describe('RecapService.fire', () => {
     expect(messaging.send).not.toHaveBeenCalled();
     expect(queue.add).not.toHaveBeenCalled();
   });
+
+  it('omits the score line when the proof ledger has never been fed (Retraining B4)', async () => {
+    // The 0-100 score reads ONLY photo-proofed DailyTask completions — a
+    // ledger chat can't touch. Printing "score: 0/100" under a list of ✅
+    // items fabricated failure (Karibi 2026-07-21). No fed ledger, no line.
+    scoreService.updateScore.mockResolvedValue({ current_score: 0 });
+    scoreService.countExecutionDays.mockResolvedValue(0);
+
+    await service.fire('user-1');
+
+    const [, body] = messaging.send.mock.calls[0];
+    expect(body).not.toContain('score:');
+  });
+
+  it('prints the real score once the ledger has data', async () => {
+    await service.fire('user-1'); // default mocks: score 72, 3 execution days
+    const [, body] = messaging.send.mock.calls[0];
+    expect(body).toContain('score: 72/100');
+  });
+
+  it('defers instead of interrupting an active conversation, and keeps cadence', async () => {
+    // The retraining test's scheduled sends barged into live conversations
+    // with stale summaries (B1). If the user texted within the window, push
+    // tonight's recap back rather than talking over them.
+    const utcHour = new Date().getUTCHours();
+    userRepo.findOne.mockResolvedValue(
+      makeUser({ utc_offset_minutes: (12 - utcHour) * 60 }), // local noon — inside defer hours
+    );
+    messageRepo.findOne.mockResolvedValue({ id: 'm-9', created_at: new Date() });
+
+    await service.fire('user-1');
+
+    expect(messaging.send).not.toHaveBeenCalled();
+    expect(userRepo.createQueryBuilder).not.toHaveBeenCalled(); // day NOT claimed — the retry must still win it
+    const jobNames = queue.add.mock.calls.map((c: unknown[]) => (c[2] as { jobId: string }).jobId);
+    expect(jobNames.some((j: string) => j.startsWith('recap-defer:user-1:'))).toBe(true);
+    expect(jobNames.some((j: string) => j.startsWith('recap:user-1:'))).toBe(true); // tomorrow still scheduled
+  });
+
+  it('sends anyway near local midnight even mid-conversation', async () => {
+    // Deferral is bounded: past the cutoff a deferred recap would cross into
+    // the wrong local day, which is worse than interrupting.
+    const utcHour = new Date().getUTCHours();
+    userRepo.findOne.mockResolvedValue(
+      makeUser({ utc_offset_minutes: (23 - utcHour) * 60 }), // local 23:xx
+    );
+    messageRepo.findOne.mockResolvedValue({ id: 'm-9', created_at: new Date() });
+
+    await service.fire('user-1');
+
+    expect(messaging.send).toHaveBeenCalledTimes(1);
+  });
+
 });

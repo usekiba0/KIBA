@@ -49,10 +49,26 @@ describe('splitPlanDayIntoItems', () => {
 
   it('handles questions and exclamations as sentence terminators (3-char "Why" gets dropped by length filter)', () => {
     const entry = 'Day 1: Get gym time! Pick a meal plan. Why? Because consistency matters.';
+    // "Because consistency matters" is rhetoric, not a task — the old splitter
+    // seeded it as a standalone checkable that could only ever count as a miss.
+    // It now folds into the item it was justifying.
     expect(splitPlanDayIntoItems(entry)).toEqual([
       'Get gym time',
-      'Pick a meal plan',
-      'Because consistency matters',
+      'Pick a meal plan. Because consistency matters',
     ]);
+  });
+
+  it('folds trailing modifiers into their task instead of fabricating a todo (Retraining B4)', () => {
+    // The live case: "Be honest" became a standalone task the user could never
+    // complete, then counted as a MISS in the weekly review.
+    expect(splitPlanDayIntoItems('Day 3: Write down exactly why you skip legs. Be honest.'))
+      .toEqual(['Write down exactly why you skip legs. Be honest']);
+    expect(splitPlanDayIntoItems('Day 1: Gym at 5am. No excuses.'))
+      .toEqual(['Gym at 5am. No excuses']);
+  });
+
+  it('keeps real short tasks that start with action verbs', () => {
+    expect(splitPlanDayIntoItems('Run 5K. Eat clean. Map the journey.'))
+      .toEqual(['Run 5K', 'Eat clean', 'Map the journey']);
   });
 });

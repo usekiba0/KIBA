@@ -123,17 +123,21 @@ export function buildTrialPriceReveal(ctx: {
     `keeping me on you every morning${forGoal} is ${ctx.priceDisplay}. ` +
     `that's less than two doordash orders. you already know what it's worth.`;
 
-  if (days >= 4) {
-    // Real week — earned the celebration + the "fall off by day 3" social proof.
+  if (days >= 2) {
+    // Showed up on multiple days — earned the celebration. Threshold was 4,
+    // calibrated for the original 7-day trial; on the live 3-day trial that
+    // tier was nearly unreachable and "most people fall off by day 3" read
+    // absurd when the whole trial WAS 3 days. The social proof is now
+    // trial-length-agnostic and still only claimed when it actually happened.
     return (
       `yo${tail}. ${days} days you actually showed up. ` +
-      `most people fall off by day 3 and you didn't. ${close}`
+      `most people fold before the trial's even done and you didn't. ${close}`
     );
   }
   if (days >= 1) {
     // Partial — honest and forward-leaning, but no invented streak.
     return (
-      `yo${tail}. you showed up ${days} day${days === 1 ? '' : 's'} this week. ` +
+      `yo${tail}. you showed up ${days} day${days === 1 ? '' : 's'}. ` +
       `not the full run, but you started — that's the part most people never do. ` +
       `this is where it compounds if you stay on it. ${close}`
     );
@@ -467,7 +471,7 @@ export class CheckinProcessor {
     if (user.dunning_nudges_sent >= MAX_DUNNING_NUDGES) return;
     if (user.crisis_hold) return;
 
-    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
+    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 3);
     const goal = user.intake_data?.goal_description ?? null;
     const obstacle = user.intake_data?.avoidance_patterns ?? null;
     // Auto-generate a personalised win-back per the client's ask (the old fixed
@@ -525,7 +529,7 @@ export class CheckinProcessor {
     // Gate the opener on real follow-through over the trial window so we never
     // fabricate a "7 days straight, you actually did it" for someone who ghosted
     // (Karibi 2026-07-07). Failure → 0 days → honest ghost copy, never praise.
-    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 7);
+    const trialDays = this.config.get<number>('STRIPE_TRIAL_DAYS', 3);
     const executionDays = await this.scoreService
       .countExecutionDays(userId, trialDays)
       .catch(() => 0);

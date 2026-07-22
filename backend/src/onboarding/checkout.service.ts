@@ -143,7 +143,7 @@ export class CheckoutService {
         name: user.name ? user.name.trim().split(/\s+/)[0] : null,
         trial_days: this.referralService.trialDaysFor(
           user,
-          this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
+          this.config.get<number>('STRIPE_TRIAL_DAYS', 3),
         ),
         plans: [yearly, monthly].filter((p): p is PlanOption => p !== null),
       },
@@ -188,7 +188,7 @@ export class CheckoutService {
     const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://usekiba.ai');
     const trialDays = this.referralService.trialDaysFor(
       user,
-      this.config.get<number>('STRIPE_TRIAL_DAYS', 7),
+      this.config.get<number>('STRIPE_TRIAL_DAYS', 3),
     );
 
     try {
