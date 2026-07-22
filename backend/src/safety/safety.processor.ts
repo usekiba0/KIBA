@@ -111,7 +111,10 @@ export class SafetyProcessor {
     });
 
     await transporter.sendMail({
-      from: this.config.get('SMTP_FROM', 'Kiba AI Alerts <alerts@kiba.ai>'),
+      // Fallback must be a domain we own — this used to default to kiba.ai,
+      // which we don't, so a missing SMTP_FROM would have sent crisis alerts
+      // from a dead address. usekiba.ai mail is live (ImprovMX, 2026-07-22).
+      from: this.config.get('SMTP_FROM', 'KIBA Alerts <alerts@usekiba.ai>'),
       to,
       subject: `⚠️ Kiba Crisis Alert — ${userName}`,
       text,
