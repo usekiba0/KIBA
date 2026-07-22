@@ -41,6 +41,7 @@ import { ScoreIntentService } from '../accountability/score-intent.service';
 import { ScheduleService } from '../accountability/schedule.service';
 import { ReminderRecurrence } from '../data/entities/scheduled-reminder.entity';
 import { TodoService } from '../accountability/todo.service';
+import { LedgerCorrectionService } from '../accountability/ledger-correction.service';
 import { DailyTodoSource } from '../data/entities/daily-todo.entity';
 import { StripeService } from '../onboarding/stripe.service';
 import { structuredLog } from '../common/logger';
@@ -291,6 +292,7 @@ export class CoachingProcessor {
     private readonly scheduleService: ScheduleService,
     @Inject(forwardRef(() => TodoService))
     private readonly todoService: TodoService,
+    private readonly ledgerCorrectionService: LedgerCorrectionService,
     private readonly correctionService: CorrectionService,
     private readonly stripeService: StripeService,
     private readonly referralService: ReferralService,
@@ -1962,6 +1964,10 @@ export class CoachingProcessor {
         if (!removed) return { ok: false as const, error: 'todo not found' };
         return { ok: true as const, removed: true as const };
       },
+      // Retraining doc #49/#127: a conceded wrong strike must actually be
+      // undone in the DB, not just apologised for in prose.
+      correctMissedTask: async (input: { day: 'today' | 'yesterday' }) =>
+        this.ledgerCorrectionService.correctMiss(userId, input.day),
       sendPaymentLink: async () => {
         // Refuse when the user already has an active/trialing subscription —
         // the AI should then escalate to support instead of re-charging them.
