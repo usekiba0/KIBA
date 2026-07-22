@@ -198,6 +198,32 @@ export class StripeWebhookController {
           );
         }
 
+        // Apple-masking Path B (launch call 2026-07-10): auto-send the KIBA
+        // contact card so the user saves it and every future text shows "KIBA"
+        // instead of a bare number — Apple has no native branding for a
+        // business that texts first, so the saved contact IS the branding (and
+        // it defeats iOS "Screen Unknown Senders"). The .vcf carries BOTH the
+        // SendBlue (iMessage) and Twilio (SMS) numbers so one save brands both
+        // threads. Set CONTACT_CARD_URL to a public HTTPS URL of the .vcf
+        // (frontend/public/kiba-contact.vcf; regenerate via
+        // backend/scripts/gen-contact-card.js). No-op until configured.
+        // Best-effort: a failure must never block activation. Sent BEFORE the
+        // pin-chat nudge — save the contact first, then pin it.
+        const contactCardUrl = this.config.get<string>('CONTACT_CARD_URL');
+        if (contactCardUrl) {
+          try {
+            await this.messagingService.send(
+              user.phone_number,
+              'first thing — save my contact so i always show up as KIBA in your texts 📲',
+              contactCardUrl,
+            );
+          } catch (err) {
+            this.logger.warn(
+              `[StripeWebhook] contact-card send failed for ${user.id}: ${(err as Error).message}`,
+            );
+          }
+        }
+
         // Retention nudge: a one-time "pin our chat" how-to so KIBA stays at the
         // top of their messages. The media can be an image, GIF, or VIDEO — the
         // send path passes the URL straight to SendBlue (media_url) / Twilio
