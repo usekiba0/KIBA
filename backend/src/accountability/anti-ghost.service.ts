@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { AntiGhostState, GhostState, GHOST_LEVEL_DELAY_MS } from '../data/entities/anti-ghost-state.entity';
+import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { User } from '../data/entities/user.entity';
 import { Goal, GoalType } from '../data/entities/goal.entity';
 import { Message, MessageRole } from '../data/entities/message.entity';
@@ -31,6 +32,12 @@ const STATED_RETURN_WINDOW_MS = 6 * 60 * 60 * 1000;
 // 2026-07-16: level-2 ghost landed minutes after the user's update). This deter-
 // ministic re-check at send time closes that race independent of onUserResponse.
 const RECENT_ACTIVITY_MS = 90 * 60 * 1000;
+// The `checkin-missed` job fires a FIXED 2h after the morning check-in sends.
+// Any user inbound inside this window (2h + 30min scheduling buffer) means they
+// answered the check-in — the "you went quiet" premise is false and the live
+// coaching layer owns the conversation (Retraining doc #48/#118: strike + ghost
+// fired on a user who was actively texting).
+const MISSED_CHECKIN_REPLY_WINDOW_MS = 150 * 60 * 1000;
 
 @Injectable()
 export class AntiGhostService {
@@ -38,6 +45,7 @@ export class AntiGhostService {
 
   constructor(
     @InjectRepository(AntiGhostState) private readonly stateRepo: Repository<AntiGhostState>,
+    @InjectRepository(DailyTask) private readonly taskRepo: Repository<DailyTask>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Goal) private readonly goalRepo: Repository<Goal>,
     @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
@@ -56,6 +64,20 @@ export class AntiGhostService {
   async onMissedCheckin(userId: string, taskId: string, alreadyDeferred = false): Promise<void> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user || user.crisis_hold) return;
+
+    // ── Verified-miss guard: the ledger (Retraining doc #48/#129) ─────────
+    // A strike ASSERTS FAILURE. Never assert what the ledger disproves: if the
+    // task was completed between the check-in and this +2h job, there is no
+    // miss — no strike, no ghost, chain stays ACTIVE. (proof.service resets
+    // ghost state on completion, but that reset is precisely what re-arms a
+    // fresh level-1 chain — this check closes that loop deterministically.)
+    const task = await this.taskRepo.findOne({ where: { id: taskId, user_id: userId } });
+    if (task && task.status === TaskStatus.COMPLETED) {
+      structuredLog(this.logger, 'log', {
+        service: 'accountability', operation: 'ghost_skipped_task_completed', userId, taskId,
+      });
+      return;
+    }
 
     // ── Context-suppression (Rule 13) ─────────────────────────────────────
     // Never ghost-blast a user who just told KIBA they'd be back later. If their
@@ -81,6 +103,17 @@ export class AntiGhostService {
         });
         return;
       }
+    }
+
+    // ── Verified-miss guard: the thread (Retraining doc #48/#118) ─────────
+    // If the user sent ANYTHING since the check-in fired, they didn't miss the
+    // check-in — the live layer owns the conversation. Applies on the deferred
+    // re-run too: texting during the defer window is presence, not ghosting.
+    if (await this.hasRecentInbound(userId, MISSED_CHECKIN_REPLY_WINDOW_MS)) {
+      structuredLog(this.logger, 'log', {
+        service: 'accountability', operation: 'ghost_skipped_user_replied', userId, taskId,
+      });
+      return;
     }
 
     // ── Single-chain guard ────────────────────────────────────────────────
@@ -255,14 +288,14 @@ export class AntiGhostService {
    * Deterministic backstop so a ghost escalation never fires over an active
    * conversation, independent of whether onUserResponse ran for that inbound.
    */
-  private async hasRecentInbound(userId: string): Promise<boolean> {
+  private async hasRecentInbound(userId: string, windowMs = RECENT_ACTIVITY_MS): Promise<boolean> {
     const last = await this.messageRepo.findOne({
       where: { user_id: userId, role: MessageRole.USER },
       order: { created_at: 'DESC' },
     });
     return (
       !!last &&
-      Date.now() - new Date(last.created_at).getTime() <= RECENT_ACTIVITY_MS
+      Date.now() - new Date(last.created_at).getTime() <= windowMs
     );
   }
 
