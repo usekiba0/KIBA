@@ -51,6 +51,11 @@ export interface CoachingToolHandlers {
     Promise<{ ok: true; todos: Array<{ todo_id: string; content: string; status: string }> }>;
   markTodoDone: (input: { todo_id: string }) =>
     Promise<{ ok: true; todo_id: string; status: string } | { ok: false; error: string }>;
+  // The ledger-correction path (Retraining doc #49/#127): when KIBA concedes a
+  // wrong miss/strike/score, this makes the concession real — task back to
+  // completed, strike deleted, dow miss un-counted, score recomputed.
+  correctMissedTask: (input: { day: 'today' | 'yesterday' }) =>
+    Promise<{ ok: true; corrected: number; tasks: string[]; strikes_removed: number; new_score: number | null } | { ok: false; error: string }>;
   removeTodo: (input: { todo_id: string }) =>
     Promise<{ ok: true; removed: true } | { ok: false; error: string }>;
   // Re-subscribe / late-signup link send. Coaching exposes this so a user whose
@@ -209,6 +214,28 @@ const MARK_TODO_DONE_TOOL: Tool = {
     type: 'object' as const,
     properties: { todo_id: { type: 'string', description: 'The todo id from the list.' } },
     required: ['todo_id'],
+  },
+};
+
+const CORRECT_MISSED_TASK_TOOL: Tool = {
+  name: 'correct_missed_task',
+  description:
+    'Fix the ledger when a task was WRONGLY marked missed. Use ONLY when the user disputes a miss/strike/' +
+    'score AND the conversation above verifies they actually did it (they reported it, sent proof, or you ' +
+    'confirmed it earlier). Marks the task completed, deletes the strike, un-counts the miss, recomputes the ' +
+    'score. You MUST call this in the same turn as any "you\'re right, my bad — score\'s fixed" concession; ' +
+    'conceding without calling it leaves the false miss in the books. NOT for excusing a real miss the user ' +
+    'simply regrets — that stays a miss.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      day: {
+        type: 'string',
+        enum: ['today', 'yesterday'],
+        description: 'Which day the wrongly-missed task was scheduled for.',
+      },
+    },
+    required: ['day'],
   },
 };
 
@@ -684,6 +711,7 @@ export class CoachingService {
       ? [
           SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, CANCEL_REMINDER_TOOL,
           ADD_TODO_TOOL, LIST_TODAY_TODOS_TOOL, MARK_TODO_DONE_TOOL, REMOVE_TODO_TOOL,
+          CORRECT_MISSED_TASK_TOOL,
           SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL, SAVE_WEEKLY_SCHEDULE_TOOL,
           // Only offered on iMessage — the handler is present only then.
           ...(toolHandlers.reactToMessage ? [REACT_TO_MESSAGE_TOOL] : []),
@@ -1244,6 +1272,18 @@ export class CoachingService {
       const result = await toolHandlers.removeTodo({ todo_id: input.todo_id });
       structuredLog(this.logger, 'log', {
         service: 'ai', operation: 'tool_remove_todo', userId, ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'correct_missed_task') {
+      const input = block.input as { day?: unknown };
+      if (input.day !== 'today' && input.day !== 'yesterday') {
+        return { ok: false, error: "day must be 'today' or 'yesterday'" };
+      }
+      const result = await toolHandlers.correctMissedTask({ day: input.day });
+      structuredLog(this.logger, 'log', {
+        service: 'ai', operation: 'tool_correct_missed_task', userId, ok: result.ok,
+        ...(result.ok ? { corrected: result.corrected, strikesRemoved: result.strikes_removed } : {}),
       });
       return result;
     }

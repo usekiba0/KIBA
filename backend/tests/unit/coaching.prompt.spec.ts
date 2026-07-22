@@ -276,8 +276,11 @@ describe('buildSystemPrompt', () => {
     // ownership-with-repair). These are behavioral bans a live 133-message test
     // showed the model violating six distinct ways under stress; they earn
     // their tokens. Kept to one compact block instead of five scattered rules.
+    // Raised 31.1k->31.2k for the ledger-correction concession rule (doc
+    // #49/#127): one line making correct_missed_task mandatory behind any
+    // "score's fixed" — the tool that turns a worded apology into a DB fix.
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
-    expect(prompt.length).toBeLessThan(31100);
+    expect(prompt.length).toBeLessThan(31200);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
@@ -645,5 +648,11 @@ describe('B7 hard lines (KIBA_Retraining_Doc — the dark-pattern cluster)', () 
   it('demands ownership-with-repair of KIBA’s own misses', () => {
     expect(prompt).toContain('own YOUR misses');
     expect(prompt).toContain('never deflect it onto them');
+  });
+
+  it('requires the real ledger fix behind any "score\'s fixed" concession (doc #49/#127)', () => {
+    // KIBA conceding a wrong strike used to be words only — the false miss and
+    // the strike survived in the DB. The concession must call the tool.
+    expect(prompt).toContain('correct_missed_task');
   });
 });
