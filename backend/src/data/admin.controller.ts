@@ -1,6 +1,28 @@
-import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards, Res, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Res,
+  BadRequestException,
+} from '@nestjs/common';
 import { Response } from 'express';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, Max, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  Max,
+  MinLength,
+} from 'class-validator';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { AdminService } from './admin.service';
 import { isLegalSlug } from './legal-content';
@@ -260,9 +282,26 @@ export class AdminController {
     return this.scheduleService.listForUser(userId);
   }
 
+  /**
+   * Cancel one reminder. For a daily chain this SKIPS the pending occurrence
+   * and re-arms the next one — pass ?series=true to stop the whole chain
+   * (2026-07-22: three daily chains died to single-row admin cancels because
+   * cancel used to mean chain death).
+   */
   @Delete('reminders/:reminderId')
-  async cancelReminder(@Param('reminderId') reminderId: string) {
-    const reminder = await this.scheduleService.cancel(reminderId);
+  async cancelReminder(@Param('reminderId') reminderId: string, @Query('series') series?: string) {
+    if (series === 'true') {
+      const existing = await this.scheduleService.findById(reminderId);
+      if (!existing) return { cancelled: false, message: 'reminder not found' };
+      if (!existing.recurrence_parent_id) {
+        return { cancelled: false, message: 'reminder is not part of a recurring series' };
+      }
+      const count = await this.scheduleService.cancelSeries(existing.recurrence_parent_id, {
+        actor: 'admin',
+      });
+      return { cancelled: count > 0, series: true, rows_cancelled: count };
+    }
+    const reminder = await this.scheduleService.cancel(reminderId, { actor: 'admin' });
     if (!reminder) return { cancelled: false, message: 'reminder not found' };
     return { cancelled: true, reminder };
   }
@@ -286,7 +325,8 @@ export class AdminController {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) return { ok: false, error: 'user not found' };
     if (user.status === UserStatus.CANCELLED) return { ok: false, error: 'user cancelled' };
-    if (user.onboarding_stage !== OnboardingStage.COMPLETE) return { ok: false, error: 'user not onboarded' };
+    if (user.onboarding_stage !== OnboardingStage.COMPLETE)
+      return { ok: false, error: 'user not onboarded' };
     // 1s delay so the round-trip still goes through the worker (vs an inline
     // send), which is what we're actually trying to test.
     await this.checkinService.scheduleOneShot(userId, 1_000);

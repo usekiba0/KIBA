@@ -3,12 +3,16 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, Between } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
-import { ScheduledReminder, ScheduledReminderStatus, ReminderRecurrence } from '../data/entities/scheduled-reminder.entity';
+import {
+  ScheduledReminder,
+  ScheduledReminderStatus,
+  ReminderRecurrence,
+} from '../data/entities/scheduled-reminder.entity';
 import { User } from '../data/entities/user.entity';
 import { MessagingService } from '../messaging/messaging.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
-import { reminderSignature } from './reminder-content';
+import { reminderSignature, sameIntentOneShot } from './reminder-content';
 import { OutboundRecorderService } from '../data/outbound-recorder.service';
 
 // 2-minute floor: SendBlue queue + iMessage delivery has 30-90s of inherent
@@ -76,7 +80,8 @@ export function nextDailyFireAt(now: Date, localHHmm: string, offsetMinutes: num
     localNow.getUTCDate(),
     targetHour,
     targetMin,
-    0, 0,
+    0,
+    0,
   );
   if (candidateLocal <= localNowMs) {
     candidateLocal += 24 * 60 * 60_000;
@@ -96,7 +101,9 @@ export function nextDailyFireAt(now: Date, localHHmm: string, offsetMinutes: num
  */
 export function normalizeLocalTime(raw: string | null | undefined): string | null {
   if (raw == null) return null;
-  const m = String(raw).trim().match(/^(\d{1,2}):(\d{2})$/);
+  const m = String(raw)
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
   const hour = parseInt(m[1], 10);
   const minute = parseInt(m[2], 10);
@@ -110,6 +117,17 @@ export interface EnqueueResult {
   fireAtIso: string;
 }
 
+/**
+ * Who is cancelling and why — written to the row's failure_reason and logged.
+ * `killChain` stops a daily series outright; without it, cancelling one
+ * occurrence of a chain skips that occurrence and re-arms the next.
+ */
+export interface CancelOpts {
+  actor?: 'admin' | 'ai_tool' | 'supersede' | 'crisis_hold' | string;
+  reason?: string;
+  killChain?: boolean;
+}
+
 export interface EnqueueRejection {
   ok: false;
   reason: string;
@@ -120,7 +138,8 @@ export class ScheduleService {
   private readonly logger = new Logger(ScheduleService.name);
 
   constructor(
-    @InjectRepository(ScheduledReminder) private readonly reminderRepo: Repository<ScheduledReminder>,
+    @InjectRepository(ScheduledReminder)
+    private readonly reminderRepo: Repository<ScheduledReminder>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectQueue('accountability') private readonly queue: Queue,
     private readonly messagingService: MessagingService,
@@ -139,7 +158,10 @@ export class ScheduleService {
       return { ok: false, reason: 'fire_at is not a valid date' };
     }
     if (delayMs < MIN_DELAY_MS) {
-      return { ok: false, reason: `minimum is ${MIN_DELAY_MINUTES} minutes from now — anything sooner can't reliably deliver` };
+      return {
+        ok: false,
+        reason: `minimum is ${MIN_DELAY_MINUTES} minutes from now — anything sooner can't reliably deliver`,
+      };
     }
     if (delayMs > MAX_DELAY_MS) {
       return { ok: false, reason: 'fire_at must be within 1 year' };
@@ -213,28 +235,41 @@ export class ScheduleService {
     // never be silently dropped.
     if (!rec) {
       const signature = reminderSignature(args.message);
-      if (signature) {
-        const from = new Date(args.fireAt.getTime() - SUPERSEDE_WINDOW_MS);
-        const to = new Date(args.fireAt.getTime() + SUPERSEDE_WINDOW_MS);
-        const candidates = await this.reminderRepo.find({
-          where: {
-            user_id: args.userId,
-            status: ScheduledReminderStatus.PENDING,
-            recurrence_rule: IsNull(),
-            fire_at: Between(from, to),
-          },
+      const from = new Date(args.fireAt.getTime() - SUPERSEDE_WINDOW_MS);
+      const to = new Date(args.fireAt.getTime() + SUPERSEDE_WINDOW_MS);
+      const candidates = await this.reminderRepo.find({
+        where: {
+          user_id: args.userId,
+          status: ScheduledReminderStatus.PENDING,
+          recurrence_rule: IsNull(),
+          fire_at: Between(from, to),
+        },
+      });
+      for (const old of candidates) {
+        // Two supersede paths, both conservative:
+        //   1) structured pre/proof pings for the same activity within the window
+        //      (a re-committed time moved the pair);
+        //   2) a free-form one-shot at the EXACT same minute whose content-word
+        //      overlap says it's the same intent — the typo-re-confirm dup
+        //      (Karibi 2026-07-23: two tailor pickups, 16s apart, both 10am).
+        const sigMatch = signature !== null && reminderSignature(old.message) === signature;
+        const sameMinuteDup =
+          old.fire_at.getTime() === args.fireAt.getTime() &&
+          sameIntentOneShot(old.message, args.message);
+        if (!sigMatch && !sameMinuteDup) continue;
+        await this.cancel(old.id, {
+          actor: 'supersede',
+          reason: sigMatch
+            ? `superseded by a newer ${signature} ping`
+            : 'superseded by a re-scheduled duplicate at the same minute',
         });
-        for (const old of candidates) {
-          if (reminderSignature(old.message) !== signature) continue;
-          await this.cancel(old.id);
-          structuredLog(this.logger, 'log', {
-            service: 'schedule',
-            operation: 'reminder_superseded',
-            userId: args.userId,
-            reminderId: old.id,
-            signature,
-          });
-        }
+        structuredLog(this.logger, 'log', {
+          service: 'schedule',
+          operation: 'reminder_superseded',
+          userId: args.userId,
+          reminderId: old.id,
+          signature: sigMatch ? signature : 'same_minute_intent',
+        });
       }
     }
 
@@ -377,43 +412,8 @@ export class ScheduleService {
     // 'accountability' queue runs these jobs with Bull's default single attempt,
     // so re-arming here can't double-fire via a retry. Errors are logged, never
     // thrown — a broken re-arm degrades to "user can re-ask", not a crash.
-    if (
-      reminder.recurrence_rule === ReminderRecurrence.DAILY &&
-      reminder.recurrence_local_time &&
-      reminder.recurrence_offset_minutes !== null
-    ) {
-      try {
-        // Recompute the offset LIVE from the zone (DST-correct) when we have
-        // one, else use the frozen snapshot. This is what keeps a "daily 7am"
-        // at 7am across a DST flip instead of drifting to 6am/8am.
-        const occurrenceOffset = resolveOffsetMinutes(
-          reminder.recurrence_iana_timezone,
-          reminder.recurrence_offset_minutes,
-        ) ?? reminder.recurrence_offset_minutes;
-        const nextFire = nextDailyFireAt(
-          new Date(),
-          reminder.recurrence_local_time,
-          occurrenceOffset,
-        );
-        await this.enqueue({
-          userId: reminder.user_id,
-          sessionId: reminder.session_id,
-          createdByMessageId: reminder.created_by_message_id,
-          fireAt: nextFire,
-          message: reminder.message,
-          recurrence: {
-            rule: ReminderRecurrence.DAILY,
-            localTime: reminder.recurrence_local_time,
-            offsetMinutes: reminder.recurrence_offset_minutes,
-            ianaTimezone: reminder.recurrence_iana_timezone,
-            parentId: reminder.recurrence_parent_id ?? reminderId,
-          },
-        });
-      } catch (recErr) {
-        this.logger.error(
-          `recurrence re-enqueue failed for ${reminderId}: ${(recErr as Error).message}`,
-        );
-      }
+    if (this.isDailyChainRow(reminder)) {
+      await this.rearmDailyChain(reminder);
     }
 
     // Surface a send failure to the caller only AFTER the chain is safely
@@ -453,10 +453,11 @@ export class ScheduleService {
 
   /**
    * Stop a recurring series — cancels the currently-pending occurrence and any
-   * other pending rows sharing the same parent_id. Returns the count of rows
-   * cancelled (0 if nothing pending was found).
+   * other pending rows sharing the same parent_id, with NO re-arm (this is the
+   * one deliberate "kill the chain" path). Returns the count of rows cancelled
+   * (0 if nothing pending was found).
    */
-  async cancelSeries(parentId: string): Promise<number> {
+  async cancelSeries(parentId: string, opts: CancelOpts = {}): Promise<number> {
     const pending = await this.reminderRepo.find({
       where: {
         recurrence_parent_id: parentId,
@@ -465,13 +466,29 @@ export class ScheduleService {
     });
     let count = 0;
     for (const row of pending) {
-      const result = await this.cancel(row.id);
+      const result = await this.cancel(row.id, {
+        ...opts,
+        reason: opts.reason ?? `series cancelled by ${opts.actor ?? 'unknown'}`,
+        killChain: true,
+      });
       if (result?.status === ScheduledReminderStatus.CANCELLED) count++;
     }
     return count;
   }
 
-  async cancel(reminderId: string): Promise<ScheduledReminder | null> {
+  /**
+   * Cancel one reminder. Never anonymous: the actor/reason is written to
+   * failure_reason and logged — the 2026-07-22 incident (all three of one
+   * user's daily chains dead, no trace of what cancelled them) is exactly what
+   * a silent cancel path costs.
+   *
+   * Chain survival: a daily chain re-arms only when an occurrence FIRES, so
+   * cancelling a pending occurrence used to kill the whole series forever.
+   * Cancelling one occurrence now means "skip this one" — the next occurrence
+   * is re-armed — unless `killChain` is set (cancelSeries sets it; that is the
+   * explicit stop-the-series path).
+   */
+  async cancel(reminderId: string, opts: CancelOpts = {}): Promise<ScheduledReminder | null> {
     const reminder = await this.reminderRepo.findOne({ where: { id: reminderId } });
     if (!reminder) return null;
     if (reminder.status !== ScheduledReminderStatus.PENDING) return reminder;
@@ -480,7 +497,75 @@ export class ScheduleService {
       const job = await this.queue.getJob(reminder.bull_job_id);
       if (job) await job.remove().catch(() => undefined);
     }
-    await this.reminderRepo.update(reminderId, { status: ScheduledReminderStatus.CANCELLED });
+    await this.reminderRepo.update(reminderId, {
+      status: ScheduledReminderStatus.CANCELLED,
+      failure_reason: opts.reason ?? `cancelled by ${opts.actor ?? 'unknown'}`,
+    });
+    structuredLog(this.logger, 'log', {
+      service: 'schedule',
+      operation: 'reminder_cancelled',
+      userId: reminder.user_id,
+      reminderId,
+      actor: opts.actor ?? 'unknown',
+      reason: opts.reason ?? null,
+      recurring: reminder.recurrence_rule ?? null,
+      rearmed: this.isDailyChainRow(reminder) && !opts.killChain,
+    });
+
+    if (this.isDailyChainRow(reminder) && !opts.killChain) {
+      await this.rearmDailyChain(reminder);
+    }
+
     return this.reminderRepo.findOne({ where: { id: reminderId } });
+  }
+
+  private isDailyChainRow(reminder: ScheduledReminder): boolean {
+    return (
+      reminder.recurrence_rule === ReminderRecurrence.DAILY &&
+      !!reminder.recurrence_local_time &&
+      reminder.recurrence_offset_minutes !== null
+    );
+  }
+
+  /**
+   * Enqueue the next occurrence of a daily chain. Never throws — a broken
+   * re-arm degrades to "user can re-ask", not a crash (and, from fire(), a
+   * transient send failure must never permanently kill a chain — Karibi
+   * 2026-07-16).
+   */
+  private async rearmDailyChain(reminder: ScheduledReminder): Promise<void> {
+    try {
+      // Recompute the offset LIVE from the zone (DST-correct) when we have
+      // one, else use the frozen snapshot. This is what keeps a "daily 7am"
+      // at 7am across a DST flip instead of drifting to 6am/8am.
+      const occurrenceOffset =
+        resolveOffsetMinutes(
+          reminder.recurrence_iana_timezone,
+          reminder.recurrence_offset_minutes,
+        ) ?? reminder.recurrence_offset_minutes!;
+      const nextFire = nextDailyFireAt(
+        new Date(),
+        reminder.recurrence_local_time!,
+        occurrenceOffset,
+      );
+      await this.enqueue({
+        userId: reminder.user_id,
+        sessionId: reminder.session_id,
+        createdByMessageId: reminder.created_by_message_id,
+        fireAt: nextFire,
+        message: reminder.message,
+        recurrence: {
+          rule: ReminderRecurrence.DAILY,
+          localTime: reminder.recurrence_local_time!,
+          offsetMinutes: reminder.recurrence_offset_minutes!,
+          ianaTimezone: reminder.recurrence_iana_timezone,
+          parentId: reminder.recurrence_parent_id ?? reminder.id,
+        },
+      });
+    } catch (recErr) {
+      this.logger.error(
+        `recurrence re-enqueue failed for ${reminder.id}: ${(recErr as Error).message}`,
+      );
+    }
   }
 }

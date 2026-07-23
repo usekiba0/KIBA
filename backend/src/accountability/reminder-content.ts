@@ -25,7 +25,8 @@ const SCRIPTURE_REF = /\b(?:[1-3]\s*)?[A-Z][a-z]{1,14}\.?\s+\d{1,3}:\d{1,3}\b/;
 const WEEKDAY = /\b(mon|tues?|wed(nes)?|thur?s?|fri|sat(ur)?|sun)(day)?\b/i;
 
 /** "leg day", "push day", "upper day", "rest day", … */
-const SPLIT_DAY = /\b(leg|legs|push|pull|arm|arms|chest|back|upper|lower|rest|cardio|shoulder|shoulders)\s+day\b/i;
+const SPLIT_DAY =
+  /\b(leg|legs|push|pull|arm|arms|chest|back|upper|lower|rest|cardio|shoulder|shoulders)\s+day\b/i;
 
 export type RecurringContentVerdict = { ok: true } | { ok: false; error: string };
 
@@ -111,7 +112,8 @@ export function reminderSignature(message: string): string | null {
  * task like "pick up groceries" or "choose a leg day exercise".
  */
 const DECIDE_VERB = /\b(pick|choose|set|decide|lock in|figure out|nail down|plan out)\b/i;
-const SCHEDULE_NOUN = /\b(ppl|split|schedule|days and times|training days|gym days|workout days)\b/i;
+const SCHEDULE_NOUN =
+  /\b(ppl|split|schedule|days and times|training days|gym days|workout days)\b/i;
 
 export function isSchedulingTask(task: string | null | undefined): boolean {
   const text = task ?? '';
@@ -122,4 +124,117 @@ export function isSchedulingTask(task: string | null | undefined): boolean {
 /** "legs" and "leg" are the same session; nothing else needs stemming here. */
 function stem(word: string): string {
   return word.endsWith('s') && word.length > 3 ? word.slice(0, -1) : word;
+}
+
+/**
+ * Are two free-form ONE-SHOT reminder texts the same intent? Used only when
+ * they already share the exact fire minute — a typo re-confirm makes the model
+ * schedule the same commitment twice with fresh wording (Karibi 2026-07-23:
+ * "tailor pickup time…" 16s after "yo. tailor time…", both at 10am), and
+ * `reminderSignature` only covers the structured pre/proof shapes.
+ *
+ * Grammar words and coaching filler ("time", "send", "proof" — present in
+ * nearly every reminder) carry no intent, so the comparison runs on what's
+ * left. Same safety posture as the signature: when in doubt (no content words,
+ * low overlap) return false — an extra ping is visible, a silently dropped
+ * reminder is not.
+ */
+const INTENT_STOPWORDS = new Set([
+  // grammar
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'of',
+  'to',
+  'in',
+  'on',
+  'at',
+  'for',
+  'with',
+  'your',
+  'you',
+  'me',
+  'my',
+  'we',
+  'us',
+  'it',
+  'its',
+  'that',
+  'this',
+  'those',
+  'these',
+  'them',
+  'they',
+  'is',
+  'are',
+  'be',
+  'was',
+  'were',
+  'do',
+  'does',
+  'did',
+  'when',
+  'what',
+  'how',
+  'go',
+  'get',
+  'got',
+  'up',
+  'out',
+  'off',
+  'now',
+  'then',
+  'so',
+  'but',
+  'if',
+  'no',
+  'not',
+  'em',
+  'yo',
+  'ok',
+  'okay',
+  // coaching filler — in nearly every reminder body, proves nothing about intent
+  'time',
+  'done',
+  'confirm',
+  'send',
+  'sent',
+  'proof',
+  'pic',
+  'photo',
+  'something',
+  'shows',
+  'show',
+  'went',
+  'min',
+  'mins',
+  'till',
+  'til',
+  'until',
+  'ready',
+  'morning',
+  'tonight',
+  'today',
+  'tomorrow',
+]);
+
+function intentTokens(message: string): Set<string> {
+  const tokens = (message ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !INTENT_STOPWORDS.has(w))
+    .map(stem);
+  return new Set(tokens);
+}
+
+export function sameIntentOneShot(a: string, b: string): boolean {
+  const ta = intentTokens(a);
+  const tb = intentTokens(b);
+  if (ta.size === 0 || tb.size === 0) return false;
+  let shared = 0;
+  for (const t of ta) if (tb.has(t)) shared++;
+  return shared / Math.min(ta.size, tb.size) >= 0.5;
 }

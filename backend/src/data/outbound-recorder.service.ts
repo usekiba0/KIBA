@@ -19,7 +19,11 @@ export type ScheduledKind =
   | 'dunning'
   | 'intake_nudge'
   | 'price_reveal'
-  | 'milestone';
+  | 'milestone'
+  // The plan-link SMS (and its lead-in). Sent outside saveAndSend, so without
+  // this the link was invisible to the thread — the 2026-07-23 audit read two
+  // healthy conversions as "lead never got a link" because of it.
+  | 'payment_link';
 
 /**
  * Persists scheduled/triggered outbound sends as Message rows so they are

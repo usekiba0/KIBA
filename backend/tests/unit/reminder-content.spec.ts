@@ -2,6 +2,7 @@ import {
   validateRecurringMessage,
   reminderSignature,
   isSchedulingTask,
+  sameIntentOneShot,
 } from '../../src/accountability/reminder-content';
 
 /**
@@ -26,13 +27,12 @@ describe('validateRecurringMessage', () => {
     }
   });
 
-  it.each([
-    '1 Corinthians 15:58',
-    'Ps 23:1 is the one',
-    'read Philippians 4:13 today',
-  ])('catches the citation shape in %j', (msg) => {
-    expect(validateRecurringMessage(msg).ok).toBe(false);
-  });
+  it.each(['1 Corinthians 15:58', 'Ps 23:1 is the one', 'read Philippians 4:13 today'])(
+    'catches the citation shape in %j',
+    (msg) => {
+      expect(validateRecurringMessage(msg).ok).toBe(false);
+    },
+  );
 
   it('rejects a training-day name — it would be wrong 6 days out of 7', () => {
     const v = validateRecurringMessage(
@@ -58,7 +58,7 @@ describe('validateRecurringMessage', () => {
   it.each([
     'time to read your bible. send proof when you are done.',
     'gym time. what are you hitting today?',
-    "morning. weigh in and send it.",
+    'morning. weigh in and send it.',
     'drink water and take your creatine.',
   ])('allows the day-agnostic phrasing %j', (msg) => {
     expect(validateRecurringMessage(msg).ok).toBe(true);
@@ -85,9 +85,9 @@ describe('reminderSignature', () => {
 
   it('gives the proof checks one signature', () => {
     expect(reminderSignature('push time was 15 min ago. proof?')).toBe('proof:push');
-    expect(
-      reminderSignature('gym time was 15 min ago. breakfast + workout proof. send it.'),
-    ).toBe('proof:gym');
+    expect(reminderSignature('gym time was 15 min ago. breakfast + workout proof. send it.')).toBe(
+      'proof:gym',
+    );
   });
 
   it('keeps pre and proof for the same activity DISTINCT', () => {
@@ -107,12 +107,7 @@ describe('reminderSignature', () => {
   it('returns null for anything it does not recognize', () => {
     // The safety property: an unrecognized reminder is NEVER superseded, so a
     // reminder the user actually wanted can't silently vanish.
-    for (const msg of [
-      'time to read your bible.',
-      'drink water',
-      'call your mom back',
-      '',
-    ]) {
+    for (const msg of ['time to read your bible.', 'drink water', 'call your mom back', '']) {
       expect(reminderSignature(msg)).toBeNull();
     }
   });
@@ -151,5 +146,47 @@ describe('isSchedulingTask', () => {
     expect(isSchedulingTask(null)).toBe(false);
     expect(isSchedulingTask(undefined)).toBe(false);
     expect(isSchedulingTask('   ')).toBe(false);
+  });
+});
+
+// Karibi 2026-07-23: a typo re-confirm ("Tmr* yes") made the model schedule the
+// tailor pickup twice for the same minute, worded differently. The pre/proof
+// signature can't catch free-form one-shots, so this overlap check decides
+// whether two same-minute one-shots are the same intent. The literal prod
+// strings are the fixture.
+describe('sameIntentOneShot', () => {
+  const tailorA = 'tailor pickup time. go grab those clothes and send me proof when you got em.';
+  const tailorB =
+    'yo. tailor time. go pick up those clothes and send proof when you got em. pic of the clothes or receipt, something that shows you went.';
+
+  it('matches the real tailor duplicate pair', () => {
+    expect(sameIntentOneShot(tailorA, tailorB)).toBe(true);
+  });
+
+  it('matches identical wording', () => {
+    expect(sameIntentOneShot(tailorA, tailorA)).toBe(true);
+  });
+
+  it('does not merge distinct intents that share a time slot', () => {
+    expect(
+      sameIntentOneShot(
+        'evening meds. take them and confirm.',
+        'call your mom about the dinner plans.',
+      ),
+    ).toBe(false);
+  });
+
+  it('does not merge two different errands with generic filler in common', () => {
+    expect(
+      sameIntentOneShot(
+        'time to send that invoice. get it done and confirm.',
+        'time to book the dentist. get it done and confirm.',
+      ),
+    ).toBe(false);
+  });
+
+  it('is safe on empty/null-ish input', () => {
+    expect(sameIntentOneShot('', tailorA)).toBe(false);
+    expect(sameIntentOneShot('   ', '   ')).toBe(false);
   });
 });
