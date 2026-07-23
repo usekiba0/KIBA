@@ -2,7 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
 import { ScheduleService, normalizeLocalTime } from '../../src/accountability/schedule.service';
-import { ScheduledReminder, ScheduledReminderStatus, ReminderRecurrence } from '../../src/data/entities/scheduled-reminder.entity';
+import {
+  ScheduledReminder,
+  ScheduledReminderStatus,
+  ReminderRecurrence,
+} from '../../src/data/entities/scheduled-reminder.entity';
 import { User } from '../../src/data/entities/user.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
 import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
@@ -19,7 +23,9 @@ describe('ScheduleService', () => {
     recorder = { record: jest.fn().mockResolvedValue(undefined) };
     reminderRepo = {
       save: jest.fn().mockImplementation(async (row) => ({ id: 'rem-1', ...row })),
-      find: jest.fn(),
+      // Default: no pending rows anywhere (the one-shot supersede scan runs on
+      // every one-shot enqueue now, not just signature-bearing ones).
+      find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
     };
@@ -54,14 +60,16 @@ describe('ScheduleService', () => {
       });
 
       expect(result.ok).toBe(true);
-      expect(reminderRepo.save).toHaveBeenCalledWith(expect.objectContaining({
-        user_id: 'u-1',
-        session_id: 's-1',
-        created_by_message_id: 'm-1',
-        fire_at: fireAt,
-        message: 'time to hit the workout',
-        status: ScheduledReminderStatus.PENDING,
-      }));
+      expect(reminderRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_id: 'u-1',
+          session_id: 's-1',
+          created_by_message_id: 'm-1',
+          fire_at: fireAt,
+          message: 'time to hit the workout',
+          status: ScheduledReminderStatus.PENDING,
+        }),
+      );
       expect(queue.add).toHaveBeenCalledWith(
         'send-scheduled-reminder',
         { reminderId: 'rem-1' },
@@ -211,7 +219,9 @@ describe('ScheduleService', () => {
       // Dedup lookup AND the stored row use the canonical "08:00", so a later
       // "08:00" request finds this chain instead of spawning a duplicate.
       expect(reminderRepo.findOne).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ recurrence_local_time: '08:00' }) }),
+        expect.objectContaining({
+          where: expect.objectContaining({ recurrence_local_time: '08:00' }),
+        }),
       );
       expect(reminderRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ recurrence_local_time: '08:00' }),
@@ -223,7 +233,11 @@ describe('ScheduleService', () => {
         userId: 'u-1',
         fireAt: fireAt(),
         message: 'x',
-        recurrence: { rule: ReminderRecurrence.DAILY, localTime: 'half eight', offsetMinutes: -300 },
+        recurrence: {
+          rule: ReminderRecurrence.DAILY,
+          localTime: 'half eight',
+          offsetMinutes: -300,
+        },
       });
 
       expect(result.ok).toBe(false);
@@ -276,15 +290,22 @@ describe('ScheduleService', () => {
         status: ScheduledReminderStatus.PENDING,
         message: 'go time',
       });
-      userRepo.findOne.mockResolvedValue({ id: 'u-1', phone_number: '+15551234567', crisis_hold: false });
+      userRepo.findOne.mockResolvedValue({
+        id: 'u-1',
+        phone_number: '+15551234567',
+        crisis_hold: false,
+      });
 
       await service.fire('rem-1');
 
       expect(messagingService.send).toHaveBeenCalledWith('+15551234567', 'go time');
-      expect(reminderRepo.update).toHaveBeenCalledWith('rem-1', expect.objectContaining({
-        status: ScheduledReminderStatus.FIRED,
-        fired_at: expect.any(Date),
-      }));
+      expect(reminderRepo.update).toHaveBeenCalledWith(
+        'rem-1',
+        expect.objectContaining({
+          status: ScheduledReminderStatus.FIRED,
+          fired_at: expect.any(Date),
+        }),
+      );
     });
 
     it('records the fired reminder as a Message row (kind=reminder)', async () => {
@@ -294,7 +315,11 @@ describe('ScheduleService', () => {
         status: ScheduledReminderStatus.PENDING,
         message: 'go time',
       });
-      userRepo.findOne.mockResolvedValue({ id: 'u-1', phone_number: '+15551234567', crisis_hold: false });
+      userRepo.findOne.mockResolvedValue({
+        id: 'u-1',
+        phone_number: '+15551234567',
+        crisis_hold: false,
+      });
 
       await service.fire('rem-1');
 
@@ -308,7 +333,11 @@ describe('ScheduleService', () => {
         status: ScheduledReminderStatus.PENDING,
         message: 'go time',
       });
-      userRepo.findOne.mockResolvedValue({ id: 'u-1', phone_number: '+15551234567', crisis_hold: false });
+      userRepo.findOne.mockResolvedValue({
+        id: 'u-1',
+        phone_number: '+15551234567',
+        crisis_hold: false,
+      });
       messagingService.send.mockRejectedValueOnce(new Error('twilio down'));
 
       await expect(service.fire('rem-1')).rejects.toThrow();
@@ -317,7 +346,10 @@ describe('ScheduleService', () => {
     });
 
     it('skips silently when reminder already fired (idempotent re-delivery)', async () => {
-      reminderRepo.findOne.mockResolvedValue({ id: 'rem-1', status: ScheduledReminderStatus.FIRED });
+      reminderRepo.findOne.mockResolvedValue({
+        id: 'rem-1',
+        status: ScheduledReminderStatus.FIRED,
+      });
 
       await service.fire('rem-1');
 
@@ -326,39 +358,58 @@ describe('ScheduleService', () => {
     });
 
     it('skips silently when reminder is cancelled', async () => {
-      reminderRepo.findOne.mockResolvedValue({ id: 'rem-1', status: ScheduledReminderStatus.CANCELLED });
+      reminderRepo.findOne.mockResolvedValue({
+        id: 'rem-1',
+        status: ScheduledReminderStatus.CANCELLED,
+      });
       await service.fire('rem-1');
       expect(messagingService.send).not.toHaveBeenCalled();
     });
 
     it('does not send when user is in crisis hold; marks cancelled', async () => {
       reminderRepo.findOne.mockResolvedValue({
-        id: 'rem-1', user_id: 'u-1', status: ScheduledReminderStatus.PENDING, message: 'hey',
+        id: 'rem-1',
+        user_id: 'u-1',
+        status: ScheduledReminderStatus.PENDING,
+        message: 'hey',
       });
-      userRepo.findOne.mockResolvedValue({ id: 'u-1', phone_number: '+15551234567', crisis_hold: true });
+      userRepo.findOne.mockResolvedValue({
+        id: 'u-1',
+        phone_number: '+15551234567',
+        crisis_hold: true,
+      });
 
       await service.fire('rem-1');
 
       expect(messagingService.send).not.toHaveBeenCalled();
-      expect(reminderRepo.update).toHaveBeenCalledWith('rem-1', expect.objectContaining({
-        status: ScheduledReminderStatus.CANCELLED,
-        failure_reason: 'user in crisis hold',
-      }));
+      expect(reminderRepo.update).toHaveBeenCalledWith(
+        'rem-1',
+        expect.objectContaining({
+          status: ScheduledReminderStatus.CANCELLED,
+          failure_reason: 'user in crisis hold',
+        }),
+      );
     });
 
     it('marks failed when messaging throws and re-throws for BullMQ retry', async () => {
       reminderRepo.findOne.mockResolvedValue({
-        id: 'rem-1', user_id: 'u-1', status: ScheduledReminderStatus.PENDING, message: 'x',
+        id: 'rem-1',
+        user_id: 'u-1',
+        status: ScheduledReminderStatus.PENDING,
+        message: 'x',
       });
       userRepo.findOne.mockResolvedValue({ id: 'u-1', phone_number: '+1', crisis_hold: false });
       messagingService.send.mockRejectedValueOnce(new Error('twilio down'));
 
       await expect(service.fire('rem-1')).rejects.toThrow('twilio down');
 
-      expect(reminderRepo.update).toHaveBeenCalledWith('rem-1', expect.objectContaining({
-        status: ScheduledReminderStatus.FAILED,
-        failure_reason: expect.stringContaining('twilio down'),
-      }));
+      expect(reminderRepo.update).toHaveBeenCalledWith(
+        'rem-1',
+        expect.objectContaining({
+          status: ScheduledReminderStatus.FAILED,
+          failure_reason: expect.stringContaining('twilio down'),
+        }),
+      );
     });
 
     // A transient send failure must NOT kill a recurring chain (Karibi 2026-07-16:
@@ -366,35 +417,57 @@ describe('ScheduleService', () => {
     // even though this send threw — the row is FAILED but tomorrow is enqueued.
     it('re-arms the next daily occurrence even when the send fails', async () => {
       reminderRepo.findOne.mockResolvedValue({
-        id: 'rem-1', user_id: 'u-1', status: ScheduledReminderStatus.PENDING, message: 'log dinner',
-        session_id: null, created_by_message_id: null,
+        id: 'rem-1',
+        user_id: 'u-1',
+        status: ScheduledReminderStatus.PENDING,
+        message: 'log dinner',
+        session_id: null,
+        created_by_message_id: null,
         recurrence_rule: ReminderRecurrence.DAILY,
         recurrence_local_time: '20:00',
         recurrence_offset_minutes: -300,
         recurrence_iana_timezone: null,
         recurrence_parent_id: 'rem-1',
       });
-      userRepo.findOne.mockResolvedValue({ id: 'u-1', phone_number: '+15551234567', crisis_hold: false });
+      userRepo.findOne.mockResolvedValue({
+        id: 'u-1',
+        phone_number: '+15551234567',
+        crisis_hold: false,
+      });
       messagingService.send.mockRejectedValueOnce(new Error('sendblue 500'));
-      const enqueueSpy = jest.spyOn(service, 'enqueue').mockResolvedValue({ ok: true, reminderId: 'rem-2', fireAtIso: '' } as any);
+      const enqueueSpy = jest
+        .spyOn(service, 'enqueue')
+        .mockResolvedValue({ ok: true, reminderId: 'rem-2', fireAtIso: '' } as any);
 
       await expect(service.fire('rem-1')).rejects.toThrow('sendblue 500');
 
       // FAILED for this occurrence, but the chain lives on: tomorrow was enqueued.
-      expect(reminderRepo.update).toHaveBeenCalledWith('rem-1', expect.objectContaining({
-        status: ScheduledReminderStatus.FAILED,
-      }));
-      expect(enqueueSpy).toHaveBeenCalledWith(expect.objectContaining({
-        message: 'log dinner',
-        recurrence: expect.objectContaining({ rule: ReminderRecurrence.DAILY, localTime: '20:00' }),
-      }));
+      expect(reminderRepo.update).toHaveBeenCalledWith(
+        'rem-1',
+        expect.objectContaining({
+          status: ScheduledReminderStatus.FAILED,
+        }),
+      );
+      expect(enqueueSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'log dinner',
+          recurrence: expect.objectContaining({
+            rule: ReminderRecurrence.DAILY,
+            localTime: '20:00',
+          }),
+        }),
+      );
     });
   });
 
   describe('cancel', () => {
     it('removes the BullMQ job and marks cancelled when pending', async () => {
       reminderRepo.findOne
-        .mockResolvedValueOnce({ id: 'rem-1', status: ScheduledReminderStatus.PENDING, bull_job_id: 'job-1' })
+        .mockResolvedValueOnce({
+          id: 'rem-1',
+          status: ScheduledReminderStatus.PENDING,
+          bull_job_id: 'job-1',
+        })
         .mockResolvedValueOnce({ id: 'rem-1', status: ScheduledReminderStatus.CANCELLED });
       const removeMock = jest.fn().mockResolvedValue(undefined);
       queue.getJob.mockResolvedValue({ remove: removeMock });
@@ -403,7 +476,14 @@ describe('ScheduleService', () => {
 
       expect(queue.getJob).toHaveBeenCalledWith('job-1');
       expect(removeMock).toHaveBeenCalled();
-      expect(reminderRepo.update).toHaveBeenCalledWith('rem-1', { status: ScheduledReminderStatus.CANCELLED });
+      // Cancels are never anonymous — the actor/reason lands in failure_reason.
+      expect(reminderRepo.update).toHaveBeenCalledWith(
+        'rem-1',
+        expect.objectContaining({
+          status: ScheduledReminderStatus.CANCELLED,
+          failure_reason: expect.any(String),
+        }),
+      );
       expect(result?.status).toBe(ScheduledReminderStatus.CANCELLED);
     });
 
@@ -442,7 +522,20 @@ describe('normalizeLocalTime', () => {
   });
 
   it('rejects out-of-range and malformed values', () => {
-    for (const bad of ['24:00', '12:60', '8:5', '800', '8', 'abc', '', ' ', ':', '8:', null, undefined]) {
+    for (const bad of [
+      '24:00',
+      '12:60',
+      '8:5',
+      '800',
+      '8',
+      'abc',
+      '',
+      ' ',
+      ':',
+      '8:',
+      null,
+      undefined,
+    ]) {
       expect(normalizeLocalTime(bad as string)).toBeNull();
     }
   });

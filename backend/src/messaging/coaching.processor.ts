@@ -29,6 +29,7 @@ import { SummarisationService } from '../ai/summarisation.service';
 import { VisionService } from '../ai/vision.service';
 import { SessionCacheService } from '../data/session-cache.service';
 import { SessionBoundaryService } from '../data/session-boundary.service';
+import { OutboundRecorderService } from '../data/outbound-recorder.service';
 import { CorrectionService } from '../data/correction.service';
 import { ReferralService } from '../data/referral.service';
 import { planLinkFor } from '../onboarding/checkout-link';
@@ -66,7 +67,12 @@ import {
   HELP_REPLY,
   normalizeKeyword,
 } from './opt-out';
-import { parseTimeInPlace, resolvePlaceTimezone, formatTimeInZone, resolveOffsetMinutes } from './world-time';
+import {
+  parseTimeInPlace,
+  resolvePlaceTimezone,
+  formatTimeInZone,
+  resolveOffsetMinutes,
+} from './world-time';
 import { isOffsetPlausibleForPhone } from './phone-timezone';
 import { detectQuestionLoop, detectRepeatedChoiceLoop, isLoopCallout } from './question-loop';
 import { humanizeTask } from '../ai/prompts/checkin.prompt';
@@ -217,7 +223,12 @@ const CLOSE_LEAD_IN = 'bet. tap this and we start tonight:';
 export function isIntakeCommitment(text: string): boolean {
   const t = (text ?? '').trim();
   if (COMMITMENT_PHRASE_RE.test(t)) return true;
-  return BARE_YES_RE.test(t.replace(/[^\w\s']/g, ' ').replace(/\s+/g, ' ').trim());
+  return BARE_YES_RE.test(
+    t
+      .replace(/[^\w\s']/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  );
 }
 
 /**
@@ -296,6 +307,7 @@ export class CoachingProcessor {
     private readonly correctionService: CorrectionService,
     private readonly stripeService: StripeService,
     private readonly referralService: ReferralService,
+    private readonly outboundRecorder: OutboundRecorderService,
     @InjectQueue('accountability') private readonly accountabilityQueue: Queue,
   ) {}
 
@@ -322,7 +334,14 @@ export class CoachingProcessor {
   }
 
   async process(data: CoachingJob): Promise<void> {
-    const { body, twilioSid, numMedia: inboundNumMedia, mediaUrls, mediaContentTypes, channel } = data;
+    const {
+      body,
+      twilioSid,
+      numMedia: inboundNumMedia,
+      mediaUrls,
+      mediaContentTypes,
+      channel,
+    } = data;
     // Mutable: a shared LINK arrives as an unidentifiable attachment and gets
     // demoted to a plain text turn below, once byte-sniffing has had its say.
     let numMedia = inboundNumMedia;
@@ -451,7 +470,10 @@ export class CoachingProcessor {
         provider_message_id: messageHandle,
       });
     } catch (err) {
-      if (err instanceof QueryFailedError && (err as unknown as { code?: string }).code === '23505') {
+      if (
+        err instanceof QueryFailedError &&
+        (err as unknown as { code?: string }).code === '23505'
+      ) {
         structuredLog(this.logger, 'log', {
           service: 'messaging',
           operation: 'duplicate_inbound_suppressed',
@@ -861,9 +883,15 @@ export class CoachingProcessor {
       const sendStart = Date.now();
       await this.saveAndSend(user, boundary.sessionId, reply);
       structuredLog(this.logger, 'log', {
-        service: 'coaching', operation: 'turn_latency', userId: user.id,
-        path: 'intake', debounceMs, genMs, sendMs: Date.now() - sendStart,
-        totalMs: Date.now() - turnStart, e2eMs: Date.now() - receivedAt,
+        service: 'coaching',
+        operation: 'turn_latency',
+        userId: user.id,
+        path: 'intake',
+        debounceMs,
+        genMs,
+        sendMs: Date.now() - sendStart,
+        totalMs: Date.now() - turnStart,
+        e2eMs: Date.now() - receivedAt,
       });
       return;
     }
@@ -1069,7 +1097,11 @@ export class CoachingProcessor {
       // a borderline one through.
       let proofMatch: 'accept' | 'mismatch' = 'accept';
       if (task && mediaUrl && !isGif) {
-        const verdict = await this.visionService.validateProofFromUrl(task.task_description, mediaUrl, mediaCt);
+        const verdict = await this.visionService.validateProofFromUrl(
+          task.task_description,
+          mediaUrl,
+          mediaCt,
+        );
         if (!verdict.is_valid && verdict.confidence >= 0.8) proofMatch = 'mismatch';
       }
 
@@ -1113,7 +1145,10 @@ export class CoachingProcessor {
       // Ground the model that a reaction GIF arrived so it reacts naturally and
       // never denies seeing it / asks them to resend (it only gets one frame).
       const incomingText = isGif
-        ? [caption, '(the user sent a reaction GIF — react to it like a text from a friend; never say you can\'t see it or ask them to send it again)']
+        ? [
+            caption,
+            "(the user sent a reaction GIF — react to it like a text from a friend; never say you can't see it or ask them to send it again)",
+          ]
             .filter(Boolean)
             .join(' ')
         : caption;
@@ -1137,9 +1172,16 @@ export class CoachingProcessor {
       await this.saveAndSend(user, boundary.sessionId, reply);
       await tokenWrite;
       structuredLog(this.logger, 'log', {
-        service: 'coaching', operation: 'turn_latency', userId: user.id,
-        path: 'vision', debounceMs, genMs, sendMs: Date.now() - sendStart,
-        totalMs: Date.now() - turnStart, e2eMs: Date.now() - receivedAt, tokenCount,
+        service: 'coaching',
+        operation: 'turn_latency',
+        userId: user.id,
+        path: 'vision',
+        debounceMs,
+        genMs,
+        sendMs: Date.now() - sendStart,
+        totalMs: Date.now() - turnStart,
+        e2eMs: Date.now() - receivedAt,
+        tokenCount,
       });
       return;
     }
@@ -1196,9 +1238,16 @@ export class CoachingProcessor {
     await this.saveAndSend(user, boundary.sessionId, reply);
     await tokenWrite;
     structuredLog(this.logger, 'log', {
-      service: 'coaching', operation: 'turn_latency', userId: user.id,
-      path: 'text', debounceMs, genMs, sendMs: Date.now() - sendStart,
-      totalMs: Date.now() - turnStart, e2eMs: Date.now() - receivedAt, tokenCount,
+      service: 'coaching',
+      operation: 'turn_latency',
+      userId: user.id,
+      path: 'text',
+      debounceMs,
+      genMs,
+      sendMs: Date.now() - sendStart,
+      totalMs: Date.now() - turnStart,
+      e2eMs: Date.now() - receivedAt,
+      tokenCount,
     });
   }
 
@@ -1419,7 +1468,9 @@ export class CoachingProcessor {
       intakeBuildComplete(liveUser) &&
       !askedToUnderstand &&
       isIntakeCommitment(intakeText) &&
-      CLOSE_CUE_RE.test([...recentMessages].reverse().find((m) => m.role === MessageRole.AI)?.content ?? '')
+      CLOSE_CUE_RE.test(
+        [...recentMessages].reverse().find((m) => m.role === MessageRole.AI)?.content ?? '',
+      )
     ) {
       // The build is done, KIBA's last message was the close/challenge, and the
       // lead just committed ("yeah, i'm in") — send the link if the model didn't.
@@ -1814,6 +1865,21 @@ export class CoachingProcessor {
       };
     }
 
+    // Record the sent bubbles on the thread. Every other out-of-band sender
+    // records via OutboundRecorder (PR #33); this path didn't, so the link was
+    // invisible to the admin thread, to audits, and to the AI's own history —
+    // the 2026-07-23 audit read two healthy conversions as dropped leads.
+    // Best-effort: recording must never block the state flip below (the user
+    // HAS the link; failing here would re-send it on retry).
+    try {
+      if (opts.leadIn) await this.outboundRecorder.record(liveUser.id, opts.leadIn, 'payment_link');
+      await this.outboundRecorder.record(liveUser.id, planUrl, 'payment_link');
+    } catch (recordErr) {
+      this.logger.warn(
+        `[sendPaymentLink] thread recording failed for ${liveUser.id}: ${(recordErr as Error).message}`,
+      );
+    }
+
     const now = new Date();
     await this.userRepo.update(liveUser.id, {
       onboarding_stage: OnboardingStage.PAYMENT_PENDING,
@@ -1915,10 +1981,14 @@ export class CoachingProcessor {
         }
         // Recurring series: cancel the whole chain by parent_id.
         if (reminder.recurrence_parent_id) {
-          const count = await this.scheduleService.cancelSeries(reminder.recurrence_parent_id);
+          const count = await this.scheduleService.cancelSeries(reminder.recurrence_parent_id, {
+            actor: 'ai_tool',
+          });
           return { ok: true as const, cancelled: count };
         }
-        const cancelled = await this.scheduleService.cancel(input.reminder_id);
+        const cancelled = await this.scheduleService.cancel(input.reminder_id, {
+          actor: 'ai_tool',
+        });
         return { ok: true as const, cancelled: cancelled ? 1 : 0 };
       },
       listMyReminders: async () => {
