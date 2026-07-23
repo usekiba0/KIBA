@@ -2,7 +2,11 @@ import {
   PsychologicalProfile,
   PressurePreference,
 } from '../../data/entities/psychological-profile.entity';
-import { formatLocalClockPretty, timeOfDayLabel, formatDateWithYear } from '../../messaging/local-time';
+import {
+  formatLocalClockPretty,
+  timeOfDayLabel,
+  formatDateWithYear,
+} from '../../messaging/local-time';
 
 interface UserContext {
   id: string;
@@ -211,13 +215,16 @@ function formatPatternSignals(p: PatternSignals): string {
       `- Weakest day: ${day} — ${n} missed ${day}s ALL-TIME (a running total across the whole relationship, NOT a recent window). ` +
       'NEVER attach a timeframe to this number — do not say "this week", "in the last week", "recently" or "lately". ' +
       'If they ask what exactly they missed, answer honestly and plainly: you track a running count per weekday, not a list of specific days. ' +
-      'NEVER dodge that question, never tell them it\'s the wrong question to ask, and never invent specific missed days to justify the number.';
+      "NEVER dodge that question, never tell them it's the wrong question to ask, and never invent specific missed days to justify the number.";
     // WE compute today-vs-weakest-day and hand over exactly one framing.
     const rel =
-      p.todayDow == null ? 'unknown'
-      : p.todayDow === p.weakestDow ? 'today'
-      : (p.todayDow + 1) % 7 === p.weakestDow ? 'tomorrow'
-      : 'other';
+      p.todayDow == null
+        ? 'unknown'
+        : p.todayDow === p.weakestDow
+          ? 'today'
+          : (p.todayDow + 1) % 7 === p.weakestDow
+            ? 'tomorrow'
+            : 'other';
     if (rel === 'today') {
       lines.push(
         `${base} TODAY IS ${day.toUpperCase()} — their weakest day. If they haven't committed to a plan yet, call it out: "it's ${lower}, historically your weakest day — not this time."`,
@@ -251,10 +258,15 @@ function formatPatternSignals(p: PatternSignals): string {
   // "X days straight" (Karibi 2026-07-07: KIBA told a user who ghosted the whole
   // trial "7 days straight, you actually did it"). streak 0 = no praise, period.
   const streak = Math.max(0, Math.floor(p.currentStreak ?? 0));
-  const streakFact = streak > 0
-    ? `- Current streak: ${streak} consecutive day${streak === 1 ? '' : 's'} with a completed task. If you reference a streak or day count, use THIS number only — never round up or invent one.`
-    : `- Current streak: 0 — they are NOT on a streak right now. Do NOT say "X days straight", "you're locked in", or congratulate a run that didn't happen. If they've gone quiet or skipped, name it honestly instead of praising.`;
-  const factBlock = ['', 'HARD FACTS (ground truth — cite only these numbers, never fabricate a streak or win):', streakFact];
+  const streakFact =
+    streak > 0
+      ? `- Current streak: ${streak} consecutive day${streak === 1 ? '' : 's'} with a completed task. If you reference a streak or day count, use THIS number only — never round up or invent one.`
+      : `- Current streak: 0 — they are NOT on a streak right now. Do NOT say "X days straight", "you're locked in", or congratulate a run that didn't happen. If they've gone quiet or skipped, name it honestly instead of praising.`;
+  const factBlock = [
+    '',
+    'HARD FACTS (ground truth — cite only these numbers, never fabricate a streak or win):',
+    streakFact,
+  ];
   // When they actually paid/locked in. Grounds the model so it stops inventing a
   // day for the payment ("the link went through yesterday" to a same-day payer).
   if (p.activatedDayLabel) {
@@ -336,7 +348,14 @@ export function buildSystemPrompt(
    * Core facts the user told us (from intake_data). Surfaced so the AI can use
    * memory actively and catch contradictions ("since when are you in houston?").
    */
-  knownFacts?: { goals?: string | null; city?: string | null; why?: string | null; weighInSchedule?: string | null; weeklySchedule?: string | null; facts?: string[] | null },
+  knownFacts?: {
+    goals?: string | null;
+    city?: string | null;
+    why?: string | null;
+    weighInSchedule?: string | null;
+    weeklySchedule?: string | null;
+    facts?: string[] | null;
+  },
   /**
    * The evolving relationship digest (User.relationship_memory). Loaded on EVERY
    * message so KIBA remembers this person across days, not just within a session.
@@ -367,10 +386,13 @@ export function buildSystemPrompt(
   const knownFactsSection = factLines.length
     ? `\nWHAT YOU KNOW ABOUT THEM (use it actively; correct them if they contradict it):\n${factLines.join('\n')}\n`
     : '';
-  const memorySection = relationshipMemory && relationshipMemory.trim()
-    ? `\nWHAT YOU REMEMBER ABOUT THEM (the relationship so far, built up over DAYS — UNDATED, so never assume any of it happened today; talk like you actually know them; reference it naturally when it lands, don't recite it, and gently correct them if they contradict it):\n${relationshipMemory.trim()}\n`
+  const memorySection =
+    relationshipMemory && relationshipMemory.trim()
+      ? `\nWHAT YOU REMEMBER ABOUT THEM (the relationship so far, built up over DAYS — UNDATED, so never assume any of it happened today; talk like you actually know them; reference it naturally when it lands, don't recite it, and gently correct them if they contradict it):\n${relationshipMemory.trim()}\n`
+      : '';
+  const summarySection = sessionSummary
+    ? `\nPREVIOUS SESSION (from an EARLIER day — not today; do not describe anything in here as having happened "today" or "this morning"):\n${sessionSummary}\n`
     : '';
-  const summarySection = sessionSummary ? `\nPREVIOUS SESSION (from an EARLIER day — not today; do not describe anything in here as having happened "today" or "this morning"):\n${sessionSummary}\n` : '';
   const knowledgeSection =
     curatedKnowledge && curatedKnowledge.length > 0
       ? `\nCURATED KNOWLEDGE (admin-approved corrections from past users — follow these):\n${curatedKnowledge.map((k) => `- ${k}`).join('\n')}\n`
@@ -648,7 +670,7 @@ CORE RULES:
 - mention recent strikes / dropping score briefly. don't lecture.
 - no hedging. no refusing. no "i don't have that capability" — find a way.
 - NEVER surface anything technical or internal — no mention of errors, bugs, servers, databases, "lag", tools, APIs, or system limits. if something fails or you can't do it this second, just say it didn't go through and to try again. sound human, never like a system message.
-- never accept "i quit" / "i'm cancelling" without a real conversation first. their score/streak is what they BUILT, proof of who they became — frame leaving as LOSING that ("you're at [score], dropping it is the real cost"), never a desperate "please stay".
+- CANCELLING — when they ask to cancel, quit, or stop paying: you get ONE honest reply. you may ask what changed, or offer to pause or scale the plan down. then you TELL THEM THE WAY OUT in the same message: text STOP to stop the messages, or email support@usekiba.ai to cancel billing. never stall, never argue, never make them ask twice, never use their score or streak as leverage to keep them, never imply they're weak or "running" for leaving. if they repeat it, drop the save entirely and confirm the path. someone leaving well is how you earn them back; someone trapped tells everyone.
 - across the relationship you communicate three things: i remember your goals, i notice your patterns, i care whether you become who you said you wanted to be. let these show through naturally — do NOT cram all three into every text. one, landing well, beats three on repeat.
 - ${profile.pressure_preference === PressurePreference.ENCOURAGEMENT ? 'soften delivery slightly — still hold them accountable but with more support' : 'stay sharp and direct — zero softening'}
 - CUSSING: ${profile.cussing_ok ? 'user opted in. you may use mild profanity (shit, hell, damn, ass, "fuck" sparingly for emphasis) when it fits the moment naturally. never gratuitous, never as filler.' : 'user has NOT opted in. ZERO profanity. no shit/fuck/damn/hell/ass/bitch — none. if a moment feels like it needs heat, use intensity not language ("nah", "come on", "bro").'}

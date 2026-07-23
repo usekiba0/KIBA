@@ -10,7 +10,10 @@ import heicConvert = require('heic-convert');
 import { createAnthropicClient } from './anthropic.factory';
 import { User, IntakeData } from '../data/entities/user.entity';
 import { Message } from '../data/entities/message.entity';
-import { PsychologicalProfile, PressurePreference } from '../data/entities/psychological-profile.entity';
+import {
+  PsychologicalProfile,
+  PressurePreference,
+} from '../data/entities/psychological-profile.entity';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { Strike } from '../data/entities/strike.entity';
 import { DailyTask } from '../data/entities/daily-task.entity';
@@ -27,7 +30,15 @@ import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/paym
 import { CorrectionService } from '../data/correction.service';
 import { formatHistoryStamp, localDayOfWeek } from '../messaging/local-time';
 import { resolveOffsetMinutes } from '../messaging/world-time';
-import { buildDateFactsBlock, correctTimeClaims, correctEventTimingClaims, correctWeekdayClaims, describeActivationDay } from './time-claim-guard';
+import {
+  buildDateFactsBlock,
+  correctTimeClaims,
+  correctEventTimingClaims,
+  correctWeekdayClaims,
+  describeActivationDay,
+} from './time-claim-guard';
+import { extractWeighIns, correctWeightClaims } from './weight-claim-guard';
+import { detectCancellationIntent, enforceCancellationPath } from './cancellation-guard';
 import { structuredLog, warnTokenBudget } from '../common/logger';
 
 /** Coaching-mode tools (post-payment). */
@@ -41,56 +52,84 @@ export interface CoachingToolHandlers {
     message: string;
     /** Optional "daily at HH:MM" recurrence. Local time + offset snapshotted at create time. */
     recurrence?: { rule: 'daily'; local_time: string } | null;
-  }) =>
-    Promise<{ ok: true; reminder_id: string; fire_at_iso: string; fires_in: string } | { ok: false; error: string }>;
-  cancelReminder: (input: { reminder_id: string }) =>
-    Promise<{ ok: true; cancelled: number } | { ok: false; error: string }>;
-  listMyReminders: () =>
-    Promise<{ ok: true; reminders: Array<{ reminder_id: string; fire_at_iso: string; fires_in: string; message: string; recurrence: string | null }> }>;
-  addTodo: (input: { content: string }) =>
-    Promise<{ ok: true; todo_id: string; content: string } | { ok: false; error: string }>;
-  listTodayTodos: () =>
-    Promise<{ ok: true; todos: Array<{ todo_id: string; content: string; status: string }> }>;
-  markTodoDone: (input: { todo_id: string }) =>
-    Promise<{ ok: true; todo_id: string; status: string } | { ok: false; error: string }>;
+  }) => Promise<
+    | { ok: true; reminder_id: string; fire_at_iso: string; fires_in: string }
+    | { ok: false; error: string }
+  >;
+  cancelReminder: (input: {
+    reminder_id: string;
+  }) => Promise<{ ok: true; cancelled: number } | { ok: false; error: string }>;
+  listMyReminders: () => Promise<{
+    ok: true;
+    reminders: Array<{
+      reminder_id: string;
+      fire_at_iso: string;
+      fires_in: string;
+      message: string;
+      recurrence: string | null;
+    }>;
+  }>;
+  addTodo: (input: {
+    content: string;
+  }) => Promise<{ ok: true; todo_id: string; content: string } | { ok: false; error: string }>;
+  listTodayTodos: () => Promise<{
+    ok: true;
+    todos: Array<{ todo_id: string; content: string; status: string }>;
+  }>;
+  markTodoDone: (input: {
+    todo_id: string;
+  }) => Promise<{ ok: true; todo_id: string; status: string } | { ok: false; error: string }>;
   // The ledger-correction path (Retraining doc #49/#127): when KIBA concedes a
   // wrong miss/strike/score, this makes the concession real — task back to
   // completed, strike deleted, dow miss un-counted, score recomputed.
-  correctMissedTask: (input: { day: 'today' | 'yesterday' }) =>
-    Promise<{ ok: true; corrected: number; tasks: string[]; strikes_removed: number; new_score: number | null } | { ok: false; error: string }>;
-  removeTodo: (input: { todo_id: string }) =>
-    Promise<{ ok: true; removed: true } | { ok: false; error: string }>;
+  correctMissedTask: (input: { day: 'today' | 'yesterday' }) => Promise<
+    | {
+        ok: true;
+        corrected: number;
+        tasks: string[];
+        strikes_removed: number;
+        new_score: number | null;
+      }
+    | { ok: false; error: string }
+  >;
+  removeTodo: (input: {
+    todo_id: string;
+  }) => Promise<{ ok: true; removed: true } | { ok: false; error: string }>;
   // Re-subscribe / late-signup link send. Coaching exposes this so a user whose
   // subscription lapsed (or who was backfilled to 'complete' without ever paying)
   // can get a fresh Stripe checkout URL by just asking in chat.
-  sendPaymentLink: () =>
-    Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
+  sendPaymentLink: () => Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
   // Lets the coaching AI fill missing psychological-profile fields elicited mid-
   // conversation (e.g. user reveals their mentor in turn 4). Mirrors the value
   // into both intake_data JSONB and the PsychologicalProfile row.
-  saveProfileField: (input: { field: string; value: string | boolean }) =>
-    Promise<{ ok: true; field: string } | { ok: false; error: string }>;
+  saveProfileField: (input: {
+    field: string;
+    value: string | boolean;
+  }) => Promise<{ ok: true; field: string } | { ok: false; error: string }>;
   // The user's standing weekly commitment (training split, work blocks, class
   // times). Separate from saveProfileField because that tool's enum is closed to
   // psychological facts and there was previously nowhere at all to put this —
   // which is why the morning check-in kept re-asking for a split the user had
   // already given (Karibi 2026-07-21).
-  saveWeeklySchedule: (input: { schedule: string }) =>
-    Promise<{ ok: true; schedule: string } | { ok: false; error: string }>;
+  saveWeeklySchedule: (input: {
+    schedule: string;
+  }) => Promise<{ ok: true; schedule: string } | { ok: false; error: string }>;
   // React to the user's most recent message with an iMessage tapback. Optional:
   // only present on iMessage conversations (the processor omits it on SMS), so
   // the react_to_message tool is offered to the model only when a tapback can
   // actually land.
-  reactToMessage?: (input: { reaction: string }) =>
-    Promise<{ ok: true; reaction: string } | { ok: false; error: string }>;
+  reactToMessage?: (input: {
+    reaction: string;
+  }) => Promise<{ ok: true; reaction: string } | { ok: false; error: string }>;
 }
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
 export interface IntakeToolHandlers {
-  saveIntakeField: (input: { field: string; value: string | number | boolean | string[] }) =>
-    Promise<{ ok: true; field: string } | { ok: false; error: string }>;
-  sendPaymentLink: () =>
-    Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
+  saveIntakeField: (input: {
+    field: string;
+    value: string | number | boolean | string[];
+  }) => Promise<{ ok: true; field: string } | { ok: false; error: string }>;
+  sendPaymentLink: () => Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
   // Trial users can set reminders too (Tomo/Poke set them up freely pre-pay).
   // Server resolves the fire time from delay_minutes / local_clock / fire_at_iso.
   scheduleReminder: (input: {
@@ -99,8 +138,10 @@ export interface IntakeToolHandlers {
     fire_at_iso?: string;
     message: string;
     recurrence?: { rule: 'daily'; local_time: string } | null;
-  }) =>
-    Promise<{ ok: true; reminder_id: string; fire_at_iso: string; fires_in: string } | { ok: false; error: string }>;
+  }) => Promise<
+    | { ok: true; reminder_id: string; fire_at_iso: string; fires_in: string }
+    | { ok: false; error: string }
+  >;
 }
 
 type Tool = Anthropic.Messages.Tool;
@@ -115,12 +156,12 @@ const SCHEDULE_REMINDER_TOOL: Tool = {
     'Convert hours to minutes only; nothing else.\n' +
     '- local_clock: for a SPECIFIC clock time ("at 9am" -> "09:00", "tonight at 9" -> "21:00", "5:02pm" -> ' +
     '"17:02"). Pass the user\'s local wall-clock as "HH:MM" 24h; the system converts to UTC and picks today if ' +
-    'it hasn\'t passed, else tomorrow.\n' +
+    "it hasn't passed, else tomorrow.\n" +
     'Only fall back to fire_at_iso if neither fits. ' +
     'MINIMUM DELAY: 2 minutes — but this ONLY matters when they ask for UNDER 2 minutes ("in 1 min", "in 30 sec"): ' +
     'then DO NOT call the tool and tell them 2 minutes is the floor. For ANY request of 2 minutes or more ' +
     '(3 min, 5 min, an hour, tomorrow), JUST SCHEDULE IT and confirm — NEVER volunteer or mention the 2-minute ' +
-    'minimum, it only confuses them. For local_clock requests the user\'s timezone must be known; if it ' +
+    "minimum, it only confuses them. For local_clock requests the user's timezone must be known; if it " +
     'is not, ask first — never guess. ' +
     'RECURRENCE: for a DAILY repeating reminder ("every day at 8am", "every morning", "daily wake-up"), pass ' +
     'local_clock for the first fire AND the `recurrence` object with rule="daily" and the same local_time. The ' +
@@ -132,15 +173,18 @@ const SCHEDULE_REMINDER_TOOL: Tool = {
     properties: {
       delay_minutes: {
         type: 'integer',
-        description: 'For relative requests: total minutes from now (e.g. "in 5 hours" -> 300). Server fires at now + this. Omit if using local_clock.',
+        description:
+          'For relative requests: total minutes from now (e.g. "in 5 hours" -> 300). Server fires at now + this. Omit if using local_clock.',
       },
       local_clock: {
         type: 'string',
-        description: 'For a specific clock time: the user\'s local wall-clock as "HH:MM" 24h (e.g. "09:00", "17:02"). Server converts to UTC. Omit if using delay_minutes.',
+        description:
+          'For a specific clock time: the user\'s local wall-clock as "HH:MM" 24h (e.g. "09:00", "17:02"). Server converts to UTC. Omit if using delay_minutes.',
       },
       fire_at_iso: {
         type: 'string',
-        description: 'LAST RESORT only (use delay_minutes or local_clock instead). Absolute UTC ISO-8601 with Z suffix.',
+        description:
+          'LAST RESORT only (use delay_minutes or local_clock instead). Absolute UTC ISO-8601 with Z suffix.',
       },
       message: {
         type: 'string',
@@ -148,10 +192,19 @@ const SCHEDULE_REMINDER_TOOL: Tool = {
       },
       recurrence: {
         type: 'object',
-        description: 'Optional. Set ONLY when the user explicitly asks for a daily-repeating reminder. Leave unset for one-off reminders.',
+        description:
+          'Optional. Set ONLY when the user explicitly asks for a daily-repeating reminder. Leave unset for one-off reminders.',
         properties: {
-          rule: { type: 'string', enum: ['daily'], description: 'Currently only "daily" is supported.' },
-          local_time: { type: 'string', description: 'The user\'s local clock time to fire every day, "HH:MM" 24h (e.g. "08:00", "22:30"). Should match local_clock.' },
+          rule: {
+            type: 'string',
+            enum: ['daily'],
+            description: 'Currently only "daily" is supported.',
+          },
+          local_time: {
+            type: 'string',
+            description:
+              'The user\'s local clock time to fire every day, "HH:MM" 24h (e.g. "08:00", "22:30"). Should match local_clock.',
+          },
         },
         required: ['rule', 'local_time'],
       },
@@ -163,7 +216,7 @@ const SCHEDULE_REMINDER_TOOL: Tool = {
 const LIST_MY_REMINDERS_TOOL: Tool = {
   name: 'list_my_reminders',
   description:
-    'Return the user\'s currently-pending scheduled reminders (id, fire_at_iso UTC, message, recurrence). ' +
+    "Return the user's currently-pending scheduled reminders (id, fire_at_iso UTC, message, recurrence). " +
     'Call this whenever the user asks about a reminder you already set — "how long until that", ' +
     '"what reminders do i have", "did you set the reminder", "what time was it for", "what daily reminders ' +
     'do i have", "stop the morning reminder". ' +
@@ -180,17 +233,18 @@ const LIST_MY_REMINDERS_TOOL: Tool = {
 const ADD_TODO_TOOL: Tool = {
   name: 'add_todo',
   description:
-    'Add an item to the user\'s to-do list for TODAY. Use whenever the user names something they want to ' +
+    "Add an item to the user's to-do list for TODAY. Use whenever the user names something they want to " +
     'get done today ("add gym to my list", "remind me to email steve", "throw clean my room on there"), ' +
     'OR when YOU recommend a concrete task they agree to ("aight do the leg workout" → add it). ' +
-    'Don\'t use for one-off coaching observations or motivation. The list is already in the system prompt — ' +
-    'don\'t add a duplicate of something already there.',
+    "Don't use for one-off coaching observations or motivation. The list is already in the system prompt — " +
+    "don't add a duplicate of something already there.",
   input_schema: {
     type: 'object' as const,
     properties: {
       content: {
         type: 'string',
-        description: 'Short imperative description of the task (e.g. "leg workout — 15 min squats/lunges/calves", "4 hours focused business work"). Keep under 200 chars.',
+        description:
+          'Short imperative description of the task (e.g. "leg workout — 15 min squats/lunges/calves", "4 hours focused business work"). Keep under 200 chars.',
       },
     },
     required: ['content'],
@@ -200,7 +254,7 @@ const ADD_TODO_TOOL: Tool = {
 const LIST_TODAY_TODOS_TOOL: Tool = {
   name: 'list_today_todos',
   description:
-    'Return today\'s to-do list (id, content, status). The list is also embedded in the system prompt at ' +
+    "Return today's to-do list (id, content, status). The list is also embedded in the system prompt at " +
     'turn start — only call this if the user just added something via add_todo / marked something done and ' +
     'you need the fresh ids, or if the user asks "what\'s left" / "what\'s on my list".',
   input_schema: { type: 'object' as const, properties: {}, required: [] },
@@ -267,7 +321,8 @@ const CANCEL_REMINDER_TOOL: Tool = {
     properties: {
       reminder_id: {
         type: 'string',
-        description: 'The reminder id from list_my_reminders. For a recurring series this can be any occurrence id — the whole chain cancels together.',
+        description:
+          'The reminder id from list_my_reminders. For a recurring series this can be any occurrence id — the whole chain cancels together.',
       },
     },
     required: ['reminder_id'],
@@ -284,7 +339,7 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
     'save it whenever they name where they live, alongside utc_offset_minutes. For utc_offset_minutes pass an integer (minutes ahead/behind UTC, ' +
     'e.g. 300 for PKT). For pressure_preference pass "pressure" or "encouragement". For checkin_time pass HH:MM 24h. ' +
     'For cussing_ok pass a boolean (true if the user explicitly said cussing is fine, false if they said keep it pg). ' +
-    'goals = an ARRAY of strings, the user\'s full list when they name more than one goal — save all of them, never drop any. ' +
+    "goals = an ARRAY of strings, the user's full list when they name more than one goal — save all of them, never drop any. " +
     'goal_description = the single daily ANCHOR goal (one string). When the user has several goals, save the whole list to ' +
     'goals AND their chosen anchor to goal_description. When they have just one, save it to goal_description. ' +
     'why_it_matters = why their main goal actually matters to them (the emotional reason). ' +
@@ -295,13 +350,28 @@ const SAVE_INTAKE_FIELD_TOOL: Tool = {
     properties: {
       field: {
         type: 'string',
-        enum: ['name', 'goal_description', 'goals', 'goal_timeline', 'current_status', 'why_it_matters', 'fears', 'avoidance_patterns',
-               'comparison_figure', 'public_failure_scenario', 'typical_failure_moment', 'pressure_preference',
-               'cussing_ok', 'utc_offset_minutes', 'checkin_time'],
+        enum: [
+          'name',
+          'goal_description',
+          'goals',
+          'goal_timeline',
+          'current_status',
+          'why_it_matters',
+          'fears',
+          'avoidance_patterns',
+          'comparison_figure',
+          'public_failure_scenario',
+          'typical_failure_moment',
+          'pressure_preference',
+          'cussing_ok',
+          'utc_offset_minutes',
+          'checkin_time',
+        ],
         description: 'Which structured field to save.',
       },
       value: {
-        description: 'The value. String for text fields, an array of strings for goals, integer for utc_offset_minutes, HH:MM for checkin_time, boolean for cussing_ok.',
+        description:
+          'The value. String for text fields, an array of strings for goals, integer for utc_offset_minutes, HH:MM for checkin_time, boolean for cussing_ok.',
       },
     },
     required: ['field', 'value'],
@@ -314,7 +384,7 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
     'Persist a psychological-profile fact the user just revealed mid-coaching. ' +
     'Use whenever the user names a comparison figure / mentor, a fear, an avoidance pattern, ' +
     'a public failure scenario, a typical failure moment, or an embarrassment (the private outcome ' +
-    'they\'d be ashamed for people to see if they keep failing) — even casually, even mid-sentence. ' +
+    "they'd be ashamed for people to see if they keep failing) — even casually, even mid-sentence. " +
     'Also use when the user explicitly grants or revokes cursing consent ("you can cuss", "keep it clean from now on"). ' +
     'Field MUST be one of: fears, avoidance_patterns, comparison_figure, public_failure_scenario, ' +
     'typical_failure_moment, embarrassment, pressure_preference, cussing_ok. ' +
@@ -325,9 +395,16 @@ const SAVE_PROFILE_FIELD_TOOL: Tool = {
     properties: {
       field: {
         type: 'string',
-        enum: ['fears', 'avoidance_patterns', 'comparison_figure',
-               'public_failure_scenario', 'typical_failure_moment', 'embarrassment',
-               'pressure_preference', 'cussing_ok'],
+        enum: [
+          'fears',
+          'avoidance_patterns',
+          'comparison_figure',
+          'public_failure_scenario',
+          'typical_failure_moment',
+          'embarrassment',
+          'pressure_preference',
+          'cussing_ok',
+        ],
       },
       value: { description: 'String for free-text fields, boolean for cussing_ok.' },
     },
@@ -346,7 +423,10 @@ const CALCULATE_TOOL: Tool = {
   input_schema: {
     type: 'object' as const,
     properties: {
-      expression: { type: 'string', description: 'Arithmetic expression: digits and + - * / % ( ) only.' },
+      expression: {
+        type: 'string',
+        description: 'Arithmetic expression: digits and + - * / % ( ) only.',
+      },
     },
     required: ['expression'],
   },
@@ -367,7 +447,8 @@ const SAVE_WEEKLY_SCHEDULE_TOOL: Tool = {
     properties: {
       schedule: {
         type: 'string',
-        description: 'The complete standing weekly schedule, one short line. Overwrites whatever was stored.',
+        description:
+          'The complete standing weekly schedule, one short line. Overwrites whatever was stored.',
       },
     },
     required: ['schedule'],
@@ -377,7 +458,7 @@ const SAVE_WEEKLY_SCHEDULE_TOOL: Tool = {
 const REACT_TO_MESSAGE_TOOL: Tool = {
   name: 'react_to_message',
   description:
-    'React to the user\'s most recent message with an iMessage tapback. Use SPARINGLY — only when a reaction genuinely fits and adds warmth, the way a real friend taps back. ' +
+    "React to the user's most recent message with an iMessage tapback. Use SPARINGLY — only when a reaction genuinely fits and adds warmth, the way a real friend taps back. " +
     'Guidance: a real win / something heartfelt → "love"; simple agreement or acknowledgement → "like"; something funny → "laugh"; a point you strongly want to stress → "emphasize"; a weak excuse you want to gently push back on → "dislike" (rare); a confusing or surprising message → "question". ' +
     'A tapback can REPLACE a text reply when no words are needed, or sit alongside one. Do NOT react to every message — overusing tapbacks kills the effect. iMessage only (this tool is simply absent on SMS).',
   input_schema: {
@@ -440,13 +521,26 @@ export class CoachingService {
   private isSupportedImageFormat(url: string, contentType?: string): boolean {
     if (contentType) {
       const ct = contentType.toLowerCase().split(';')[0].trim();
-      return ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
-              'image/heic', 'image/heif'].includes(ct);
+      return [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'image/heic',
+        'image/heif',
+      ].includes(ct);
     }
     const lower = url.toLowerCase().split('?')[0];
-    return lower.endsWith('.jpg') || lower.endsWith('.jpeg') ||
-           lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') ||
-           lower.endsWith('.heic') || lower.endsWith('.heif');
+    return (
+      lower.endsWith('.jpg') ||
+      lower.endsWith('.jpeg') ||
+      lower.endsWith('.png') ||
+      lower.endsWith('.gif') ||
+      lower.endsWith('.webp') ||
+      lower.endsWith('.heic') ||
+      lower.endsWith('.heif')
+    );
   }
 
   // Anthropic's vision API rejects HEIC, but iPhone iMessage uploads land as
@@ -456,13 +550,15 @@ export class CoachingService {
     imageUrl: string,
     imageContentType?: string,
   ): Promise<
-    | { ok: true; block: Anthropic.Messages.ImageBlockParam }
-    | { ok: false; reason: string }
+    { ok: true; block: Anthropic.Messages.ImageBlockParam } | { ok: false; reason: string }
   > {
     const ct = (imageContentType ?? '').toLowerCase().split(';')[0].trim();
     const urlLower = imageUrl.toLowerCase().split('?')[0];
-    const isHeic = ct === 'image/heic' || ct === 'image/heif' ||
-      urlLower.endsWith('.heic') || urlLower.endsWith('.heif');
+    const isHeic =
+      ct === 'image/heic' ||
+      ct === 'image/heif' ||
+      urlLower.endsWith('.heic') ||
+      urlLower.endsWith('.heif');
 
     if (!isHeic) {
       return {
@@ -490,9 +586,7 @@ export class CoachingService {
         },
       };
     } catch (err) {
-      this.logger.warn(
-        `HEIC conversion failed for ${imageUrl}: ${(err as Error).message}`,
-      );
+      this.logger.warn(`HEIC conversion failed for ${imageUrl}: ${(err as Error).message}`);
       return { ok: false, reason: 'heic_conversion_failed' };
     }
   }
@@ -502,7 +596,10 @@ export class CoachingService {
    * it doesn't exist yet. Bridges the SMS-first onboarding (which writes only
    * intake_data JSONB) to the coaching prompt (which reads PsychologicalProfile).
    */
-  async ensureProfile(userId: string, intakeData: IntakeData | null): Promise<PsychologicalProfile> {
+  async ensureProfile(
+    userId: string,
+    intakeData: IntakeData | null,
+  ): Promise<PsychologicalProfile> {
     const existing = await this.profileRepo.findOne({ where: { user_id: userId } });
     if (existing) return existing;
 
@@ -513,9 +610,10 @@ export class CoachingService {
       comparison_figure: intakeData?.comparison_figure ?? '',
       public_failure_scenario: intakeData?.public_failure_scenario ?? '',
       typical_failure_moment: intakeData?.typical_failure_moment ?? '',
-      pressure_preference: intakeData?.pressure_preference === 'encouragement'
-        ? PressurePreference.ENCOURAGEMENT
-        : PressurePreference.PRESSURE,
+      pressure_preference:
+        intakeData?.pressure_preference === 'encouragement'
+          ? PressurePreference.ENCOURAGEMENT
+          : PressurePreference.PRESSURE,
       cussing_ok: intakeData?.cussing_ok === true,
     });
     await this.profileRepo.save(created);
@@ -532,9 +630,17 @@ export class CoachingService {
     field: string,
     value: string | boolean,
   ): Promise<{ ok: true; field: string } | { ok: false; error: string }> {
-    const allowed = ['fears', 'avoidance_patterns', 'comparison_figure',
-                     'public_failure_scenario', 'typical_failure_moment', 'embarrassment',
-                     'pressure_preference', 'cussing_ok', 'weigh_in_schedule'];
+    const allowed = [
+      'fears',
+      'avoidance_patterns',
+      'comparison_figure',
+      'public_failure_scenario',
+      'typical_failure_moment',
+      'embarrassment',
+      'pressure_preference',
+      'cussing_ok',
+      'weigh_in_schedule',
+    ];
     if (!allowed.includes(field)) return { ok: false, error: `unknown field: ${field}` };
 
     // cussing_ok takes a boolean; everything else takes a non-empty string.
@@ -553,7 +659,11 @@ export class CoachingService {
       await this.profileRepo.save(profile);
 
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'save_profile_field', userId, field, value,
+        service: 'ai',
+        operation: 'save_profile_field',
+        userId,
+        field,
+        value,
       });
       return { ok: true, field };
     }
@@ -581,16 +691,20 @@ export class CoachingService {
 
     const profile = await this.ensureProfile(userId, intake);
     if (field === 'pressure_preference') {
-      profile.pressure_preference = trimmed === 'encouragement'
-        ? PressurePreference.ENCOURAGEMENT
-        : PressurePreference.PRESSURE;
+      profile.pressure_preference =
+        trimmed === 'encouragement'
+          ? PressurePreference.ENCOURAGEMENT
+          : PressurePreference.PRESSURE;
     } else {
       (profile as unknown as Record<string, string>)[field] = trimmed;
     }
     await this.profileRepo.save(profile);
 
     structuredLog(this.logger, 'log', {
-      service: 'ai', operation: 'save_profile_field', userId, field,
+      service: 'ai',
+      operation: 'save_profile_field',
+      userId,
+      field,
     });
     return { ok: true, field };
   }
@@ -635,7 +749,11 @@ export class CoachingService {
       this.correctionService.getActiveKnowledge(),
       // Last 60 days of tasks → the REAL current streak, injected as ground truth
       // so the model never fabricates "X days straight" (Karibi 2026-07-07).
-      this.taskRepo.find({ where: { user_id: user.id }, order: { scheduled_date: 'DESC' }, take: 60 }),
+      this.taskRepo.find({
+        where: { user_id: user.id },
+        order: { scheduled_date: 'DESC' },
+        take: 60,
+      }),
     ]);
     const currentStreak = currentStreakFromTasks(recentTasks);
 
@@ -656,9 +774,10 @@ export class CoachingService {
     // Core facts from intake so the coaching prompt can use memory actively and
     // catch contradictions. Goals: full list if present, else the anchor.
     const intake = user.intake_data ?? {};
-    const goalsText = intake.goals && intake.goals.length
-      ? intake.goals.join(', ')
-      : (intake.goal_description ?? null);
+    const goalsText =
+      intake.goals && intake.goals.length
+        ? intake.goals.join(', ')
+        : (intake.goal_description ?? null);
     const knownFacts = {
       goals: goalsText,
       city: intake.city ?? null,
@@ -728,17 +847,25 @@ export class CoachingService {
 
     const tools = toolHandlers
       ? [
-          SCHEDULE_REMINDER_TOOL, LIST_MY_REMINDERS_TOOL, CANCEL_REMINDER_TOOL,
-          ADD_TODO_TOOL, LIST_TODAY_TODOS_TOOL, MARK_TODO_DONE_TOOL, REMOVE_TODO_TOOL,
+          SCHEDULE_REMINDER_TOOL,
+          LIST_MY_REMINDERS_TOOL,
+          CANCEL_REMINDER_TOOL,
+          ADD_TODO_TOOL,
+          LIST_TODAY_TODOS_TOOL,
+          MARK_TODO_DONE_TOOL,
+          REMOVE_TODO_TOOL,
           CORRECT_MISSED_TASK_TOOL,
-          SEND_PAYMENT_LINK_TOOL, SAVE_PROFILE_FIELD_TOOL, SAVE_WEEKLY_SCHEDULE_TOOL,
+          SEND_PAYMENT_LINK_TOOL,
+          SAVE_PROFILE_FIELD_TOOL,
+          SAVE_WEEKLY_SCHEDULE_TOOL,
           CALCULATE_TOOL,
           // Only offered on iMessage — the handler is present only then.
           ...(toolHandlers.reactToMessage ? [REACT_TO_MESSAGE_TOOL] : []),
         ]
       : undefined;
     const dispatch = toolHandlers
-      ? (block: Anthropic.Messages.ToolUseBlock) => this.dispatchCoachingTool(block, toolHandlers, user.id)
+      ? (block: Anthropic.Messages.ToolUseBlock) =>
+          this.dispatchCoachingTool(block, toolHandlers, user.id)
       : undefined;
 
     return this.runChat({
@@ -816,7 +943,8 @@ export class CoachingService {
         .join('\n')
         .trim();
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'winback_nudge',
+        service: 'ai',
+        operation: 'winback_nudge',
         model,
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
@@ -825,7 +953,9 @@ export class CoachingService {
       });
       return text.length > 0 ? text : null;
     } catch (err) {
-      this.logger.warn(`generateWinbackNudge failed (falling back to template): ${(err as Error).message}`);
+      this.logger.warn(
+        `generateWinbackNudge failed (falling back to template): ${(err as Error).message}`,
+      );
       return null;
     }
   }
@@ -853,7 +983,8 @@ export class CoachingService {
         .join('\n')
         .trim();
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'payment_not_active_reply',
+        service: 'ai',
+        operation: 'payment_not_active_reply',
         model,
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
@@ -861,7 +992,9 @@ export class CoachingService {
       });
       return text.length > 0 ? text : null;
     } catch (err) {
-      this.logger.warn(`generatePaymentNotActiveReply failed (falling back to static): ${(err as Error).message}`);
+      this.logger.warn(
+        `generatePaymentNotActiveReply failed (falling back to static): ${(err as Error).message}`,
+      );
       return null;
     }
   }
@@ -922,13 +1055,18 @@ export class CoachingService {
     const MAX_IMAGES = 4;
     const urls = (args.imageUrls ?? []).slice(0, MAX_IMAGES);
     let usingImage = false;
-    let lastContent: string | Array<Anthropic.Messages.ImageBlockParam | Anthropic.Messages.TextBlockParam>;
+    let lastContent:
+      | string
+      | Array<Anthropic.Messages.ImageBlockParam | Anthropic.Messages.TextBlockParam>;
     if (urls.length > 0) {
       const blocks: Anthropic.Messages.ImageBlockParam[] = [];
       let sawUnsupported = false;
       for (let i = 0; i < urls.length; i++) {
         const ct = args.imageContentTypes?.[i];
-        if (!this.isSupportedImageFormat(urls[i], ct)) { sawUnsupported = true; continue; }
+        if (!this.isSupportedImageFormat(urls[i], ct)) {
+          sawUnsupported = true;
+          continue;
+        }
         const prep = await this.prepareImageBlock(urls[i], ct);
         if (prep.ok) blocks.push(prep.block);
       }
@@ -941,13 +1079,11 @@ export class CoachingService {
         };
       }
       usingImage = true;
-      const fallbackCaption = blocks.length > 1
-        ? 'The user sent these photos with no caption — react to what you actually see across them, in your voice.'
-        : 'The user sent this photo with no caption — react to what you actually see in it, in your voice.';
-      lastContent = [
-        ...blocks,
-        { type: 'text', text: args.incomingText || fallbackCaption },
-      ];
+      const fallbackCaption =
+        blocks.length > 1
+          ? 'The user sent these photos with no caption — react to what you actually see across them, in your voice.'
+          : 'The user sent this photo with no caption — react to what you actually see in it, in your voice.';
+      lastContent = [...blocks, { type: 'text', text: args.incomingText || fallbackCaption }];
     } else {
       lastContent = args.incomingText || 'I sent you a message.';
     }
@@ -972,12 +1108,16 @@ export class CoachingService {
           messages: history,
         });
       } catch (err: unknown) {
-        const isImageError = usingImage && iter === 0 &&
+        const isImageError =
+          usingImage &&
+          iter === 0 &&
           err instanceof Error &&
           (err.message.includes('invalid_request_error') || err.message.includes('image'));
         if (!isImageError) throw err;
 
-        this.logger.warn(`Image rejected by Anthropic for user ${args.userId} — ${(err as Error).message}`);
+        this.logger.warn(
+          `Image rejected by Anthropic for user ${args.userId} — ${(err as Error).message}`,
+        );
         return { reply: "couldn't read that photo — try a screenshot or resend.", tokenCount: 0 };
       }
 
@@ -993,7 +1133,11 @@ export class CoachingService {
         if (block.type !== 'tool_use') continue;
         try {
           const result = await args.dispatch(block);
-          const isError = typeof result === 'object' && result !== null && 'ok' in result && !(result as { ok: boolean }).ok;
+          const isError =
+            typeof result === 'object' &&
+            result !== null &&
+            'ok' in result &&
+            !(result as { ok: boolean }).ok;
           if (!isError) {
             if (block.name === 'schedule_reminder') reminderWritesOk++;
             if (block.name === 'list_my_reminders') reminderReads++;
@@ -1051,7 +1195,7 @@ export class CoachingService {
       const nudge: Anthropic.Messages.MessageParam = {
         role: 'user',
         content:
-          "(system: you just saved that. now reply to the user in your normal texting voice — react to what they actually said and move the conversation forward. text only, do not call any tools, and do not mention this note.)",
+          '(system: you just saved that. now reply to the user in your normal texting voice — react to what they actually said and move the conversation forward. text only, do not call any tools, and do not mention this note.)',
       };
       for (let retry = 0; retry < 2 && !finalReply; retry++) {
         try {
@@ -1065,7 +1209,9 @@ export class CoachingService {
           totalOutputTokens += forced.usage.output_tokens;
           finalReply = extractText(forced);
         } catch (err) {
-          this.logger.warn(`forced text completion failed (user ${args.userId}): ${(err as Error).message}`);
+          this.logger.warn(
+            `forced text completion failed (user ${args.userId}): ${(err as Error).message}`,
+          );
           break;
         }
       }
@@ -1142,11 +1288,7 @@ export class CoachingService {
     // equivalent" to a user on Monday and built a whole accusatory turn on top
     // of it (Bianca 2026-07-20). If the reply names a weekday for today or
     // tomorrow and it's provably wrong, swap the word before it ships.
-    const dowGuard = correctWeekdayClaims(
-      finalReply,
-      new Date(),
-      args.userOffsetMinutes ?? null,
-    );
+    const dowGuard = correctWeekdayClaims(finalReply, new Date(), args.userOffsetMinutes ?? null);
     if (dowGuard.corrections.length > 0) {
       finalReply = dowGuard.text;
       structuredLog(this.logger, 'warn', {
@@ -1169,6 +1311,53 @@ export class CoachingService {
         operation: 'math_claim_corrected',
         userId: args.userId,
         corrections: mathGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on weight-progress claims. The model froze on a three-week-old
+    // anchor and told a weight-loss client she was "down 5.6 lbs in one week"
+    // when the real figure was 2.8 — exactly double, off a number it had
+    // already misused twice (Bianca 2026-07-23). A weigh-in is a dated fact and
+    // the delta is subtraction, so neither is left to the model.
+    const weighIns = extractWeighIns(
+      args.recentMessages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        created_at: m.created_at,
+      })),
+    );
+    const weightGuard = correctWeightClaims(finalReply, weighIns);
+    if (weightGuard.corrections.length > 0) {
+      finalReply = weightGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'weight_claim_corrected',
+        userId: args.userId,
+        corrections: weightGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on cancellation requests. A user asking to cancel must always
+    // be told how — the prompt used to say "never accept 'i quit' ... without a
+    // real conversation first", and the model obstructed a paying customer
+    // across three turns while never once naming the exit (Karibi 2026-07-23).
+    // Additive: the save attempt survives, the path is guaranteed.
+    const cancelIntent = detectCancellationIntent(args.incomingText ?? '');
+    if (cancelIntent) {
+      const cancelGuard = enforceCancellationPath(finalReply, true);
+      if (cancelGuard.corrected) {
+        finalReply = cancelGuard.text;
+        structuredLog(this.logger, 'warn', {
+          service: 'ai',
+          operation: 'cancellation_path_appended',
+          userId: args.userId,
+        });
+      }
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'cancellation_intent_detected',
+        userId: args.userId,
+        pathAlreadyStated: !cancelGuard.corrected,
       });
     }
 
@@ -1205,8 +1394,11 @@ export class CoachingService {
       // silently rejected every normal "remind me at 8:30am" / "in 5 min" request
       // and made the model improvise "system's being weird".
       const input = block.input as {
-        delay_minutes?: number; local_clock?: string; fire_at_iso?: string;
-        message?: unknown; recurrence?: unknown;
+        delay_minutes?: number;
+        local_clock?: string;
+        fire_at_iso?: string;
+        message?: unknown;
+        recurrence?: unknown;
       };
       if (typeof input.message !== 'string' || !input.message.trim()) {
         return { ok: false, error: 'message must be a non-empty string' };
@@ -1228,8 +1420,10 @@ export class CoachingService {
         const verdict = validateRecurringMessage(input.message);
         if (!verdict.ok) {
           structuredLog(this.logger, 'warn', {
-            service: 'ai', operation: 'recurring_reminder_content_rejected',
-            userId, bodyPreview: input.message.slice(0, 80),
+            service: 'ai',
+            operation: 'recurring_reminder_content_rejected',
+            userId,
+            bodyPreview: input.message.slice(0, 80),
           });
           return { ok: false, error: verdict.error };
         }
@@ -1242,18 +1436,24 @@ export class CoachingService {
         recurrence,
       });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_schedule_reminder',
-        userId, ok: result.ok,
-        delayMinutes: input.delay_minutes ?? null, localClock: input.local_clock ?? null,
-        fireAtIso: input.fire_at_iso ?? null, recurrence: recurrence?.rule ?? null,
+        service: 'ai',
+        operation: 'tool_schedule_reminder',
+        userId,
+        ok: result.ok,
+        delayMinutes: input.delay_minutes ?? null,
+        localClock: input.local_clock ?? null,
+        fireAtIso: input.fire_at_iso ?? null,
+        recurrence: recurrence?.rule ?? null,
       });
       return result;
     }
     if (block.name === 'list_my_reminders') {
       const result = await toolHandlers.listMyReminders();
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_list_my_reminders',
-        userId, count: result.ok ? result.reminders.length : 0,
+        service: 'ai',
+        operation: 'tool_list_my_reminders',
+        userId,
+        count: result.ok ? result.reminders.length : 0,
       });
       return result;
     }
@@ -1264,8 +1464,11 @@ export class CoachingService {
       }
       const result = await toolHandlers.cancelReminder({ reminder_id: input.reminder_id });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_cancel_reminder',
-        userId, ok: result.ok, reminderId: input.reminder_id,
+        service: 'ai',
+        operation: 'tool_cancel_reminder',
+        userId,
+        ok: result.ok,
+        reminderId: input.reminder_id,
       });
       return result;
     }
@@ -1276,15 +1479,20 @@ export class CoachingService {
       }
       const result = await toolHandlers.addTodo({ content: input.content });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_add_todo', userId, ok: result.ok,
+        service: 'ai',
+        operation: 'tool_add_todo',
+        userId,
+        ok: result.ok,
       });
       return result;
     }
     if (block.name === 'list_today_todos') {
       const result = await toolHandlers.listTodayTodos();
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_list_today_todos',
-        userId, count: result.ok ? result.todos.length : 0,
+        service: 'ai',
+        operation: 'tool_list_today_todos',
+        userId,
+        count: result.ok ? result.todos.length : 0,
       });
       return result;
     }
@@ -1295,7 +1503,10 @@ export class CoachingService {
       }
       const result = await toolHandlers.markTodoDone({ todo_id: input.todo_id });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_mark_todo_done', userId, ok: result.ok,
+        service: 'ai',
+        operation: 'tool_mark_todo_done',
+        userId,
+        ok: result.ok,
       });
       return result;
     }
@@ -1306,7 +1517,10 @@ export class CoachingService {
       }
       const result = await toolHandlers.removeTodo({ todo_id: input.todo_id });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_remove_todo', userId, ok: result.ok,
+        service: 'ai',
+        operation: 'tool_remove_todo',
+        userId,
+        ok: result.ok,
       });
       return result;
     }
@@ -1317,8 +1531,10 @@ export class CoachingService {
       }
       const result = evaluate(input.expression);
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_calculate',
-        userId, ok: result.ok,
+        service: 'ai',
+        operation: 'tool_calculate',
+        userId,
+        ok: result.ok,
         expression: input.expression.slice(0, 80),
         result: result.ok ? result.result : null,
       });
@@ -1331,16 +1547,23 @@ export class CoachingService {
       }
       const result = await toolHandlers.correctMissedTask({ day: input.day });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_correct_missed_task', userId, ok: result.ok,
-        ...(result.ok ? { corrected: result.corrected, strikesRemoved: result.strikes_removed } : {}),
+        service: 'ai',
+        operation: 'tool_correct_missed_task',
+        userId,
+        ok: result.ok,
+        ...(result.ok
+          ? { corrected: result.corrected, strikesRemoved: result.strikes_removed }
+          : {}),
       });
       return result;
     }
     if (block.name === 'send_payment_link') {
       const result = await toolHandlers.sendPaymentLink();
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_send_payment_link_coaching',
-        userId, ok: result.ok,
+        service: 'ai',
+        operation: 'tool_send_payment_link_coaching',
+        userId,
+        ok: result.ok,
       });
       return result;
     }
@@ -1352,10 +1575,16 @@ export class CoachingService {
       if (typeof input.value !== 'string' && typeof input.value !== 'boolean') {
         return { ok: false, error: 'value must be a string or boolean' };
       }
-      const result = await toolHandlers.saveProfileField({ field: input.field, value: input.value });
+      const result = await toolHandlers.saveProfileField({
+        field: input.field,
+        value: input.value,
+      });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_save_profile_field',
-        userId, ok: result.ok, field: input.field,
+        service: 'ai',
+        operation: 'tool_save_profile_field',
+        userId,
+        ok: result.ok,
+        field: input.field,
       });
       return result;
     }
@@ -1366,8 +1595,10 @@ export class CoachingService {
       }
       const result = await toolHandlers.saveWeeklySchedule({ schedule: input.schedule });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_save_weekly_schedule',
-        userId, ok: result.ok,
+        service: 'ai',
+        operation: 'tool_save_weekly_schedule',
+        userId,
+        ok: result.ok,
       });
       return result;
     }
@@ -1381,8 +1612,11 @@ export class CoachingService {
       }
       const result = await toolHandlers.reactToMessage({ reaction: input.reaction });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_react_to_message',
-        userId, ok: result.ok, reaction: input.reaction,
+        service: 'ai',
+        operation: 'tool_react_to_message',
+        userId,
+        ok: result.ok,
+        reaction: input.reaction,
       });
       return result;
     }
@@ -1412,25 +1646,36 @@ export class CoachingService {
       if (!isValid) {
         return { ok: false, error: 'value must be a string, number, boolean, or array of strings' };
       }
-      const result = await toolHandlers.saveIntakeField({ field: input.field, value: value as string | number | boolean | string[] });
+      const result = await toolHandlers.saveIntakeField({
+        field: input.field,
+        value: value as string | number | boolean | string[],
+      });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_save_intake_field',
-        userId, ok: result.ok, field: input.field,
+        service: 'ai',
+        operation: 'tool_save_intake_field',
+        userId,
+        ok: result.ok,
+        field: input.field,
       });
       return result;
     }
     if (block.name === 'send_payment_link') {
       const result = await toolHandlers.sendPaymentLink();
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_send_payment_link',
-        userId, ok: result.ok,
+        service: 'ai',
+        operation: 'tool_send_payment_link',
+        userId,
+        ok: result.ok,
       });
       return result;
     }
     if (block.name === 'schedule_reminder') {
       const input = block.input as {
-        delay_minutes?: number; local_clock?: string; fire_at_iso?: string;
-        message?: unknown; recurrence?: { rule: 'daily'; local_time: string } | null;
+        delay_minutes?: number;
+        local_clock?: string;
+        fire_at_iso?: string;
+        message?: unknown;
+        recurrence?: { rule: 'daily'; local_time: string } | null;
       };
       if (typeof input.message !== 'string' || !input.message.trim()) {
         return { ok: false, error: 'message must be a non-empty string' };
@@ -1443,8 +1688,10 @@ export class CoachingService {
         recurrence: input.recurrence ?? null,
       });
       structuredLog(this.logger, 'log', {
-        service: 'ai', operation: 'tool_schedule_reminder_intake',
-        userId, ok: result.ok,
+        service: 'ai',
+        operation: 'tool_schedule_reminder_intake',
+        userId,
+        ok: result.ok,
       });
       return result;
     }
