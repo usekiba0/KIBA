@@ -6,14 +6,24 @@ import {
 
 describe('buildWeeklyReviewMessage', () => {
   it('returns null when there was no activity all week', () => {
-    expect(buildWeeklyReviewMessage({
-      userName: 'Alex', doneCount: 0, missedCount: 0, proofCount: 0, score: null,
-    })).toBeNull();
+    expect(
+      buildWeeklyReviewMessage({
+        userName: 'Alex',
+        doneCount: 0,
+        missedCount: 0,
+        proofCount: 0,
+        score: null,
+      }),
+    ).toBeNull();
   });
 
   it('renders the week summary with counts and score', () => {
     const msg = buildWeeklyReviewMessage({
-      userName: 'Alex', doneCount: 6, missedCount: 1, proofCount: 5, score: 72,
+      userName: 'Alex',
+      doneCount: 6,
+      missedCount: 1,
+      proofCount: 5,
+      score: 72,
     })!;
     expect(msg).toMatch(/week in review/i);
     expect(msg).toContain('✅ 6 done');
@@ -24,8 +34,13 @@ describe('buildWeeklyReviewMessage', () => {
 
   it('surfaces a recurring excuse as the biggest leak', () => {
     const msg = buildWeeklyReviewMessage({
-      userName: 'Alex', doneCount: 4, missedCount: 3, proofCount: 2, score: 60,
-      excusePhrase: 'too tired', excuseCount: 3,
+      userName: 'Alex',
+      doneCount: 4,
+      missedCount: 3,
+      proofCount: 2,
+      score: 60,
+      excusePhrase: 'too tired',
+      excuseCount: 3,
     })!;
     expect(msg.toLowerCase()).toContain('biggest leak');
     expect(msg).toContain('too tired');
@@ -33,7 +48,11 @@ describe('buildWeeklyReviewMessage', () => {
 
   it('uses an encouraging close on a strong week', () => {
     const msg = buildWeeklyReviewMessage({
-      userName: 'Alex', doneCount: 9, missedCount: 1, proofCount: 8, score: 88,
+      userName: 'Alex',
+      doneCount: 9,
+      missedCount: 1,
+      proofCount: 8,
+      score: 88,
     })!;
     expect(msg.toLowerCase()).toMatch(/strong week/);
   });
@@ -44,7 +63,11 @@ describe('buildWeeklyReviewMessage', () => {
     // didn't really show up this week" was a fabricatable accusation
     // (Retraining msg #126). State the board's view, ask, keep the push.
     const msg = buildWeeklyReviewMessage({
-      userName: 'Alex', doneCount: 0, missedCount: 5, proofCount: 0, score: 20,
+      userName: 'Alex',
+      doneCount: 0,
+      missedCount: 5,
+      proofCount: 0,
+      score: 20,
     })!;
     expect(msg.toLowerCase()).not.toMatch(/didn'?t really show up/);
     expect(msg.toLowerCase()).toContain('my board');
@@ -64,6 +87,38 @@ const base: NightRecapData = {
 describe('buildNightRecapMessage', () => {
   it('returns null when nothing was on the board today', () => {
     expect(buildNightRecapMessage(base)).toBeNull();
+  });
+
+  // 2026-07-23: the Night Recap had gone SILENT for every active user — three
+  // days of prod logs show every single fire exiting via
+  // `recap_skipped_no_activity`. Cause: excluding never-agreed PLAN todos from
+  // "missed" (the correct 2026-06-29 fix for the "❌ 33 missed" shaming recaps)
+  // left users whose board is ENTIRELY auto-seeded with done=[] and missed=[],
+  // so the recap decided it had nothing to say — even on days they sent proof.
+  // The weekly-review twin already counts proof as activity; the night recap
+  // did not. These tests hold the two gates in agreement.
+  describe('proof-only day (board all auto-seeded)', () => {
+    it('still sends a recap when proof came in and the board is empty', () => {
+      const msg = buildNightRecapMessage({ ...base, proofCount: 3 });
+      expect(msg).not.toBeNull();
+      expect(msg).toContain('proof sent: 3');
+    });
+
+    it('never asserts failure on a proof-only day', () => {
+      const msg = buildNightRecapMessage({ ...base, proofCount: 2 })!.toLowerCase();
+      expect(msg).not.toMatch(/folded|nothing got checked off|didn't show up/);
+    });
+
+    it('acknowledges the work instead of listing an empty board', () => {
+      const msg = buildNightRecapMessage({ ...base, proofCount: 2, userName: 'Bianca' })!;
+      expect(msg).not.toContain('✅');
+      expect(msg).not.toContain('❌');
+      expect(msg.toLowerCase()).toContain('bianca');
+    });
+
+    it('is still silent on a genuinely empty day', () => {
+      expect(buildNightRecapMessage({ ...base, proofCount: 0 })).toBeNull();
+    });
   });
 
   it('renders a recap header, the done/missed lists and the score', () => {
@@ -102,7 +157,7 @@ describe('buildNightRecapMessage', () => {
     const msg = buildNightRecapMessage({ ...base, missed: ['gym'], score: 10 })!;
     expect(msg.toLowerCase()).not.toContain('folded');
     expect(msg.toLowerCase()).toContain('my board');
-    expect(msg.toLowerCase()).toContain("if you did the work and i missed it");
+    expect(msg.toLowerCase()).toContain('if you did the work and i missed it');
     expect(msg).toContain('gym');
   });
 
@@ -110,7 +165,8 @@ describe('buildNightRecapMessage', () => {
     // The live recap showed "❌ breakfast photo before eating. 2 slices PB s…"
     // and then QUOTED that mangled fragment back in the closing line. Long
     // AI-written todos carry task + detail; the first clause is the task.
-    const longItem = 'breakfast photo before eating. 2 slices PB smeared with almond butter and berries';
+    const longItem =
+      'breakfast photo before eating. 2 slices PB smeared with almond butter and berries';
     const msg = buildNightRecapMessage({ ...base, missed: [longItem], score: null })!;
     expect(msg).toContain('❌ breakfast photo before eating');
     expect(msg).not.toContain('PB s…');

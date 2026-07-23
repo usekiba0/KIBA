@@ -3,7 +3,11 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
 import { RecapService } from '../../src/accountability/recap.service';
 import { User, UserStatus, OnboardingStage } from '../../src/data/entities/user.entity';
-import { DailyTodo, DailyTodoStatus, DailyTodoSource } from '../../src/data/entities/daily-todo.entity';
+import {
+  DailyTodo,
+  DailyTodoStatus,
+  DailyTodoSource,
+} from '../../src/data/entities/daily-todo.entity';
 import { Proof } from '../../src/data/entities/proof.entity';
 import { Message } from '../../src/data/entities/message.entity';
 import { ScoreService } from '../../src/accountability/score.service';
@@ -59,7 +63,10 @@ describe('RecapService.fire', () => {
     proofRepo = { count: jest.fn().mockResolvedValue(2) };
     // findOne -> null = "user not mid-conversation", so the defer guard passes
     // and these tests exercise the send path they were written for.
-    messageRepo = { save: jest.fn().mockResolvedValue({ id: 'm-1' }), findOne: jest.fn().mockResolvedValue(null) };
+    messageRepo = {
+      save: jest.fn().mockResolvedValue({ id: 'm-1' }),
+      findOne: jest.fn().mockResolvedValue(null),
+    };
     messaging = { send: jest.fn().mockResolvedValue(undefined) };
     queue = { add: jest.fn().mockResolvedValue({ id: 'job-1' }) };
     scoreService = {
@@ -114,24 +121,55 @@ describe('RecapService.fire', () => {
     expect(queue.add).toHaveBeenCalledTimes(1); // reschedule only
   });
 
-  it('stays silent when there was nothing on the board, but still reschedules', async () => {
+  it('stays silent when there was nothing on the board and no proof, but still reschedules', async () => {
     todoRepo.find.mockResolvedValue([]);
+    proofRepo.count.mockResolvedValue(0);
     await service.fire('user-1');
 
     expect(messaging.send).not.toHaveBeenCalled();
     expect(queue.add).toHaveBeenCalledTimes(1);
   });
 
-  it('stays silent when the day was only untouched auto-seeded plan tasks (no false "you folded")', async () => {
+  it('stays silent when the day was only untouched auto-seeded plan tasks and no proof (no false "you folded")', async () => {
     // Bianca case: ~10 PLAN tasks auto-seeded, none agreed to, all still OPEN.
     todoRepo.find.mockResolvedValue([
-      { content: 'Buy containers and prep ingredients', status: DailyTodoStatus.OPEN, source: DailyTodoSource.PLAN },
-      { content: 'Eat breakfast at your set time', status: DailyTodoStatus.OPEN, source: DailyTodoSource.PLAN },
+      {
+        content: 'Buy containers and prep ingredients',
+        status: DailyTodoStatus.OPEN,
+        source: DailyTodoSource.PLAN,
+      },
+      {
+        content: 'Eat breakfast at your set time',
+        status: DailyTodoStatus.OPEN,
+        source: DailyTodoSource.PLAN,
+      },
     ] as DailyTodo[]);
+    proofRepo.count.mockResolvedValue(0);
     await service.fire('user-1');
 
     expect(messaging.send).not.toHaveBeenCalled();
     expect(queue.add).toHaveBeenCalledTimes(1); // reschedule only
+  });
+
+  // The regression that silenced the feature entirely (2026-07-21..23: every
+  // recap fire for every active user exited via recap_skipped_no_activity).
+  // An all-auto-seeded board plus real proof is a day the user WORKED — the
+  // recap has to speak, and it must not invent a verdict about the empty board.
+  it('sends on an all-auto-seeded board when proof came in', async () => {
+    todoRepo.find.mockResolvedValue([
+      {
+        content: 'Weigh yourself same time as Day 1',
+        status: DailyTodoStatus.OPEN,
+        source: DailyTodoSource.PLAN,
+      },
+    ] as DailyTodo[]);
+    proofRepo.count.mockResolvedValue(3);
+    await service.fire('user-1');
+
+    expect(messaging.send).toHaveBeenCalled();
+    const body = messaging.send.mock.calls[0][1] as string;
+    expect(body).toContain('3 proofs in today');
+    expect(body.toLowerCase()).not.toMatch(/folded|nothing got checked off/);
   });
 
   it('still shames tasks the user actually committed to (USER source counts as missed)', async () => {
@@ -212,5 +250,4 @@ describe('RecapService.fire', () => {
 
     expect(messaging.send).toHaveBeenCalledTimes(1);
   });
-
 });
