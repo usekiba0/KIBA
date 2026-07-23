@@ -141,9 +141,22 @@ describe('buildSystemPrompt', () => {
 
   it('surfaces durable "never forget" hard facts in known facts (Layer 3)', () => {
     const prompt = buildSystemPrompt(
-      mockUser as any, mockProfile as any, 72, 0,
-      undefined, undefined, undefined, undefined, undefined, 0,
-      { goals: 'gym', city: null, why: null, facts: ['Dad passed away March 2026', 'Celiac — no gluten'] },
+      mockUser as any,
+      mockProfile as any,
+      72,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      {
+        goals: 'gym',
+        city: null,
+        why: null,
+        facts: ['Dad passed away March 2026', 'Celiac — no gluten'],
+      },
     );
     expect(prompt).toContain('Dad passed away March 2026');
     expect(prompt).toContain('Celiac');
@@ -172,8 +185,17 @@ describe('buildSystemPrompt', () => {
 
   it('omits the relationship-memory block when memory is empty', () => {
     const prompt = buildSystemPrompt(
-      mockUser as any, mockProfile as any, 72, 0,
-      undefined, undefined, undefined, undefined, undefined, 0, undefined,
+      mockUser as any,
+      mockProfile as any,
+      72,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
       '   ',
     );
     expect(prompt).not.toMatch(/WHAT YOU REMEMBER ABOUT THEM/i);
@@ -218,7 +240,7 @@ describe('buildSystemPrompt', () => {
   // Regression guards for the 2026-06-29 behavioral fixes — this prompt is edited
   // often and the size budget is the only other guard, so lock the rules in by
   // presence so a future edit can't silently drop them.
-  it('keeps the don\'t-assume / don\'t-accuse rule', () => {
+  it("keeps the don't-assume / don't-accuse rule", () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0).toLowerCase();
     expect(prompt).toMatch(/never assume the worst or accuse/);
   });
@@ -283,7 +305,12 @@ describe('buildSystemPrompt', () => {
     // Raised 31.2k->31.6k for the 2026-07-22 B5 math rule (derived numbers go
     // through the calculate tool — founder priority: zero math errors; six
     // misses in the 133-message live test).
-    expect(prompt.length).toBeLessThan(31600);
+    // Raised 31.6k->31.9k for the 2026-07-23 cancellation rule. The line it
+    // replaced actively caused the bug (it told the model to frame leaving as
+    // losing their score, and the model obstructed a paying user for three
+    // turns); the replacement has to carry the real exit path, so the extra
+    // ~250 chars buy a compliance behavior, not a nicety.
+    expect(prompt.length).toBeLessThan(31900);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
@@ -396,7 +423,37 @@ describe('buildSystemPrompt', () => {
     });
 
     it('bans answering a link with the unsupported-file-type line', () => {
-      expect(prompt().toLowerCase()).toMatch(/never call a link an unreadable file or ask them to screenshot it/);
+      expect(prompt().toLowerCase()).toMatch(
+        /never call a link an unreadable file or ask them to screenshot it/,
+      );
+    });
+  });
+
+  // Karibi 2026-07-23: "Busy bro I wanna cancel" → "nah. hold up. you're at
+  // 0/100 score right now ... that's not busy. that's running." Three retention
+  // pushes, exit never named. The prompt was the cause, not the model: it said
+  // to frame leaving as LOSING their score. Obstructing a cancellation is a
+  // compliance problem, so the old framing must never come back.
+  describe('cancellation handling (Karibi 2026-07-23 obstructed cancel)', () => {
+    const prompt = () => buildSystemPrompt(mockUser as any, mockProfile as any, 72, 2);
+
+    it('no longer tells the model to withhold acceptance of a cancel request', () => {
+      expect(prompt()).not.toMatch(/never accept ["']?i quit/i);
+    });
+
+    it('never instructs using score or streak as retention leverage', () => {
+      expect(prompt()).not.toMatch(/dropping it is the real cost/i);
+      expect(prompt()).toMatch(/never use their score or streak as leverage/i);
+    });
+
+    it('requires the real exit path in the same message', () => {
+      const p = prompt();
+      expect(p).toMatch(/text STOP/i);
+      expect(p).toMatch(/support@usekiba\.ai/i);
+    });
+
+    it('bans stalling and making them ask twice', () => {
+      expect(prompt()).toMatch(/never stall, never argue, never make them ask twice/i);
     });
   });
 
@@ -411,8 +468,14 @@ describe('buildSystemPrompt', () => {
     };
     const onDow = (todayDow: number | null) =>
       buildSystemPrompt(
-        mockUser as any, mockProfile as any, 72, 0,
-        undefined, undefined, undefined, undefined,
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
         { ...basePatterns, todayDow } as any,
       );
 
@@ -425,7 +488,9 @@ describe('buildSystemPrompt', () => {
     it('on a NON-weakest day, forbids implying today or tomorrow is that day', () => {
       const prompt = onDow(1); // Monday — the day Bianca was told it was Thursday
       expect(prompt).toContain('TODAY IS NOT THURSDAY');
-      expect(prompt.toLowerCase()).toMatch(/do not say or imply that today or tomorrow is thursday/);
+      expect(prompt.toLowerCase()).toMatch(
+        /do not say or imply that today or tomorrow is thursday/,
+      );
       expect(prompt).not.toContain("tomorrow's thursday, historically");
     });
 
@@ -461,8 +526,14 @@ describe('buildSystemPrompt', () => {
 
     it('stays silent entirely below the 2-miss threshold', () => {
       const prompt = buildSystemPrompt(
-        mockUser as any, mockProfile as any, 72, 0,
-        undefined, undefined, undefined, undefined,
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
         { ...basePatterns, weakestDow: null, weakestDowMisses: 1, todayDow: 4 } as any,
       );
       expect(prompt).not.toMatch(/Weakest day:/);
@@ -480,8 +551,14 @@ describe('buildSystemPrompt', () => {
     };
     const withPatterns = (extra: object) =>
       buildSystemPrompt(
-        mockUser as any, mockProfile as any, 72, 0,
-        undefined, undefined, undefined, undefined,
+        mockUser as any,
+        mockProfile as any,
+        72,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
         { ...basePatterns, ...extra } as any,
       );
 
