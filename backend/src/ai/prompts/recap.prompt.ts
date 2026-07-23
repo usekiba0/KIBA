@@ -36,7 +36,10 @@ function shorten(item: string): string {
   // slice(0,45) produced mid-word fragments like "2 slices PB s…" in the recap,
   // and the closing line then QUOTED the mangled fragment back at the user
   // (Karibi 2026-07-21 screenshot).
-  const clause = s.split(/(?<=[.;])\s+/)[0].replace(/[.;]+$/, '').trim();
+  const clause = s
+    .split(/(?<=[.;])\s+/)[0]
+    .replace(/[.;]+$/, '')
+    .trim();
   if (clause.length >= 8 && clause.length <= 60) return clause;
   // Fall back to a word-boundary cut — never mid-word.
   const cut = s.slice(0, 46);
@@ -52,13 +55,21 @@ function renderList(items: string[], mark: string): string {
 }
 
 /**
- * Build the night recap. Returns null when there was nothing on the board today
- * — we don't send a "you did nothing" text to someone who simply had no plan;
- * that's the ghost/check-in flow's job, not the recap's.
+ * Build the night recap. Returns null when there was nothing on the board AND
+ * no proof came in — we don't send a "you did nothing" text to someone who
+ * simply had no plan; that's the ghost/check-in flow's job, not the recap's.
+ *
+ * `proofCount` is part of that gate (matching the weekly-review twin, which
+ * always counted it). Leaving it out silently killed the feature: excluding
+ * never-agreed PLAN todos from `missed` — the correct 2026-06-29 fix for the
+ * "❌ 33 missed" shaming recaps — meant any user whose board is entirely
+ * auto-seeded arrived here with two empty lists and got nothing, forever. Three
+ * days of prod logs (2026-07-21..23) show every recap fire for every active
+ * user exiting through this branch, including days they sent proof.
  */
 export function buildNightRecapMessage(data: NightRecapData): string | null {
   const { done, missed, proofCount, score } = data;
-  if (done.length === 0 && missed.length === 0) return null;
+  if (done.length === 0 && missed.length === 0 && proofCount === 0) return null;
 
   const lines: string[] = ['day recap:', ''];
 
@@ -71,7 +82,10 @@ export function buildNightRecapMessage(data: NightRecapData): string | null {
 
   lines.push('', closingLine(data));
 
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return lines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**
@@ -79,9 +93,17 @@ export function buildNightRecapMessage(data: NightRecapData): string | null {
  * like a coach, not a dashboard. Branches on how the day actually went.
  */
 function closingLine(data: NightRecapData): string {
-  const { userName, done, missed, excusePhrase, excuseCount } = data;
+  const { userName, done, missed, proofCount, excusePhrase, excuseCount } = data;
   const name = userName?.trim();
   const tail = name ? ` ${name}` : '';
+
+  // Proof came in but the board carried nothing we're allowed to judge (all of
+  // it auto-seeded). We know work happened and we know nothing about what was
+  // skipped — so acknowledge the proof and ask, rather than inventing a verdict
+  // in either direction (KIBA_Retraining_Doc B4).
+  if (done.length === 0 && missed.length === 0 && proofCount > 0) {
+    return `${proofCount} proof${proofCount === 1 ? '' : 's'} in today${tail}. that's what i can actually see. what else got done that i'm not counting — and what's the one thing for tomorrow?`;
+  }
 
   // Repeated-excuse callback takes priority — naming the pattern is the point.
   if ((excuseCount ?? 0) >= 2 && excusePhrase?.trim()) {
@@ -147,11 +169,17 @@ export function buildWeeklyReviewMessage(data: WeeklyReviewData): string | null 
   if (score !== null) lines.push(`score: ${score}/100`);
 
   if ((data.excuseCount ?? 0) >= 2 && data.excusePhrase?.trim()) {
-    lines.push('', `biggest leak: "${data.excusePhrase.trim()}" — ${data.excuseCount}x this week. that's the one we kill next week.`);
+    lines.push(
+      '',
+      `biggest leak: "${data.excusePhrase.trim()}" — ${data.excuseCount}x this week. that's the one we kill next week.`,
+    );
   }
 
   lines.push('', weeklyClose(doneCount, missedCount, tail));
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return lines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function weeklyClose(doneCount: number, missedCount: number, tail: string): string {
