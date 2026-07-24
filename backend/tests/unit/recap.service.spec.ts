@@ -39,8 +39,19 @@ function makeUser(overrides: Partial<User> = {}): User {
   } as unknown as User;
 }
 
-const doneTodo = { content: 'leg workout', status: DailyTodoStatus.DONE } as DailyTodo;
-const openTodo = { content: 'business deep work', status: DailyTodoStatus.OPEN } as DailyTodo;
+// Committed items (Approach C Phase 1): a completed task is committed, and an
+// OPEN task the user agreed to (USER/AI source) is committed on creation.
+const doneTodo = {
+  content: 'leg workout',
+  status: DailyTodoStatus.DONE,
+  committed_at: new Date(),
+} as DailyTodo;
+const openTodo = {
+  content: 'business deep work',
+  status: DailyTodoStatus.OPEN,
+  source: DailyTodoSource.USER,
+  committed_at: new Date(),
+} as DailyTodo;
 
 describe('RecapService.fire', () => {
   let service: RecapService;
@@ -174,13 +185,55 @@ describe('RecapService.fire', () => {
 
   it('still shames tasks the user actually committed to (USER source counts as missed)', async () => {
     todoRepo.find.mockResolvedValue([
-      { content: 'cold call 5 leads', status: DailyTodoStatus.OPEN, source: DailyTodoSource.USER },
+      {
+        content: 'cold call 5 leads',
+        status: DailyTodoStatus.OPEN,
+        source: DailyTodoSource.USER,
+        committed_at: new Date(),
+      },
     ] as DailyTodo[]);
     await service.fire('user-1');
 
     expect(messaging.send).toHaveBeenCalledTimes(1);
     const [, body] = messaging.send.mock.calls[0];
     expect(body).toContain('❌ cold call 5 leads');
+  });
+
+  // Approach C, Phase 1: counting keys on committed_at, not source.
+  describe('committed-gated counts', () => {
+    it('does NOT count an un-agreed OPEN item (committed_at null) as missed', async () => {
+      // Same shape as an auto-seeded PLAN proposal, but proving the gate is the
+      // commitment flag, not the source: an OPEN row with no committed_at is
+      // never a miss, even if it slipped through as a USER row somehow.
+      todoRepo.find.mockResolvedValue([
+        {
+          content: 'ghost proposal',
+          status: DailyTodoStatus.OPEN,
+          source: DailyTodoSource.PLAN,
+          committed_at: null,
+        },
+      ] as DailyTodo[]);
+      proofRepo.count.mockResolvedValue(0);
+      await service.fire('user-1');
+
+      expect(messaging.send).not.toHaveBeenCalled(); // nothing committed, no proof → silent
+    });
+
+    it('counts a COMPLETED plan item as done (completion = agreement)', async () => {
+      todoRepo.find.mockResolvedValue([
+        {
+          content: 'audit subscriber data',
+          status: DailyTodoStatus.DONE,
+          source: DailyTodoSource.PLAN,
+          committed_at: new Date(),
+        },
+      ] as DailyTodo[]);
+      await service.fire('user-1');
+
+      expect(messaging.send).toHaveBeenCalledTimes(1);
+      const [, body] = messaging.send.mock.calls[0];
+      expect(body).toContain('✅ audit subscriber data');
+    });
   });
 
   it('suppresses tonight’s send for a crisis-hold user, keeping cadence', async () => {

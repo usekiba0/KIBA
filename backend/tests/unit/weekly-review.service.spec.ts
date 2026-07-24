@@ -3,7 +3,11 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
 import { WeeklyReviewService } from '../../src/accountability/weekly-review.service';
 import { User, UserStatus, OnboardingStage } from '../../src/data/entities/user.entity';
-import { DailyTodo, DailyTodoStatus, DailyTodoSource } from '../../src/data/entities/daily-todo.entity';
+import {
+  DailyTodo,
+  DailyTodoStatus,
+  DailyTodoSource,
+} from '../../src/data/entities/daily-todo.entity';
 import { Proof } from '../../src/data/entities/proof.entity';
 import { Message } from '../../src/data/entities/message.entity';
 import { ScoreService } from '../../src/accountability/score.service';
@@ -41,8 +45,26 @@ function makeUser(overrides: Partial<User> = {}): User {
   } as unknown as User;
 }
 
-const todo = (status: DailyTodoStatus, source: DailyTodoSource, content = 'x'): DailyTodo =>
-  ({ content, status, source }) as DailyTodo;
+// committed_at mirrors the migration backfill (Approach C Phase 1): USER/AI
+// rows and any DONE row are commitments; an OPEN PLAN row is an un-agreed
+// proposal (null). Callers can override by passing committedAt explicitly.
+const todo = (
+  status: DailyTodoStatus,
+  source: DailyTodoSource,
+  content = 'x',
+  committedAt?: Date | null,
+): DailyTodo =>
+  ({
+    content,
+    status,
+    source,
+    committed_at:
+      committedAt !== undefined
+        ? committedAt
+        : source === DailyTodoSource.PLAN && status !== DailyTodoStatus.DONE
+          ? null
+          : new Date(),
+  }) as DailyTodo;
 
 describe('WeeklyReviewService.fire', () => {
   let service: WeeklyReviewService;
@@ -59,7 +81,10 @@ describe('WeeklyReviewService.fire', () => {
       createQueryBuilder: jest.fn(() => claimQB(1)),
     };
     todoRepo = { find: jest.fn().mockResolvedValue([]) };
-    messageRepo = { save: jest.fn().mockResolvedValue({ id: 'm-1' }), findOne: jest.fn().mockResolvedValue(null) };
+    messageRepo = {
+      save: jest.fn().mockResolvedValue({ id: 'm-1' }),
+      findOne: jest.fn().mockResolvedValue(null),
+    };
     messaging = { send: jest.fn().mockResolvedValue(undefined) };
     queue = { add: jest.fn().mockResolvedValue({ id: 'job-1' }) };
     scoreService = {
@@ -76,10 +101,13 @@ describe('WeeklyReviewService.fire', () => {
         { provide: getRepositoryToken(Message), useValue: messageRepo },
         { provide: ScoreService, useValue: scoreService },
         { provide: MessagingService, useValue: messaging },
-        { provide: SessionBoundaryService, useValue: {
-          checkAndHandle: jest.fn().mockResolvedValue({ sessionId: 's-1' }),
-          recordMessage: jest.fn().mockResolvedValue(undefined),
-        } },
+        {
+          provide: SessionBoundaryService,
+          useValue: {
+            checkAndHandle: jest.fn().mockResolvedValue({ sessionId: 's-1' }),
+            recordMessage: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: getQueueToken('accountability'), useValue: queue },
       ],
     }).compile();
