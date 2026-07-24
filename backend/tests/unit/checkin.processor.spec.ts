@@ -1,10 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bull';
-import { CheckinProcessor, buildTrialPriceReveal } from '../../src/accountability/checkin.processor';
+import {
+  CheckinProcessor,
+  buildTrialPriceReveal,
+} from '../../src/accountability/checkin.processor';
 import { User, UserStatus, OnboardingStage } from '../../src/data/entities/user.entity';
 import { DailyTask, TaskStatus } from '../../src/data/entities/daily-task.entity';
-import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
+import {
+  PsychologicalProfile,
+  PressurePreference,
+} from '../../src/data/entities/psychological-profile.entity';
 import { Message } from '../../src/data/entities/message.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
 import { SessionBoundaryService } from '../../src/data/session-boundary.service';
@@ -111,7 +117,12 @@ describe('CheckinProcessor', () => {
     mockMessageRepo = { save: jest.fn().mockResolvedValue({ id: 'm-1' }) };
     mockMessagingService = { send: jest.fn().mockResolvedValue(undefined) };
     mockSessionBoundary = {
-      checkAndHandle: jest.fn().mockResolvedValue({ sessionId: 's-1', isNewSession: false, minutesSinceLastMessage: 0, shouldSummarise: false }),
+      checkAndHandle: jest.fn().mockResolvedValue({
+        sessionId: 's-1',
+        isNewSession: false,
+        minutesSinceLastMessage: 0,
+        shouldSummarise: false,
+      }),
       recordMessage: jest.fn().mockResolvedValue(undefined),
     };
     mockAntiGhostService = { onMissedCheckin: jest.fn().mockResolvedValue(undefined) };
@@ -124,13 +135,20 @@ describe('CheckinProcessor', () => {
     mockTaskService = { ensureTodayTask: jest.fn().mockResolvedValue(testTask) };
     mockSurpriseService = { fire: jest.fn(), scheduleWeek: jest.fn() };
     mockRecapService = { fire: jest.fn(), scheduleAllRecaps: jest.fn(), scheduleRecap: jest.fn() };
-    mockWeeklyReviewService = { fire: jest.fn(), scheduleAllReviews: jest.fn(), scheduleReview: jest.fn() };
+    mockWeeklyReviewService = {
+      fire: jest.fn(),
+      scheduleAllReviews: jest.fn(),
+      scheduleReview: jest.fn(),
+    };
     // Default: the trial user showed up all week, so the price reveal celebrates.
     // Individual tests override this to exercise the ghost / partial tiers.
     mockScoreService = { countExecutionDays: jest.fn().mockResolvedValue(7) };
     mockQueue = { add: jest.fn().mockResolvedValue({ id: 'missed-job-1' }) };
     mockStripeService = { createCustomer: jest.fn(), createCheckoutSession: jest.fn() };
-    mockConfig = { get: jest.fn((_k: string, d?: unknown) => d), getOrThrow: jest.fn(() => 'price_test') };
+    mockConfig = {
+      get: jest.fn((_k: string, d?: unknown) => d),
+      getOrThrow: jest.fn(() => 'price_test'),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -152,7 +170,10 @@ describe('CheckinProcessor', () => {
         { provide: ConfigService, useValue: mockConfig },
         // Win-back nudges are now LLM-generated; return null so the deterministic
         // template fallback runs in these tests (keeps assertions stable).
-        { provide: CoachingService, useValue: { generateWinbackNudge: jest.fn().mockResolvedValue(null) } },
+        {
+          provide: CoachingService,
+          useValue: { generateWinbackNudge: jest.fn().mockResolvedValue(null) },
+        },
         { provide: getQueueToken('accountability'), useValue: mockQueue },
         { provide: OutboundRecorderService, useValue: mockRecorder },
       ],
@@ -170,10 +191,17 @@ describe('CheckinProcessor', () => {
       );
     });
 
-    it('includes the task description in the check-in message', async () => {
+    // Task-composition Approach C, Phase 2 — silent-until-agreed. The check-in
+    // no longer asserts the auto-seeded plan task; it asks the user to lock in
+    // their one thing. ensureTodayTask still runs (anti-ghost/proof anchor), but
+    // its description is not surfaced.
+    it('asks the user to lock in their one thing, not the auto-seeded plan task', async () => {
       await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
       const sentBody: string = mockMessagingService.send.mock.calls[0][1];
-      expect(sentBody).toContain(testTask.task_description);
+      expect(sentBody).not.toContain(testTask.task_description);
+      expect(sentBody.toLowerCase()).toMatch(
+        /locking in|lock in|one thing|what are you|what's the move|making happen/,
+      );
     });
 
     it('loads the psychological profile to shape the message', async () => {
@@ -233,7 +261,7 @@ describe('CheckinProcessor', () => {
 
     // Rule 5 per-goal value hook: a faith goal attaches a verse + affirmation to
     // the morning check-in; everyone else gets the plain check-in unchanged.
-    it('prepends a verse + affirmation for a faith-goal user (task still present)', async () => {
+    it('prepends a verse + affirmation for a faith-goal user (commit-ask still present)', async () => {
       mockUserRepo.findOne.mockResolvedValue({
         ...testUser,
         intake_data: { goals: ['hit 100k months', 'get closer to god'] },
@@ -241,7 +269,10 @@ describe('CheckinProcessor', () => {
       await processor.handleSendCheckin(makeJob({ userId: 'user-1' }));
       const body: string = mockMessagingService.send.mock.calls[0][1];
       expect(body).toContain('verse for today:');
-      expect(body).toContain(testTask.task_description);
+      // The check-in body is now the commit-ask, not the asserted plan task.
+      expect(body.toLowerCase()).toMatch(
+        /locking in|lock in|one thing|what are you|what's the move|making happen/,
+      );
     });
 
     it('does NOT prepend a verse for a non-faith user', async () => {
@@ -293,7 +324,10 @@ describe('CheckinProcessor', () => {
     });
 
     it('does nothing once the lead has paid (no longer payment_pending)', async () => {
-      mockUserRepo.findOne.mockResolvedValue({ ...pendingUser, onboarding_stage: OnboardingStage.COMPLETE });
+      mockUserRepo.findOne.mockResolvedValue({
+        ...pendingUser,
+        onboarding_stage: OnboardingStage.COMPLETE,
+      });
 
       await processor.handlePaymentLinkNudge(makeJob({ userId: 'user-1', nudgeIndex: 0 }));
 
@@ -330,7 +364,11 @@ describe('CheckinProcessor', () => {
       await processor.handleIntakeStallSweep();
 
       expect(mockMessagingService.send).toHaveBeenCalledTimes(1);
-      expect(mockRecorder.record).toHaveBeenCalledWith('lead-1', expect.any(String), 'intake_nudge');
+      expect(mockRecorder.record).toHaveBeenCalledWith(
+        'lead-1',
+        expect.any(String),
+        'intake_nudge',
+      );
     });
   });
 
@@ -379,7 +417,10 @@ describe('CheckinProcessor', () => {
 
       await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
 
-      expect(mockScoreService.countExecutionDays).toHaveBeenCalledWith('user-1', expect.any(Number));
+      expect(mockScoreService.countExecutionDays).toHaveBeenCalledWith(
+        'user-1',
+        expect.any(Number),
+      );
       const body: string = mockMessagingService.send.mock.calls[0][1];
       expect(body).not.toMatch(/you actually did it/i);
       expect(body).not.toMatch(/most people fall off by day 3/i);
@@ -391,11 +432,18 @@ describe('CheckinProcessor', () => {
 
       await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
 
-      expect(mockRecorder.record).toHaveBeenCalledWith('user-1', expect.any(String), 'price_reveal');
+      expect(mockRecorder.record).toHaveBeenCalledWith(
+        'user-1',
+        expect.any(String),
+        'price_reveal',
+      );
     });
 
     it('is idempotent — skips if already revealed', async () => {
-      mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser, trial_price_revealed_at: new Date() });
+      mockUserRepo.findOne.mockResolvedValue({
+        ...activeTrialUser,
+        trial_price_revealed_at: new Date(),
+      });
 
       await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
 
@@ -411,7 +459,10 @@ describe('CheckinProcessor', () => {
     });
 
     it('skips when not activated or in crisis hold', async () => {
-      mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser, onboarding_stage: OnboardingStage.PAYMENT_PENDING });
+      mockUserRepo.findOne.mockResolvedValue({
+        ...activeTrialUser,
+        onboarding_stage: OnboardingStage.PAYMENT_PENDING,
+      });
       await processor.handleTrialPriceReveal(makeJob({ userId: 'user-1' }));
 
       mockUserRepo.findOne.mockResolvedValue({ ...activeTrialUser, crisis_hold: true });
@@ -424,7 +475,12 @@ describe('CheckinProcessor', () => {
 
 describe('buildTrialPriceReveal', () => {
   it('celebrates + drops the social proof for a user who actually showed up', () => {
-    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 7 });
+    const msg = buildTrialPriceReveal({
+      name: 'Alex',
+      goal: 'get to 100k',
+      priceDisplay: '$20/month',
+      executionDays: 7,
+    });
     expect(msg).toContain('Alex');
     expect(msg).toContain('get to 100k');
     expect(msg).toContain('$20/month');
@@ -436,7 +492,12 @@ describe('buildTrialPriceReveal', () => {
   });
 
   it('NEVER claims a streak for a user who ghosted the trial (Karibi 2026-07-07)', () => {
-    const msg = buildTrialPriceReveal({ name: 'Karibi', goal: 'scale my business', priceDisplay: '$20/month', executionDays: 0 });
+    const msg = buildTrialPriceReveal({
+      name: 'Karibi',
+      goal: 'scale my business',
+      priceDisplay: '$20/month',
+      executionDays: 0,
+    });
     // The false-praise regression: no "you actually did it", no "fall off by day 3",
     // no fabricated day count.
     expect(msg).not.toMatch(/you actually did it/i);
@@ -449,20 +510,34 @@ describe('buildTrialPriceReveal', () => {
   });
 
   it('defaults to the honest (non-praise) copy when no execution signal is given', () => {
-    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month' });
+    const msg = buildTrialPriceReveal({
+      name: 'Alex',
+      goal: 'get to 100k',
+      priceDisplay: '$20/month',
+    });
     expect(msg).not.toMatch(/you actually did it/i);
     expect(msg).not.toMatch(/most people fall off by day 3/i);
   });
 
   it('uses an honest partial-week frame for light engagement (1-3 days)', () => {
-    const msg = buildTrialPriceReveal({ name: 'Alex', goal: 'get to 100k', priceDisplay: '$20/month', executionDays: 2 });
+    const msg = buildTrialPriceReveal({
+      name: 'Alex',
+      goal: 'get to 100k',
+      priceDisplay: '$20/month',
+      executionDays: 2,
+    });
     expect(msg).toMatch(/2 days/i);
     expect(msg).not.toMatch(/most people fall off by day 3/i); // didn't earn the boast
     expect(msg).toContain('$20/month');
   });
 
   it('degrades gracefully with no name or goal', () => {
-    const msg = buildTrialPriceReveal({ name: null, goal: null, priceDisplay: '$29/month', executionDays: 7 });
+    const msg = buildTrialPriceReveal({
+      name: null,
+      goal: null,
+      priceDisplay: '$29/month',
+      executionDays: 7,
+    });
     expect(msg).toContain('$29/month');
     expect(msg).not.toContain('undefined');
     expect(msg).not.toContain(' for .'); // no dangling "for <empty>"

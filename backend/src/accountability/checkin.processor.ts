@@ -24,10 +24,7 @@ import { WeeklyReviewService } from './weekly-review.service';
 import { ScoreService } from './score.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { buildFaithBlock } from './faith-content';
-import { isSchedulingTask } from './reminder-content';
-import {
-  shouldNudgeIntake, buildIntakeNudge, STALL_MIN_MS, STALL_MAX_MS,
-} from './intake-nudge';
+import { shouldNudgeIntake, buildIntakeNudge, STALL_MIN_MS, STALL_MAX_MS } from './intake-nudge';
 import { CoachingService } from '../ai/coaching.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
@@ -160,7 +157,8 @@ export class CheckinProcessor {
 
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectRepository(PsychologicalProfile) private readonly profileRepo: Repository<PsychologicalProfile>,
+    @InjectRepository(PsychologicalProfile)
+    private readonly profileRepo: Repository<PsychologicalProfile>,
     @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
     private readonly messagingService: MessagingService,
     private readonly sessionBoundary: SessionBoundaryService,
@@ -205,7 +203,10 @@ export class CheckinProcessor {
         .createQueryBuilder()
         .update(User)
         .set({ last_checkin_date: localDate })
-        .where('id = :id AND (last_checkin_date IS DISTINCT FROM :date)', { id: userId, date: localDate })
+        .where('id = :id AND (last_checkin_date IS DISTINCT FROM :date)', {
+          id: userId,
+          date: localDate,
+        })
         .execute();
 
       if (!claim.affected) {
@@ -228,31 +229,27 @@ export class CheckinProcessor {
         const safeName = user.name ?? 'friend';
         // Compute user-local DOW so Thu/Fri get the end-of-week push variant.
         // Sun=0..Sat=6. Null offset → null DOW → neutral template.
-        const localDow = offset !== null
-          ? new Date(Date.now() + offset * 60_000).getUTCDay()
-          : null;
+        const localDow =
+          offset !== null ? new Date(Date.now() + offset * 60_000).getUTCDay() : null;
         // Local hour at send time so the greeting word matches the real clock
         // (a PM check-in time no longer opens with "morning"). Karibi 2026-06-30.
-        const localHour = offset !== null
-          ? new Date(Date.now() + offset * 60_000).getUTCHours()
-          : null;
-        // A plan item that asks the user to DECIDE their schedule is stale the
-        // moment they've decided. Nothing marked it done, so the check-in kept
-        // reading it out — "pick your PPL days and times" went out thirteen
-        // hours after the user answered it in chat (Karibi 2026-07-21). If a
-        // schedule is on file, drop the task and check in on the day instead.
-        const taskText = task?.task_description ?? null;
-        const stale = Boolean(user.weekly_schedule?.trim()) && isSchedulingTask(taskText);
-        const baseMessage = task && !stale
-          ? buildCheckinMessage(safeName, profile, taskText, { localDow, localHour })
-          : buildCheckinMessage(safeName, profile, null, { localDow, localHour });
-        if (stale) {
-          structuredLog(this.logger, 'log', {
-            service: 'accountability',
-            operation: 'checkin_scheduling_task_suppressed',
-            userId: user.id,
-          });
-        }
+        const localHour =
+          offset !== null ? new Date(Date.now() + offset * 60_000).getUTCHours() : null;
+        // Task-composition Approach C, Phase 2 — silent-until-agreed. The morning
+        // check-in no longer ASSERTS the auto-seeded plan task (task_description
+        // is cycled from action_plan.daily_tasks by day-index, never confirmed by
+        // the user), because that's what let un-agreed items get read out,
+        // counted, and scolded — the weigh-in contradiction, "when tf did u tell
+        // me to record a selfie", the stale "pick your PPL days" 13h after it was
+        // answered. Instead the check-in ASKS the user to lock in their one thing;
+        // what they commit (via add_todo in the reply) becomes a real countable
+        // task. ensureTodayTask still runs above so the anti-ghost FK + proof
+        // path are intact — only the surfaced COPY changes.
+        void task; // kept for the anti-ghost/proof anchor; no longer asserted
+        const baseMessage = buildCheckinMessage(safeName, profile, null, {
+          localDow,
+          localHour,
+        });
 
         // PER-GOAL VALUE HOOK — FAITH (Rule 5). If they named a "closer to god" /
         // faith goal, their morning starts with a verse + affirmation ("head
@@ -382,7 +379,10 @@ export class CheckinProcessor {
         onboarding_stage: Not(OnboardingStage.COMPLETE),
         intake_nudged_at: IsNull(),
         opted_out_at: IsNull(),
-        last_active_at: Between(new Date(now.getTime() - STALL_MAX_MS), new Date(now.getTime() - STALL_MIN_MS)),
+        last_active_at: Between(
+          new Date(now.getTime() - STALL_MAX_MS),
+          new Date(now.getTime() - STALL_MIN_MS),
+        ),
       },
       take: 200,
     });
@@ -497,7 +497,8 @@ export class CheckinProcessor {
       priceDisplay: this.config.get<string>('STRIPE_PRICE_DISPLAY', '$9.99/month'),
       cussingOk: user.intake_data?.cussing_ok === true,
     });
-    const text = generated ?? buildDunningNudge(nudgeIndex, { name: user.name, goal, obstacle, trialDays });
+    const text =
+      generated ?? buildDunningNudge(nudgeIndex, { name: user.name, goal, obstacle, trialDays });
     await this.messagingService.send(user.phone_number, text);
     // Visible to the live coaching layer + admin API (Retraining doc B1).
     await this.recorder.record(userId, text, 'dunning');
@@ -505,8 +506,11 @@ export class CheckinProcessor {
     await this.userRepo.update(userId, { dunning_nudges_sent: user.dunning_nudges_sent + 1 });
 
     structuredLog(this.logger, 'log', {
-      service: 'onboarding', operation: 'dunning_nudge_sent',
-      userId, nudgeIndex, aiGenerated: !!generated,
+      service: 'onboarding',
+      operation: 'dunning_nudge_sent',
+      userId,
+      nudgeIndex,
+      aiGenerated: !!generated,
     });
 
     // Schedule the next nudge in the sequence, if any remain.
@@ -562,7 +566,6 @@ export class CheckinProcessor {
     });
   }
 
-
   @Process('checkin-missed')
   async handleCheckinMissed(
     job: Job<{ userId: string; taskId: string; deferred?: boolean }>,
@@ -588,7 +591,9 @@ export class CheckinProcessor {
    * system was a silent no-op since launch.
    */
   @Process('ghost-escalate')
-  async handleGhostEscalate(job: Job<{ userId: string; taskId: string; level: 2 | 3 | 4 | 5 | 6 }>): Promise<void> {
+  async handleGhostEscalate(
+    job: Job<{ userId: string; taskId: string; level: 2 | 3 | 4 | 5 | 6 }>,
+  ): Promise<void> {
     const { userId, taskId, level } = job.data;
     // Pass the executing job id so onEscalate can drop superseded/orphaned
     // chains (only the job matching state.current_job_id proceeds).

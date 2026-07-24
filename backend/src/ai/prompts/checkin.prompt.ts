@@ -46,7 +46,8 @@ export function buildCheckinMessage(
     .filter((l) => l.length > 0);
   if (lines.length > 1) {
     const actions = lines.map(humanizeTask).filter((a) => a.length > 0);
-    if (actions.length > 1) return pickMultiTaskVariant(userName, actions, ctx.localDow ?? null, greet);
+    if (actions.length > 1)
+      return pickMultiTaskVariant(userName, actions, ctx.localDow ?? null, greet);
   }
 
   const task = taskDescription ? humanizeTask(taskDescription) : null;
@@ -77,7 +78,10 @@ export function humanizeTask(task: string): string {
     .trim();
   // Em/en-dashes are banned in outbound (they render as junk and read robotic) —
   // the LLM-generated plan text sometimes contains them ("data—calculate CAC").
-  const clean = (firstClause.length >= 3 ? firstClause : stripped).replace(/\s*[–—]\s*/g, ', ').replace(/\s{2,}/g, ' ').trim();
+  const clean = (firstClause.length >= 3 ? firstClause : stripped)
+    .replace(/\s*[–—]\s*/g, ', ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
   return clean;
 }
 
@@ -96,7 +100,12 @@ export function stripDayPrefix(task: string): string {
  * action for today and asks them to lock in a time for all of them — one
  * message, not one per goal (the "one combined check-in" decision).
  */
-function pickMultiTaskVariant(userName: string, actions: string[], dow: number | null, greet: string): string {
+function pickMultiTaskVariant(
+  userName: string,
+  actions: string[],
+  dow: number | null,
+  greet: string,
+): string {
   const list = actions.map((a) => `- ${a}`).join('\n');
   const isThuFri = dow === 4 || dow === 5;
   if (isThuFri) {
@@ -123,9 +132,13 @@ function pickEndOfWeekTaskVariant(userName: string, task: string, dow: 4 | 5): s
 
 function pickEndOfWeekNoTaskVariant(userName: string, dow: 4 | 5, greet: string): string {
   const daysLeft = dow === 4 ? 'two days' : 'last day';
+  // Task-composition Approach C, Phase 2 — silent-until-agreed. The morning no
+  // longer asserts an auto-seeded plan task; it asks the user to lock in their
+  // one thing (with the end-of-week pressure kept), so nothing counts or scolds
+  // that they never agreed to.
   const variants = [
-    `${daysLeft} left in the week.\nwhere are you actually at vs where you said you'd be?`,
-    `${greet} ${userName}. ${daysLeft} left.\nwhat are you doing with today?`,
+    `${daysLeft} left in the week.\nwhat's the one thing you're locking in today?`,
+    `${greet} ${userName}. ${daysLeft} left.\nwhere are you actually at, and what are you locking in today?`,
   ];
   return variants[Math.floor(Math.random() * variants.length)];
 }
@@ -158,11 +171,15 @@ function pickTaskVariant(
 }
 
 function pickNoTaskVariant(userName: string, greet: string): string {
+  // Task-composition Approach C, Phase 2 — silent-until-agreed. Rather than
+  // asserting an auto-seeded plan task the user never agreed to (which then got
+  // counted/scolded), the morning asks them to lock in their one thing. What
+  // they commit becomes a real, countable task; nothing else is on the hook.
   const variants = [
-    `no tasks today.\nhow's everything going?`,
-    `${greet} ${userName}. rest day — use it right.`,
-    'what are you doing with today?',
-    'no tasks on the board.\nhow you actually feeling?',
+    `${greet} ${userName}.\nwhat's the one thing you're locking in today?`,
+    `${greet}. what are you locking in today? give me one thing and a time.`,
+    `${greet} ${userName}. what's the move today, lock in one thing.`,
+    `what are you making happen today? name it and i'll hold you to it.`,
   ];
   return variants[Math.floor(Math.random() * variants.length)];
 }
