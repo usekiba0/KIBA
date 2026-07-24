@@ -50,8 +50,11 @@ export class TodoService {
       source: args.source,
     });
     structuredLog(this.logger, 'log', {
-      service: 'accountability', operation: 'todo_added',
-      userId: args.userId, todoId: saved.id, source: args.source,
+      service: 'accountability',
+      operation: 'todo_added',
+      userId: args.userId,
+      todoId: saved.id,
+      source: args.source,
     });
     return saved;
   }
@@ -65,8 +68,10 @@ export class TodoService {
       completed_at: new Date(),
     });
     structuredLog(this.logger, 'log', {
-      service: 'accountability', operation: 'todo_done',
-      userId, todoId,
+      service: 'accountability',
+      operation: 'todo_done',
+      userId,
+      todoId,
     });
     return this.todoRepo.findOne({ where: { id: todoId } });
   }
@@ -123,18 +128,24 @@ export class TodoService {
       const dailyTasks = goal.action_plan.daily_tasks;
       const dayEntry = dailyTasks[dayIndex % dailyTasks.length];
       for (const item of splitPlanDayIntoItems(dayEntry)) {
-        created.push(await this.todoRepo.save({
-          user_id: userId,
-          scheduled_date: today,
-          content: item,
-          status: DailyTodoStatus.OPEN,
-          source: DailyTodoSource.PLAN,
-        }));
+        created.push(
+          await this.todoRepo.save({
+            user_id: userId,
+            scheduled_date: today,
+            content: item,
+            status: DailyTodoStatus.OPEN,
+            source: DailyTodoSource.PLAN,
+          }),
+        );
       }
     }
     structuredLog(this.logger, 'log', {
-      service: 'accountability', operation: 'todos_seeded_from_plan',
-      userId, dayIndex, goalCount: planned.length, itemCount: created.length,
+      service: 'accountability',
+      operation: 'todos_seeded_from_plan',
+      userId,
+      dayIndex,
+      goalCount: planned.length,
+      itemCount: created.length,
     });
     return [...existing, ...created];
   }
@@ -169,7 +180,14 @@ export function splitPlanDayIntoItems(entry: string): string[] {
   // over-split — we keep commas inside items so "chicken, rice, broccoli" stays one item.
   const parts = stripped.split(/(?<=[.!?])\s+(?=[A-Z0-9])/);
 
-  const items = parts.map((p) => p.trim().replace(/[.!?]+$/, '').trim()).filter((p) => p.length >= 4);
+  const items = parts
+    .map((p) =>
+      p
+        .trim()
+        .replace(/[.!?]+$/, '')
+        .trim(),
+    )
+    .filter((p) => p.length >= 4);
 
   // Fold trailing MODIFIER sentences back into the item they belong to. A plan
   // entry like "Write down exactly why you skip legs. Be honest." is ONE task
@@ -186,7 +204,8 @@ export function splitPlanDayIntoItems(entry: string): string[] {
   // non-actionable word. Folding is lossless either way — the text stays,
   // attached to the task it was modifying, instead of becoming a phantom
   // checkable.
-  const MODIFIER_OPENER = /^(be|being|no|not|don'?t|do it|just|stay|keep it|because|why|so|and|also|then|remember|honestly|seriously|for real)\b/i;
+  const MODIFIER_OPENER =
+    /^(be|being|no|not|don'?t|do it|just|stay|keep it|because|why|so|and|also|then|remember|honestly|seriously|for real)\b/i;
   const folded: string[] = [];
   for (const item of items) {
     const isModifier = item.split(/\s+/).length <= 4 && MODIFIER_OPENER.test(item);
@@ -196,5 +215,61 @@ export function splitPlanDayIntoItems(entry: string): string[] {
       folded.push(item);
     }
   }
-  return folded;
+
+  // Collapse near-duplicate items within the SAME day. The LLM plan entry
+  // sometimes restates one action in two sentences — "Review your week. Review
+  // the week.", "Repeat Day 5 routine exactly. Repeat Day 5 structure." — and
+  // both used to seed onto the board, so the user saw the same instruction
+  // twice (Bianca 2026-07-22/23). Two collapse signals, both conservative:
+  //   1. same content words (articles/possessives/order ignored) —
+  //      "review your week" == "review the week";
+  //   2. same first THREE content words in order — catches a shared action with
+  //      a differing descriptor ("repeat day 5 routine" / "repeat day 5
+  //      structure") without merging items that only share an object
+  //      ("call 5 leads" / "email 5 leads" differ at word 1, so they're kept).
+  // Keep the FIRST occurrence — the earlier, usually fuller phrasing. Dropping a
+  // real task is the worse error, so both keys demand strong agreement.
+  const deduped: string[] = [];
+  const seenExact = new Set<string>();
+  const seenPrefix = new Set<string>();
+  for (const item of folded) {
+    const words = contentWords(item);
+    const exact = [...words].sort().join(' ');
+    const prefix = words.length >= 3 ? words.slice(0, 3).join(' ') : '';
+    // Empty key (all stopwords) can't be compared safely — keep it verbatim.
+    if (exact && (seenExact.has(exact) || (prefix && seenPrefix.has(prefix)))) continue;
+    if (exact) seenExact.add(exact);
+    if (prefix) seenPrefix.add(prefix);
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+const DEDUP_STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'your',
+  'my',
+  'our',
+  'this',
+  'that',
+  'and',
+  'to',
+  'of',
+  'for',
+  'in',
+  'on',
+  'it',
+  'you',
+]);
+
+/** Ordered content words: lowercased, punctuation and articles/possessives
+ *  dropped. Order preserved so a leading-phrase prefix can be compared. */
+function contentWords(item: string): string[] {
+  return item
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w && !DEDUP_STOPWORDS.has(w));
 }

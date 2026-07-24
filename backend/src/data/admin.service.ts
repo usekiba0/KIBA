@@ -29,7 +29,8 @@ export class AdminService {
     @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
     @InjectRepository(Subscription) private readonly subRepo: Repository<Subscription>,
     @InjectRepository(CrisisAlert) private readonly alertRepo: Repository<CrisisAlert>,
-    @InjectRepository(ConversationSession) private readonly sessionRepo: Repository<ConversationSession>,
+    @InjectRepository(ConversationSession)
+    private readonly sessionRepo: Repository<ConversationSession>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
     private readonly dataRightsService: DataRightsService,
@@ -41,7 +42,9 @@ export class AdminService {
     // (real Stripe money). `livemode = null` rows are legacy (pre-tracking) and
     // are trusted only when the app itself runs on a LIVE Stripe key — a test-key
     // deployment reports $0 real MRR (Karibi 2026-07-08: $60 was test conversions).
-    const stripeLiveMode = (this.configService.get<string>('STRIPE_SECRET_KEY') || '').startsWith('sk_live_');
+    const stripeLiveMode = (this.configService.get<string>('STRIPE_SECRET_KEY') || '').startsWith(
+      'sk_live_',
+    );
 
     const [userRow, subRows, msgRow, crisisRow, mrrRows] = await Promise.all([
       this.dataSource.query(`
@@ -189,7 +192,13 @@ export class AdminService {
       strike_count: r.strike_count ?? 0,
       plan_status: r.plan_status ?? 'pending',
       subscription: r.sub_id
-        ? { id: r.sub_id, plan: r.sub_plan, status: r.sub_status, trial_end: r.trial_end, current_period_end: r.current_period_end }
+        ? {
+            id: r.sub_id,
+            plan: r.sub_plan,
+            status: r.sub_status,
+            trial_end: r.trial_end,
+            current_period_end: r.current_period_end,
+          }
         : null,
     }));
   }
@@ -198,38 +207,57 @@ export class AdminService {
     const [userRows, profileRows, goalRows, taskRows, scoreRows, strikeRows] = await Promise.all([
       this.dataSource.query(
         `SELECT u.*, s.id AS sub_id, s.plan AS sub_plan, s.status AS sub_status, s.trial_end, s.current_period_end
-         FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id WHERE u.id = $1`, [userId],
+         FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id WHERE u.id = $1`,
+        [userId],
       ),
       this.dataSource.query(`SELECT * FROM psychological_profiles WHERE user_id = $1`, [userId]),
-      this.dataSource.query(`SELECT * FROM goals WHERE user_id = $1 ORDER BY is_anchor DESC, created_at DESC LIMIT 1`, [userId]),
       this.dataSource.query(
-        `SELECT * FROM daily_tasks WHERE user_id = $1 ORDER BY scheduled_date DESC LIMIT 30`, [userId],
+        `SELECT * FROM goals WHERE user_id = $1 ORDER BY is_anchor DESC, created_at DESC LIMIT 1`,
+        [userId],
       ),
       this.dataSource.query(
-        `SELECT current_score, snapshot_date FROM execution_scores WHERE user_id = $1 ORDER BY snapshot_date DESC LIMIT 14`, [userId],
+        `SELECT * FROM daily_tasks WHERE user_id = $1 ORDER BY scheduled_date DESC LIMIT 30`,
+        [userId],
       ),
       this.dataSource.query(
-        `SELECT COUNT(*)::int AS count FROM strikes WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '7 days'`, [userId],
+        `SELECT current_score, snapshot_date FROM execution_scores WHERE user_id = $1 ORDER BY snapshot_date DESC LIMIT 14`,
+        [userId],
+      ),
+      this.dataSource.query(
+        `SELECT COUNT(*)::int AS count FROM strikes WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '7 days'`,
+        [userId],
       ),
     ]);
 
     const u = userRows[0];
     return {
-      user: u ? {
-        id: u.id, name: u.name, phone_number: u.phone_number,
-        status: u.status, crisis_hold: u.crisis_hold,
-        checkin_time: u.checkin_time, last_active_at: u.last_active_at,
-        registered_at: u.registered_at,
-        utc_offset_minutes: u.utc_offset_minutes,
-        onboarding_stage: u.onboarding_stage,
-        intake_data: u.intake_data ?? {},
-        payment_link_sent_at: u.payment_link_sent_at,
-        sample_coaching_given: u.sample_coaching_given,
-        dunning_nudges_sent: u.dunning_nudges_sent ?? 0,
-        subscription: u.sub_id
-          ? { id: u.sub_id, plan: u.sub_plan, status: u.sub_status, trial_end: u.trial_end, current_period_end: u.current_period_end }
-          : null,
-      } : null,
+      user: u
+        ? {
+            id: u.id,
+            name: u.name,
+            phone_number: u.phone_number,
+            status: u.status,
+            crisis_hold: u.crisis_hold,
+            checkin_time: u.checkin_time,
+            last_active_at: u.last_active_at,
+            registered_at: u.registered_at,
+            utc_offset_minutes: u.utc_offset_minutes,
+            onboarding_stage: u.onboarding_stage,
+            intake_data: u.intake_data ?? {},
+            payment_link_sent_at: u.payment_link_sent_at,
+            sample_coaching_given: u.sample_coaching_given,
+            dunning_nudges_sent: u.dunning_nudges_sent ?? 0,
+            subscription: u.sub_id
+              ? {
+                  id: u.sub_id,
+                  plan: u.sub_plan,
+                  status: u.sub_status,
+                  trial_end: u.trial_end,
+                  current_period_end: u.current_period_end,
+                }
+              : null,
+          }
+        : null,
       psychological_profile: profileRows[0] ?? null,
       goal: goalRows[0] ?? null,
       recent_tasks: taskRows,
@@ -259,7 +287,13 @@ export class AdminService {
    * during A2P registration, so "blank because nobody saved it yet" is a
    * failure mode worth designing out entirely.
    */
-  async getLegalDoc(slug: LegalSlug): Promise<{ slug: LegalSlug; title: string; body: string; updated_at: string | null; customised: boolean }> {
+  async getLegalDoc(slug: LegalSlug): Promise<{
+    slug: LegalSlug;
+    title: string;
+    body: string;
+    updated_at: string | null;
+    customised: boolean;
+  }> {
     await this.ensureSettingsTable();
     const rows: { value: string; updated_at: string }[] = await this.dataSource.query(
       `SELECT value, updated_at FROM app_settings WHERE key = $1`,
@@ -267,7 +301,13 @@ export class AdminService {
     );
     const fallback = DEFAULT_LEGAL[slug];
     if (!rows.length) {
-      return { slug, title: fallback.title, body: fallback.body, updated_at: null, customised: false };
+      return {
+        slug,
+        title: fallback.title,
+        body: fallback.body,
+        updated_at: null,
+        customised: false,
+      };
     }
     try {
       const parsed = JSON.parse(rows[0].value) as { title?: string; body?: string };
@@ -282,7 +322,13 @@ export class AdminService {
       // A corrupted row must not take the page down — serve the default and
       // log, rather than throwing on a public, unauthenticated endpoint.
       this.logger.error(`[Legal] Malformed stored document for ${slug}; serving default`);
-      return { slug, title: fallback.title, body: fallback.body, updated_at: null, customised: false };
+      return {
+        slug,
+        title: fallback.title,
+        body: fallback.body,
+        updated_at: null,
+        customised: false,
+      };
     }
   }
 
@@ -292,7 +338,9 @@ export class AdminService {
     // Guard against an accidental wipe: these are public legal pages, and an
     // empty or near-empty save would silently gut the page rather than error.
     if (body.length < 200) {
-      throw new BadRequestException('body looks too short for a legal document — refusing to publish (minimum 200 characters)');
+      throw new BadRequestException(
+        'body looks too short for a legal document — refusing to publish (minimum 200 characters)',
+      );
     }
     await this.ensureSettingsTable();
     const title = input.title?.trim() || DEFAULT_LEGAL[slug].title;
@@ -313,11 +361,19 @@ export class AdminService {
 
   async getSettings() {
     await this.ensureSettingsTable();
-    const rows: { key: string; value: string }[] = await this.dataSource.query(`SELECT key, value FROM app_settings`);
-    const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    const rows: { key: string; value: string }[] = await this.dataSource.query(
+      `SELECT key, value FROM app_settings`,
+    );
+    const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     return {
-      coach_alert_phone: map['coach_alert_phone'] ?? this.configService.get<string>('CRISIS_COACH_ALERT_PHONE') ?? '',
-      coach_alert_email: map['coach_alert_email'] ?? this.configService.get<string>('CRISIS_COACH_ALERT_EMAIL') ?? '',
+      coach_alert_phone:
+        map['coach_alert_phone'] ??
+        this.configService.get<string>('CRISIS_COACH_ALERT_PHONE') ??
+        '',
+      coach_alert_email:
+        map['coach_alert_email'] ??
+        this.configService.get<string>('CRISIS_COACH_ALERT_EMAIL') ??
+        '',
     };
   }
 
@@ -339,7 +395,25 @@ export class AdminService {
     return this.messageRepo.find({
       where: { user_id: userId },
       order: { created_at: 'ASC' },
-      select: ['id', 'session_id', 'role', 'content', 'media_url', 'media_content_type', 'created_at', 'token_count', 'flagged', 'flag_reason', 'message_type', 'is_checkin_prompt', 'is_proof_submission'],
+      // scheduled_kind lets the admin thread + audits see WHICH machine sent an
+      // outbound (recap / weekly_review / reminder / payment_link / …). Without
+      // it in the select, PR #33/#41's discriminator was invisible to the API.
+      select: [
+        'id',
+        'session_id',
+        'role',
+        'content',
+        'media_url',
+        'media_content_type',
+        'created_at',
+        'token_count',
+        'flagged',
+        'flag_reason',
+        'message_type',
+        'is_checkin_prompt',
+        'is_proof_submission',
+        'scheduled_kind',
+      ],
     });
   }
 
@@ -378,11 +452,16 @@ export class AdminService {
     }
 
     let buffer = Buffer.from(resp.data);
-    let contentType = String(resp.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    let contentType = String(resp.headers['content-type'] ?? '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
     const urlLower = rawUrl.toLowerCase().split('?')[0];
     const isHeic =
-      contentType === 'image/heic' || contentType === 'image/heif' ||
-      urlLower.endsWith('.heic') || urlLower.endsWith('.heif');
+      contentType === 'image/heic' ||
+      contentType === 'image/heif' ||
+      urlLower.endsWith('.heic') ||
+      urlLower.endsWith('.heif');
 
     if (isHeic) {
       try {
@@ -390,7 +469,9 @@ export class AdminService {
         buffer = Buffer.from(jpeg);
         contentType = 'image/jpeg';
       } catch (err) {
-        this.logger.warn(`[AdminMedia] HEIC transcode failed for ${rawUrl}: ${(err as Error).message}`);
+        this.logger.warn(
+          `[AdminMedia] HEIC transcode failed for ${rawUrl}: ${(err as Error).message}`,
+        );
         throw new BadRequestException('could not convert image');
       }
     }
@@ -402,7 +483,8 @@ export class AdminService {
   async getUserSubscriptionDetail(userId: string) {
     const [subscription, statsRow] = await Promise.all([
       this.subRepo.findOne({ where: { user_id: userId } }),
-      this.dataSource.query(`
+      this.dataSource.query(
+        `
         SELECT
           COUNT(*)::int AS total_messages,
           COUNT(*) FILTER (WHERE role = 'user')::int AS user_messages,
@@ -412,7 +494,9 @@ export class AdminService {
           MIN(created_at) AS first_message_at,
           MAX(created_at) AS last_message_at
         FROM messages WHERE user_id = $1
-      `, [userId]),
+      `,
+        [userId],
+      ),
     ]);
 
     return { subscription, stats: statsRow[0] };
@@ -425,10 +509,14 @@ export class AdminService {
   }
 
   async updateUserStatus(userId: string, status: 'active' | 'paused' | 'cancelled') {
-    const subStatus = status === 'active' ? 'active' : status === 'paused' ? 'past_due' : 'cancelled';
+    const subStatus =
+      status === 'active' ? 'active' : status === 'paused' ? 'past_due' : 'cancelled';
     await this.dataSource.transaction(async (em) => {
       await em.query(`UPDATE users SET status = $1 WHERE id = $2`, [status, userId]);
-      await em.query(`UPDATE subscriptions SET status = $1 WHERE user_id = $2`, [subStatus, userId]);
+      await em.query(`UPDATE subscriptions SET status = $1 WHERE user_id = $2`, [
+        subStatus,
+        userId,
+      ]);
     });
     return { user_id: userId, user_status: status, subscription_status: subStatus };
   }
@@ -481,6 +569,11 @@ export class AdminService {
       `UPDATE conversation_sessions SET status = 'active' WHERE user_id = $1 AND status = 'crisis_hold'`,
       [alert.user_id],
     );
-    return { alert_id: alertId, status: 'resolved', resolved_by: resolvedBy, resolved_at: new Date().toISOString() };
+    return {
+      alert_id: alertId,
+      status: 'resolved',
+      resolved_by: resolvedBy,
+      resolved_at: new Date().toISOString(),
+    };
   }
 }

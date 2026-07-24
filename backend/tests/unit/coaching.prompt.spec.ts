@@ -582,6 +582,14 @@ describe('buildSystemPrompt', () => {
       const prompt = withPatterns({}); // no currentStreak field
       expect(prompt).toMatch(/Current streak: 0 — they are NOT on a streak/);
     });
+
+    // Karibi 2026-07-23: "you're 20 years old launching a product this week."
+    // Age is never collected, so any specific age is fabricated.
+    it('states age is unknown and forbids guessing a specific age', () => {
+      const prompt = withPatterns({ currentStreak: 3 });
+      expect(prompt).toMatch(/Age: unknown/);
+      expect(prompt.toLowerCase()).toMatch(/never state or guess a specific age/);
+    });
   });
 
   describe('curated knowledge injection', () => {

@@ -266,6 +266,10 @@ function formatPatternSignals(p: PatternSignals): string {
     '',
     'HARD FACTS (ground truth — cite only these numbers, never fabricate a streak or win):',
     streakFact,
+    // We never collect age. The model invented one anyway ("you're 20 years old
+    // launching a product this week" — Karibi 2026-07-23). State it can't be
+    // known so the model stops guessing a number.
+    '- Age: unknown — you have NOT been told how old they are. NEVER state or guess a specific age ("you\'re 20", "at 25 you should…"). Speak to what they\'ve actually told you, not an invented number.',
   ];
   // When they actually paid/locked in. Grounds the model so it stops inventing a
   // day for the payment ("the link went through yesterday" to a same-day payer).
