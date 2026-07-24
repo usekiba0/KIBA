@@ -4,7 +4,7 @@ import { Between, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
-import { DailyTodo, DailyTodoStatus, DailyTodoSource } from '../data/entities/daily-todo.entity';
+import { DailyTodo, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { Proof, ProofValidationStatus } from '../data/entities/proof.entity';
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { MessagingService } from '../messaging/messaging.service';
@@ -147,12 +147,20 @@ export class RecapService implements OnApplicationBootstrap {
       // regardless, because a deferred recap that crosses midnight would claim
       // and summarize the WRONG local day.
       const localHour = new Date(Date.now() + (offset ?? 0) * 60_000).getUTCHours();
-      if (localHour < DEFER_CUTOFF_HOUR && (await this.userActiveWithin(userId, ACTIVE_WINDOW_MS))) {
+      if (
+        localHour < DEFER_CUTOFF_HOUR &&
+        (await this.userActiveWithin(userId, ACTIVE_WINDOW_MS))
+      ) {
         const retryMinute = Math.floor((Date.now() + DEFER_MS) / 60_000);
         await this.queue.add(
           'send-recap',
           { userId },
-          { delay: DEFER_MS, jobId: `recap-defer:${userId}:${retryMinute}`, removeOnComplete: true, removeOnFail: 5 },
+          {
+            delay: DEFER_MS,
+            jobId: `recap-defer:${userId}:${retryMinute}`,
+            removeOnComplete: true,
+            removeOnFail: 5,
+          },
         );
         structuredLog(this.logger, 'log', {
           service: 'accountability',
@@ -168,7 +176,10 @@ export class RecapService implements OnApplicationBootstrap {
         .createQueryBuilder()
         .update(User)
         .set({ last_recap_date: localDate })
-        .where('id = :id AND (last_recap_date IS DISTINCT FROM :date)', { id: userId, date: localDate })
+        .where('id = :id AND (last_recap_date IS DISTINCT FROM :date)', {
+          id: userId,
+          date: localDate,
+        })
         .execute();
 
       if (!claim.affected) {
@@ -231,20 +242,27 @@ export class RecapService implements OnApplicationBootstrap {
 
   private async buildAndSend(user: User, localDate: string, offset: number | null): Promise<void> {
     const [todos, proofCount, scoreSnapshot] = await Promise.all([
-      this.todoRepo.find({ where: { user_id: user.id, scheduled_date: localDate as unknown as Date } }),
+      this.todoRepo.find({
+        where: { user_id: user.id, scheduled_date: localDate as unknown as Date },
+      }),
       this.countProofsForLocalDay(user.id, localDate, offset),
       this.honestScore(user.id),
     ]);
 
-    // Done counts for any source — completing an auto-seeded plan task is real engagement.
-    const done = todos.filter((t) => t.status === DailyTodoStatus.DONE).map((t) => t.content);
-    // Only shame tasks the user actually engaged with: ones THEY added (USER) or the
-    // coach added mid-convo (AI). Auto-seeded PLAN tasks that are still OPEN were never
-    // agreed to — the user may never have seen them — so they are NOT counted as
-    // "missed". This stops the "you folded on everything" recap for ten goals the user
-    // never discussed (Bianca, 2026-06-29). Skipped is intentional — also excluded.
+    // Counts key on COMMITMENT, not source (task-composition Approach C, Phase 1).
+    // A commitment is anything the user agreed to: USER/AI rows (put there in
+    // conversation) and any completed row (completion IS agreement — committed_at
+    // is stamped on markDone). An auto-seeded PLAN row the conversation never
+    // confirmed has committed_at = null and is a proposal, never counted — the
+    // user may never have seen it, so it can't be a "done" or a "miss". This
+    // supersedes the 2026-06-29 `source !== PLAN` exclusion (same set today, but
+    // now correct by intent rather than by source). Skipped is excluded either way.
+    const isCommitted = (t: DailyTodo) => t.committed_at != null;
+    const done = todos
+      .filter((t) => t.status === DailyTodoStatus.DONE && isCommitted(t))
+      .map((t) => t.content);
     const missed = todos
-      .filter((t) => t.status === DailyTodoStatus.OPEN && t.source !== DailyTodoSource.PLAN)
+      .filter((t) => t.status === DailyTodoStatus.OPEN && isCommitted(t))
       .map((t) => t.content);
 
     const message = buildNightRecapMessage({
@@ -312,7 +330,11 @@ export class RecapService implements OnApplicationBootstrap {
   }
 
   /** Count accepted proofs whose timestamp falls inside the user's local day. */
-  private countProofsForLocalDay(userId: string, localDate: string, offset: number | null): Promise<number> {
+  private countProofsForLocalDay(
+    userId: string,
+    localDate: string,
+    offset: number | null,
+  ): Promise<number> {
     const [y, m, d] = localDate.split('-').map(Number);
     const startUtcMs = Date.UTC(y, m - 1, d, 0, 0, 0, 0) - (offset ?? 0) * 60_000;
     const endUtcMs = startUtcMs + 24 * 60 * 60_000;

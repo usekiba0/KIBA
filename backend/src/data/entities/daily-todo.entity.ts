@@ -1,7 +1,4 @@
-import {
-  Entity, PrimaryGeneratedColumn, Column,
-  CreateDateColumn, Index,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
 
 export enum DailyTodoStatus {
   OPEN = 'open',
@@ -49,6 +46,16 @@ export class DailyTodo {
 
   @Column({ type: 'timestamptz', nullable: true })
   completed_at: Date | null;
+
+  // When the user AGREED to this item (task-composition Approach C, Phase 1).
+  // null = a proposal — an auto-seeded PLAN row the conversation never confirmed;
+  // it is visible to the AI as a suggestion but never counts as a commitment
+  // (recap/weekly-review miss counts, strikes). Set = a commitment: USER/AI rows
+  // are committed on creation (someone put them there in conversation), a PLAN
+  // row becomes committed the moment it's completed (completion IS agreement) or
+  // the user explicitly commits to it. Counting keys on THIS, not on source.
+  @Column({ type: 'timestamptz', nullable: true })
+  committed_at: Date | null;
 
   @CreateDateColumn()
   created_at: Date;

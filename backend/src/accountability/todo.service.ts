@@ -42,12 +42,15 @@ export class TodoService {
   }): Promise<DailyTodo> {
     const today = this.startOfToday();
     const trimmed = args.content.trim().slice(0, 500);
+    // USER/AI todos are commitments the instant they're created — the user or
+    // the coach put them here in conversation (task-composition Approach C).
     const saved = await this.todoRepo.save({
       user_id: args.userId,
       scheduled_date: today,
       content: trimmed,
       status: DailyTodoStatus.OPEN,
       source: args.source,
+      committed_at: new Date(),
     });
     structuredLog(this.logger, 'log', {
       service: 'accountability',
@@ -63,9 +66,15 @@ export class TodoService {
     const todo = await this.todoRepo.findOne({ where: { id: todoId } });
     if (!todo || todo.user_id !== userId) return null;
     if (todo.status === DailyTodoStatus.DONE) return todo;
+    const now = new Date();
     await this.todoRepo.update(todoId, {
       status: DailyTodoStatus.DONE,
-      completed_at: new Date(),
+      completed_at: now,
+      // Completing an item is agreement to it, retroactively — a proposal the
+      // user actually did is now a commitment and counts (task-composition
+      // Approach C). Only stamp if not already committed, to preserve the
+      // original agreement time.
+      ...(todo.committed_at ? {} : { committed_at: now }),
     });
     structuredLog(this.logger, 'log', {
       service: 'accountability',

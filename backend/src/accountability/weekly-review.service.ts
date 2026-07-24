@@ -4,7 +4,7 @@ import { Between, In, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
-import { DailyTodo, DailyTodoStatus, DailyTodoSource } from '../data/entities/daily-todo.entity';
+import { DailyTodo, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { Proof, ProofValidationStatus } from '../data/entities/proof.entity';
 import { Message, MessageRole, MessageType } from '../data/entities/message.entity';
 import { MessagingService } from '../messaging/messaging.service';
@@ -130,12 +130,20 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
       const localDate = localDateString(offset);
 
       const localHour = new Date(Date.now() + (offset ?? 0) * 60_000).getUTCHours();
-      if (localHour < DEFER_CUTOFF_HOUR && (await this.userActiveWithin(userId, ACTIVE_WINDOW_MS))) {
+      if (
+        localHour < DEFER_CUTOFF_HOUR &&
+        (await this.userActiveWithin(userId, ACTIVE_WINDOW_MS))
+      ) {
         const retryMinute = Math.floor((Date.now() + DEFER_MS) / 60_000);
         await this.queue.add(
           'send-weekly-review',
           { userId },
-          { delay: DEFER_MS, jobId: `weekly-defer:${userId}:${retryMinute}`, removeOnComplete: true, removeOnFail: 5 },
+          {
+            delay: DEFER_MS,
+            jobId: `weekly-defer:${userId}:${retryMinute}`,
+            removeOnComplete: true,
+            removeOnFail: 5,
+          },
         );
         structuredLog(this.logger, 'log', {
           service: 'accountability',
@@ -151,7 +159,10 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
         .createQueryBuilder()
         .update(User)
         .set({ last_weekly_review_date: localDate })
-        .where('id = :id AND (last_weekly_review_date IS DISTINCT FROM :date)', { id: userId, date: localDate })
+        .where('id = :id AND (last_weekly_review_date IS DISTINCT FROM :date)', {
+          id: userId,
+          date: localDate,
+        })
         .execute();
 
       if (!claim.affected) {
@@ -217,15 +228,20 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
       this.honestScore(user.id),
     ]);
 
-    const doneCount = todos.filter((t) => t.status === DailyTodoStatus.DONE).length;
-    // Only count a miss the user actually owned: auto-seeded PLAN items the
-    // conversation never touched are not commitments. The night recap got this
-    // exclusion on 2026-06-29 (commit 6e61c51) and the weekly review was missed,
-    // so it kept telling users "you didn't really show up this week" over plan
-    // rows that merely existed (KIBA_Retraining_Doc msg #126 — fabricated
-    // "0 done / N missed" during a week the user visibly worked).
+    // Counts key on COMMITMENT, not source (task-composition Approach C, Phase 1
+    // — twin of the night recap). A commitment is anything the user agreed to
+    // (USER/AI rows, or any completed row — committed_at is stamped on markDone);
+    // an auto-seeded PLAN row the conversation never confirmed has committed_at
+    // = null and is a proposal, never counted. Supersedes the 2026-06-29
+    // `source !== PLAN` exclusion that stopped the fabricated "0 done / N missed
+    // — you didn't really show up this week" over rows that merely existed
+    // (KIBA_Retraining_Doc msg #126).
+    const isCommitted = (t: DailyTodo) => t.committed_at != null;
+    const doneCount = todos.filter(
+      (t) => t.status === DailyTodoStatus.DONE && isCommitted(t),
+    ).length;
     const missedCount = todos.filter(
-      (t) => t.status === DailyTodoStatus.OPEN && t.source !== DailyTodoSource.PLAN,
+      (t) => t.status === DailyTodoStatus.OPEN && isCommitted(t),
     ).length;
 
     const message = buildWeeklyReviewMessage({
@@ -272,7 +288,9 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
       });
       await this.sessionBoundary.recordMessage(boundary.sessionId);
     } catch (err) {
-      this.logger.warn(`weekly review Message row failed for ${user.id}: ${(err as Error).message}`);
+      this.logger.warn(
+        `weekly review Message row failed for ${user.id}: ${(err as Error).message}`,
+      );
     }
 
     structuredLog(this.logger, 'log', {
@@ -288,7 +306,11 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
   }
 
   /** Count accepted proofs across the 7-day local window ending on `endLocalDate`. */
-  private countProofsForWeek(userId: string, endLocalDate: string, offset: number | null): Promise<number> {
+  private countProofsForWeek(
+    userId: string,
+    endLocalDate: string,
+    offset: number | null,
+  ): Promise<number> {
     const [y, m, d] = endLocalDate.split('-').map(Number);
     const endStartUtcMs = Date.UTC(y, m - 1, d, 0, 0, 0, 0) - (offset ?? 0) * 60_000;
     const endUtcMs = endStartUtcMs + 24 * 60 * 60_000; // end of the last local day
