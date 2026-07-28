@@ -40,11 +40,18 @@ export default function Step4Contact({ data, onChange, onNext, onBack }: Props) 
   const [phoneError, setPhoneError] = useState('');
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // A2P 10DLC: consent is an EXPLICIT, un-pre-checked checkbox. Twilio's campaign
+  // form lists "Checkbox for consent (must NOT be pre-selected)" as a web-form
+  // requirement and repeats it under Important notes. We previously relied on
+  // "by tapping Continue you agree" — a defensible reading of CTIA guidance, but
+  // not what the reviewer is looking for, and a rejection costs 1-3 business days
+  // plus a resubmission. Starts false, and Continue stays disabled until ticked.
+  const [smsConsent, setSmsConsent] = useState(false);
   const checkingRef = useRef(false);
 
   const phoneValid = isValidPhone(data.phone_number);
   const nameValid = data.name.trim().length >= 2;
-  const canContinue = nameValid && phoneValid && !phoneError;
+  const canContinue = nameValid && phoneValid && !phoneError && smsConsent;
 
   async function checkPhone() {
     if (!phoneValid) return;
@@ -127,20 +134,29 @@ export default function Step4Contact({ data, onChange, onNext, onBack }: Props) 
         who is messaging, that messages are recurring and automated, that
         frequency varies, that rates may apply, and how to stop or get help.
 
-        Not a checkbox: the button below is the affirmative action, and the
-        disclosure sits directly above it so consent is unambiguous. A checkbox
-        would be equally valid — this is the lower-friction of the two accepted
-        patterns.
+        It is a CHECKBOX, unchecked by default, and Continue is disabled until it
+        is ticked — that is the exact pattern Twilio's campaign form asks for
+        ("Checkbox for consent (must NOT be pre-selected)"). The earlier
+        "by tapping Continue you agree" wording was a defensible reading of CTIA
+        guidance but not what a reviewer looks for.
       */}
-      <p className="consent-notice">
-        By tapping Continue you agree to receive recurring automated text messages from KIBA
-        at the number above, including daily check-ins and reminders. Message frequency varies.
-        Message &amp; data rates may apply. Consent is not a condition of purchase.
-        Reply STOP to cancel or HELP for help. See our{' '}
-        <a href={SMS_TERMS_URL} target="_blank" rel="noopener noreferrer">SMS Terms</a>{' '}
-        and{' '}
-        <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
-      </p>
+      <label className="consent-notice">
+        <input
+          type="checkbox"
+          checked={smsConsent}
+          onChange={(e) => setSmsConsent(e.target.checked)}
+          aria-describedby="sms-consent-text"
+        />
+        <span id="sms-consent-text">
+          I agree to receive recurring automated text messages from KIBA at the number above,
+          including daily check-ins and reminders. Message frequency varies.
+          Message &amp; data rates may apply. Consent is not a condition of purchase.
+          Reply STOP to cancel or HELP for help. See our{' '}
+          <a href={SMS_TERMS_URL} target="_blank" rel="noopener noreferrer">SMS Terms</a>{' '}
+          and{' '}
+          <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+        </span>
+      </label>
 
       <div className="btn-row">
         <button className="btn-secondary" onClick={onBack} type="button">← Back</button>

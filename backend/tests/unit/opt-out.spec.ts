@@ -141,6 +141,16 @@ describe('compliance keyword detection', () => {
       expect(OPT_OUT_CONFIRMATION).toMatch(/START/);
     });
 
+    it('carries all four things the A2P campaign registers for the opt-in reply', () => {
+      // Brand name, enrollment confirmation, HELP instructions, opt-out
+      // instructions. HELP was missing until 2026-07-29 — a mismatch between the
+      // registered campaign and what the system actually sends.
+      expect(OPT_IN_CONFIRMATION).toContain('KIBA');
+      expect(OPT_IN_CONFIRMATION).toMatch(/back in/i);
+      expect(OPT_IN_CONFIRMATION).toMatch(/\bHELP\b/);
+      expect(OPT_IN_CONFIRMATION).toMatch(/\bSTOP\b/);
+    });
+
     it('tells a resumed user how to leave again', () => {
       expect(OPT_IN_CONFIRMATION).toMatch(/STOP/);
     });

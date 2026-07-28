@@ -217,7 +217,11 @@ export default function OnboardingPage() {
         /* A2P consent disclosure. Deliberately legible rather than fine print —
            a carrier reviewer screenshots this, and grey-on-grey microtext reads
            as burying the disclosure. */
-        .consent-notice { font-size: 12px; color: #7f9bb3; line-height: 1.5; margin: 4px 0 18px; }
+        /* A2P consent is a real checkbox now, so this is a flex row: the box sits
+           beside the disclosure rather than the text sitting alone. Kept legible
+           on the dark card — a reviewer screenshots this exact view. */
+        .consent-notice { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; color: #7f9bb3; line-height: 1.5; margin: 4px 0 18px; cursor: pointer; }
+        .consent-notice input[type='checkbox'] { flex: 0 0 auto; width: 18px; height: 18px; margin: 1px 0 0; accent-color: #38bdf8; cursor: pointer; }
         .consent-notice a { color: #38bdf8; text-decoration: underline; }
         .btn-primary {
           background: linear-gradient(135deg, #0ea5e9, #10b981); color: white;
