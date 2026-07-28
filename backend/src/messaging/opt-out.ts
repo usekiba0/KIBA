@@ -79,8 +79,13 @@ export function detectKeyword(raw: string): KeywordIntent {
 export const OPT_OUT_CONFIRMATION =
   "You're unsubscribed from KIBA. You won't get any more messages. Text START if you ever want back in.";
 
+// A2P campaign requirement: the opt-in auto-reply must carry the brand name, an
+// enrollment confirmation, HELP instructions and opt-out instructions. The
+// original copy had three of the four — no HELP — which is a mismatch between
+// the registered campaign and what the system actually sends. Still one 160-char
+// segment, so it stays a single billed message.
 export const OPT_IN_CONFIRMATION =
-  "You're back in. KIBA will pick up where you left off. Text STOP any time to unsubscribe.";
+  "You're back in. KIBA will pick up where you left off. Msg&data rates may apply. Reply HELP for help, STOP to unsubscribe.";
 
 // Carrier HELP requirements: name the program, say rates may apply, give a
 // support contact, and say how to leave. "Msg&data" rather than the longer

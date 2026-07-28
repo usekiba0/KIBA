@@ -62,3 +62,6 @@ project documents/
 .agents/
 .claude/
 skills-lock.json
+
+# Sim harness run artifacts (regenerated on every run)
+backend/sim-*.json

@@ -30,6 +30,7 @@ describe('StripeWebhookController.bridgeGoalsFromIntake', () => {
       messagingQueue,
       {} as any, // messagingService
       {} as any, // checkinService
+      { countExecutionDays: jest.fn().mockResolvedValue(0) } as any, // scoreService
       { get: () => undefined } as any, // config
       { add: jest.fn().mockResolvedValue({}) } as any, // accountabilityQueue
     );

@@ -77,9 +77,20 @@ We use a small number of service providers, and only to run the service:
 - **Stripe** — to process payments. Card details are entered directly with Stripe and never reach our servers; we store only the identifiers Stripe gives us.
 - **Render** — hosting and database infrastructure.
 
-**We never sell your personal information, and we never share your mobile number with third parties for marketing purposes.**
+**We never sell your personal information, and we never share your mobile number with third parties for marketing purposes.** No mobile information is shared with third parties or affiliates for marketing or promotional purposes.
 
 We may disclose information if required by law, or where we believe in good faith that someone is at risk of serious harm.
+
+## Text messages
+
+These three disclosures are repeated here deliberately: the A2P 10DLC campaign
+review checks for them **in the privacy policy itself**, not only in the SMS
+Terms, and a reviewer who cannot find them here fails the campaign.
+
+- **Message frequency.** KIBA sends a daily check-in at a time you choose, any reminders you specifically ask for, and replies to messages you send. Message frequency varies.
+- **Message and data rates may apply.**
+- **Your mobile number is never shared.** We do not sell, rent, or share your mobile number or SMS consent with third parties or affiliates for marketing purposes. Mobile opt-in data is never shared with anyone.
+- **Stopping and getting help.** Reply STOP to any message to unsubscribe immediately, or HELP for support. Full detail is in our SMS Terms.
 
 ## A note on safety
 

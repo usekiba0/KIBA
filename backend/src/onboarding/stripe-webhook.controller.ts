@@ -11,6 +11,7 @@ import { Queue } from 'bull';
 import { StripeService } from './stripe.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { CheckinService } from '../accountability/checkin.service';
+import { ScoreService } from '../accountability/score.service';
 import { Subscription, SubscriptionStatus, SubscriptionPlan } from '../data/entities/subscription.entity';
 import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
 import { ProcessedStripeEvent } from '../data/entities/processed-stripe-event.entity';
@@ -33,6 +34,7 @@ export class StripeWebhookController {
     @InjectQueue('messaging') private readonly messagingQueue: Queue,
     private readonly messagingService: MessagingService,
     private readonly checkinService: CheckinService,
+    private readonly scoreService: ScoreService,
     private readonly config: ConfigService,
     @InjectQueue('accountability') private readonly accountabilityQueue: Queue,
   ) {}
@@ -198,75 +200,17 @@ export class StripeWebhookController {
           );
         }
 
-        // Apple-masking Path B (launch call 2026-07-10): auto-send the KIBA
-        // contact card so the user saves it and every future text shows "KIBA"
-        // instead of a bare number — Apple has no native branding for a
-        // business that texts first, so the saved contact IS the branding (and
-        // it defeats iOS "Screen Unknown Senders"). The .vcf carries BOTH the
-        // SendBlue (iMessage) and Twilio (SMS) numbers so one save brands both
-        // threads. Set CONTACT_CARD_URL to a public HTTPS URL of the .vcf
-        // (frontend/public/kiba-contact.vcf; regenerate via
-        // backend/scripts/gen-contact-card.js). No-op until configured.
-        // Best-effort: a failure must never block activation. Sent BEFORE the
-        // pin-chat nudge — save the contact first, then pin it.
-        const contactCardUrl = this.config.get<string>('CONTACT_CARD_URL');
-        if (contactCardUrl) {
-          try {
-            await this.messagingService.send(
-              user.phone_number,
-              'first thing — save my contact so i always show up as KIBA in your texts 📲',
-              contactCardUrl,
-            );
-          } catch (err) {
-            this.logger.warn(
-              `[StripeWebhook] contact-card send failed for ${user.id}: ${(err as Error).message}`,
-            );
-          }
-        }
-
-        // Retention nudge: a one-time "pin our chat" how-to so KIBA stays at the
-        // top of their messages. The media can be an image, GIF, or VIDEO — the
-        // send path passes the URL straight to SendBlue (media_url) / Twilio
-        // (mediaUrl), both of which handle video/GIF (Karibi 2026-06-27). Set
-        // PIN_CHAT_MEDIA_URL to a public HTTPS URL of the clip (falls back to the
-        // legacy PIN_CHAT_IMAGE_URL). No-op until one is configured. NOTE: keep it
-        // small — iMessage handles video natively, but Android/MMS (Twilio) caps
-        // size, so a short GIF or a compressed <~1MB mp4 is safest cross-platform.
-        // Best-effort: a media-send failure must never block activation.
-        const pinMediaUrl =
-          this.config.get<string>('PIN_CHAT_MEDIA_URL') ??
-          this.config.get<string>('PIN_CHAT_IMAGE_URL');
-        if (pinMediaUrl) {
-          // Log the URL we're about to hand the provider. When this broke in prod
-          // (Karibi 2026-07-28) the TEXT arrived and only the attachment vanished
-          // — the provider accepted the payload and dropped the media on its own
-          // side, so nothing threw and nothing was logged. The most likely cause
-          // is a host serving the wrong Content-Type: raw.githubusercontent.com
-          // returns `application/octet-stream` for .mp4, which won't render as an
-          // attachment, while our own host returns a proper `video/mp4`. Without
-          // this line the only way to tell the two apart is a device test.
-          structuredLog(this.logger, 'log', {
-            service: 'stripe_webhook',
-            operation: 'pin_chat_media_send',
-            userId: user.id,
-            mediaUrl: pinMediaUrl,
-          });
-          try {
-            await this.messagingService.send(
-              user.phone_number,
-              // Karibi's wording (2026-07-28). Covers BOTH asks in one message —
-              // pin the chat AND save the contact — which matters because the
-              // separate .vcf contact-card send is a no-op while CONTACT_CARD_URL
-              // is unset, so this is currently the only prompt to save the number.
-              'to make sure i\'m always in your corner, pin our chat and add me to your contacts. just long press our chat and hit pin, then tap our number up top and save it as a contact!',
-              pinMediaUrl,
-            );
-          } catch (err) {
-            this.logger.warn(
-              `[StripeWebhook] pin-chat media send failed for ${user.id}: ${(err as Error).message}`,
-            );
-          }
-        }
+        // NOTE — the contact-card (.vcf) send and the pin-chat nudge USED to fire
+        // here, back-to-back with the activation message above. That made payment
+        // land as THREE stacked texts at the highest-emotion moment of the whole
+        // funnel (Training Doc v2: "Message stacking on payment. Doc v1 said one
+        // message then wait. T1 stacked 3 messages back-to-back post-purchase"),
+        // and it fired the pin ask before the user had done anything — Doc v1
+        // specced the pin ask for AFTER the first completed check-in.
+        //
+        // Both now fire from ProofService on the user's FIRST accepted proof, so
+        // payment sends exactly ONE message and the housekeeping asks land on a
+        // real win instead of on the tap. See ProofService.maybeSendActivationAsks.
 
         // Kick off the daily check-in cadence. The intake AI promised this
         // ("we'll set up reminders once you're in") and previously nothing
@@ -362,29 +306,42 @@ export class StripeWebhookController {
             //
             // Same fabricated-progress class as the day-7 false praise and the
             // invented weight loss: praise the user can tell is untrue costs more
-            // trust than saying nothing. Gate on REAL elapsed time and stay silent
-            // when the claim wouldn't be true — a short trial simply doesn't get
-            // this touchpoint, which is correct.
+            // trust than saying nothing.
+            //
+            // Training Doc v2 locked principle #15: no scheduled message may claim
+            // historical action without verifying it against the completion
+            // ledger. Elapsed time alone is NOT that check — a user can be three
+            // days into a trial having done nothing, and "you're actually showing
+            // up" is then a lie they can see. Gate on BOTH: enough real time has
+            // passed for the sentence to be grammatical, AND the ledger actually
+            // shows execution days to praise. Otherwise stay silent — a trial with
+            // no execution simply doesn't get this touchpoint, which is correct.
             const MIN_DAYS_FOR_PROGRESS_CLAIM = 2;
             const elapsedDays = sub.created_at
               ? (Date.now() - new Date(sub.created_at).getTime()) / 86_400_000
               : 0;
-            if (elapsedDays < MIN_DAYS_FOR_PROGRESS_CLAIM) {
+            const executionDays = await this.scoreService
+              .countExecutionDays(user.id, Math.max(1, Math.ceil(elapsedDays)))
+              .catch(() => 0);
+            if (elapsedDays < MIN_DAYS_FOR_PROGRESS_CLAIM || executionDays < MIN_DAYS_FOR_PROGRESS_CLAIM) {
               structuredLog(this.logger, 'log', {
                 service: 'stripe_webhook',
                 operation: 'trial_ending_nudge_suppressed',
                 userId: user.id,
                 elapsedDays: Number(elapsedDays.toFixed(2)),
+                executionDays,
                 reason: 'would_claim_unearned_progress',
               });
               break;
             }
             // KIBA voice, momentum only — NO price here. The price reveal is its
-            // own day-7 message (trial-price-reveal); pre-empting it with a SaaS
-            // "trial ends, no action needed" notice kills that moment.
+            // own end-of-trial message (trial-price-reveal); pre-empting it with a
+            // SaaS "trial ends, no action needed" notice kills that moment.
+            // The day count is the LEDGER count, not a vague "few days" — it is
+            // only sent because the ledger proved it.
             await this.messagingQueue.add('send-message', {
               to: user.phone_number,
-              body: `few days in and you're actually showing up. that's the hard part right there. keep it going, i'm locked in with you.`,
+              body: `${executionDays} days you've actually shown up. that's the hard part right there. keep it going, i'm locked in with you.`,
               type: 'trial_ending',
             });
           }
@@ -403,11 +360,28 @@ export class StripeWebhookController {
           if (wasTrialing && data.status === 'active') {
             const user = await this.userRepo.findOne({ where: { id: sub.user_id } });
             if (user) {
-              // KIBA voice confirmation (the day-7 reveal already framed the price).
+              // KIBA voice confirmation (the price reveal already framed the price).
               // No celebration — just keep moving (sales-psychology rule).
+              //
+              // The copy used to hardcode "that's week one in the books" while the
+              // live trial is STRIPE_TRIAL_DAYS long (3 by default) — a fabricated
+              // duration in the same class as the "3 days vs 7 days" challenge-window
+              // bug (Training Doc v2 P0.4). Say the real length, or say nothing about
+              // length at all when we can't compute it.
+              const trialDays =
+                sub.trial_start && sub.trial_end
+                  ? Math.round(
+                      (new Date(sub.trial_end).getTime() - new Date(sub.trial_start).getTime()) /
+                        86_400_000,
+                    )
+                  : null;
+              const opener =
+                trialDays && trialDays > 0
+                  ? `that's your ${trialDays} days in the books.`
+                  : `that's the lock in done.`;
               await this.messagingQueue.add('send-message', {
                 to: user.phone_number,
-                body: `that's week one in the books. nothing changes on your end, i'm still on you every morning. let's keep building.`,
+                body: `${opener} nothing changes on your end, i'm still on you every morning. let's keep building.`,
                 type: 'trial_ended',
               });
             }

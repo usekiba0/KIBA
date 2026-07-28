@@ -83,6 +83,14 @@ export interface IntakeData {
   // (Karibi 2026-07-16: user set "fridays only", KIBA both asked daily AND scolded
   // an off-day weigh-in). Stored here in JSONB — no schema migration needed.
   weigh_in_schedule?: string;
+  // ISO timestamp of when we sent the one-time "save my contact / pin our chat"
+  // housekeeping asks. Doc v1 specced these for AFTER the first completed
+  // check-in; they used to fire on the payment webhook instead, which both
+  // stacked three texts onto the payment moment and asked for a favour before
+  // the user had done anything (Training Doc v2). Now fired once from
+  // ProofService on the first accepted proof. Stored here in JSONB — no schema
+  // migration needed (same pattern as weigh_in_schedule).
+  activation_asks_sent_at?: string;
   // Free-form notes the AI captures that don't fit the structured fields
   notes?: string[];
 }

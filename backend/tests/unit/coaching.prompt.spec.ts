@@ -310,7 +310,32 @@ describe('buildSystemPrompt', () => {
     // losing their score, and the model obstructed a paying user for three
     // turns); the replacement has to carry the real exit path, so the extra
     // ~250 chars buy a compliance behavior, not a nicety.
-    expect(prompt.length).toBeLessThan(31900);
+    // Raised 31.9k->36.4k for the 2026-07-29 Training Doc v2 launch-blocker batch.
+    // Biggest single jump this budget has taken, so the justification has to hold:
+    //   - PROOF SYSTEM per-category spec (P0.2). The old rules were gym-shaped, so
+    //     a user typed "done" for an outreach commitment and it was accepted —
+    //     that one acceptance kills the "you can't lie to me" thesis the whole
+    //     product rests on. Six categories, each needing its own concrete ask.
+    //   - HARD LINES: role boundary + declined-question + unverified-history
+    //     (P0.1/P0.3). Two live character breaks (KIBA speaking AS the user;
+    //     answering its own city question after the user declined) and one
+    //     fabricated streak 30 seconds after payment.
+    //   - menu-retreat / heavy-part-first / apology-changes-question (P1.5-P1.7).
+    // All three blocks were written long, then compressed ~2.2k before landing.
+    // Cost note: this prompt is the globally-cached prefix (PR #47), so the
+    // marginal per-turn cost of the growth is the cached-read rate, not the base
+    // rate — which is what makes buying these behaviors here defensible at all.
+    //
+    // 648 of the chars under this ceiling are the 2026-07-29 "NOT SURE? ASK"
+    // rule (Karibi pre-launch item 4), landed in the same window: identify the
+    // dish before pricing it, give calories as a range, never state a guessed
+    // number as fact. Written at ~1.9k and compressed to 648 before landing,
+    // per the compress-before-raising convention above.
+    //
+    // NOTE FOR THE NEXT RAISE: this leaves ~120 chars of headroom, so the next
+    // rule of any size trips it. Compress first; only raise with a reason as
+    // concrete as the ones above.
+    expect(prompt.length).toBeLessThan(36400);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
