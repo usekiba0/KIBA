@@ -23,7 +23,11 @@ import { validateRecurringMessage } from '../accountability/reminder-content';
 import { stripFalseReminderClaims } from './reminder-claim-guard';
 import { evaluate } from './calc';
 import { correctArithmeticClaims } from './math-claim-guard';
-import { buildSystemPrompt, PatternSignals } from './prompts/coaching.prompt';
+import {
+  buildCoachingDynamicContext,
+  COACHING_STATIC_RULES,
+  PatternSignals,
+} from './prompts/coaching.prompt';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
@@ -825,7 +829,7 @@ export class CoachingService {
       // their local day, and the prompt falls back to "don't raise it".
       todayDow: liveOffset === null ? null : localDayOfWeek(nowUtc, liveOffset),
     };
-    const systemPrompt = buildSystemPrompt(
+    const systemPrompt = buildCoachingDynamicContext(
       { id: user.id, name: userName, phone_number: user.phone_number },
       profile,
       latestScore?.current_score ?? 0,
@@ -843,7 +847,23 @@ export class CoachingService {
     // Prevention: pre-compute the gap to any date the user named so the model
     // reads the answer instead of doing (wrong) date math (Karibi 2026-07-08).
     const dateFacts = buildDateFactsBlock(incomingText, nowUtc, liveOffset);
-    const finalSystemPrompt = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
+    const dynamicContext = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
+
+    // Two system blocks, not one string. The first is the rulebook — byte-identical
+    // for every user on every turn — so marking it `ephemeral` lets Anthropic serve
+    // it from cache instead of re-reading ~14k tokens each message. Because it
+    // carries nothing user-specific, the cache is shared across ALL users: one
+    // person's turn keeps it warm for everyone else. The volatile per-person
+    // context goes in the SECOND block, after the breakpoint, where it can change
+    // freely without ever invalidating the cached prefix.
+    const finalSystemPrompt: Anthropic.Messages.TextBlockParam[] = [
+      {
+        type: 'text',
+        text: COACHING_STATIC_RULES,
+        cache_control: { type: 'ephemeral' },
+      },
+      { type: 'text', text: dynamicContext },
+    ];
 
     const tools = toolHandlers
       ? [
@@ -1004,7 +1024,12 @@ export class CoachingService {
    * dispatch function that turns a tool_use block into a JSON-stringifiable result.
    */
   private async runChat(args: {
-    systemPrompt: string;
+    /**
+     * Either a plain string, or ordered system blocks so a caller can mark its
+     * static prefix with cache_control. The Anthropic SDK accepts both; blocks
+     * are what make prompt caching possible.
+     */
+    systemPrompt: string | Anthropic.Messages.TextBlockParam[];
     recentMessages: Message[];
     incomingText: string;
     imageUrls?: string[];
@@ -1090,6 +1115,14 @@ export class CoachingService {
     history.push({ role: 'user', content: lastContent });
 
     let totalInputTokens = 0;
+    // Prompt-cache accounting. `cacheReadTokens` is the static rulebook served
+    // from cache (cheap + fast); `cacheWriteTokens` is us paying to (re)warm it.
+    // A healthy steady state is reads >> writes — if writes dominate, something
+    // user-specific has leaked into COACHING_STATIC_RULES and every turn is
+    // missing. Logged rather than asserted because only production traffic can
+    // show the real hit rate.
+    let cacheReadTokens = 0;
+    let cacheWriteTokens = 0;
     let totalOutputTokens = 0;
     let response: Anthropic.Messages.Message | undefined;
     // Did this turn actually put a reminder on the books, or read back one that
@@ -1123,6 +1156,8 @@ export class CoachingService {
 
       totalInputTokens += response.usage.input_tokens;
       totalOutputTokens += response.usage.output_tokens;
+      cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+      cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
 
       if (response.stop_reason !== 'tool_use' || !args.dispatch) break;
 
@@ -1207,6 +1242,8 @@ export class CoachingService {
           });
           totalInputTokens += forced.usage.input_tokens;
           totalOutputTokens += forced.usage.output_tokens;
+          cacheReadTokens += forced.usage.cache_read_input_tokens ?? 0;
+          cacheWriteTokens += forced.usage.cache_creation_input_tokens ?? 0;
           finalReply = extractText(forced);
         } catch (err) {
           this.logger.warn(
@@ -1225,6 +1262,8 @@ export class CoachingService {
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
       totalTokens: totalInputTokens + totalOutputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
     });
     warnTokenBudget(this.logger, {
       service: 'ai',

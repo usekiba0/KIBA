@@ -116,17 +116,41 @@ describe('CoachingService', () => {
     expect(mockStrikeRepo.count).toHaveBeenCalled();
   });
 
+  /**
+   * The coaching call sends `system` as ORDERED BLOCKS, not one string: block 0
+   * is the cached static rulebook, block 1 the volatile per-person context.
+   * Joining them back together keeps these assertions about "what reached the
+   * model" rather than about which block happens to hold what.
+   */
+  const systemText = (callArgs: { system: string | { text: string }[] }): string =>
+    typeof callArgs.system === 'string'
+      ? callArgs.system
+      : callArgs.system.map((b) => b.text).join('\n\n');
+
   it('injects psychological profile into the system prompt', async () => {
     await service.generateReply(testUser, [], 'How am I doing?');
     const callArgs = mockCreate.mock.calls[0][0];
-    expect(callArgs.system).toContain(testProfile.fears);
-    expect(callArgs.system).toContain(testProfile.comparison_figure);
+    expect(systemText(callArgs)).toContain(testProfile.fears);
+    expect(systemText(callArgs)).toContain(testProfile.comparison_figure);
   });
 
   it('injects execution score into the system prompt', async () => {
     await service.generateReply(testUser, [], 'How am I doing?');
     const callArgs = mockCreate.mock.calls[0][0];
-    expect(callArgs.system).toContain('68');
+    expect(systemText(callArgs)).toContain('68');
+  });
+
+  it('marks the static rulebook — and only it — as a cacheable prefix', async () => {
+    await service.generateReply(testUser, [], 'How am I doing?');
+    const { system } = mockCreate.mock.calls[0][0];
+    expect(Array.isArray(system)).toBe(true);
+    expect(system[0].cache_control).toEqual({ type: 'ephemeral' });
+    // The volatile half must NOT carry a breakpoint — caching per-user context
+    // would write a fresh entry every turn and never read one back.
+    expect(system[1].cache_control).toBeUndefined();
+    // Whatever changes per person belongs strictly after the breakpoint.
+    expect(system[0].text).not.toContain(testProfile.fears);
+    expect(system[1].text).toContain(testProfile.fears);
   });
 
   it('returns the reply text and token count', async () => {
