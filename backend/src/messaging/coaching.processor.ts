@@ -1229,6 +1229,13 @@ export class CoachingProcessor {
       this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
       todos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
       patterns,
+      // Early bubble: when the model opens a tool turn with a line of its own,
+      // send it while the tools run rather than after. Goes through the normal
+      // saveAndSend so it's persisted, bubble-split and sanitized like any other
+      // reply — the thread stays a true record of what the user actually saw.
+      // Wired on the TEXT path only; vision and intake keep the single-reply
+      // shape until this proves itself in production.
+      (text) => this.saveAndSend(user, boundary.sessionId, text),
     );
     const genMs = Date.now() - genStart;
     // See the vision path: bookkeeping write runs alongside the send, not in
@@ -2122,7 +2129,12 @@ export class CoachingProcessor {
       });
 
     const toSend = bubbles.length ? bubbles : [reply.trim()].filter(Boolean);
-    const delayMs = this.config.get<number>('MESSAGE_BUBBLE_DELAY_MS', 1200);
+    // 700ms, down from 1200ms (Karibi 2026-07-28 — "takes more than 10 sec").
+    // This delay is pure added wait on every multi-bubble reply: a 3-bubble
+    // answer paid 2.4s of it before the last bubble landed. 700ms still reads as
+    // typed-in-sequence rather than dumped, and iMessage preserves send order
+    // independently of the gap, so the ordering rationale below is unaffected.
+    const delayMs = this.config.get<number>('MESSAGE_BUBBLE_DELAY_MS', 700);
     for (let i = 0; i < toSend.length; i++) {
       await this.messagingService.send(user.phone_number, toSend[i]);
       // Small gap between bubbles so they arrive in order and feel typed, not
