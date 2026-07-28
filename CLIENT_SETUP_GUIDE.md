@@ -87,6 +87,27 @@ Create a dedicated Gmail account for this project before signing up for anything
 
 **Plan:** Free (Stripe takes 2.9% + $0.30 per transaction — no monthly fee)
 
+#### Branding the checkout page
+
+Both of these are dashboard-only — there is no code change that can set them.
+
+**The plan name.** The Checkout page shows `Try <product name>`. The `Try` prefix
+is Stripe's own trial wording and can't be removed; only the product name is ours.
+
+- **Product Catalog → (your subscription product) → Edit → Name**
+- Renaming the product changes the Checkout heading immediately. It does **not**
+  create a new price, so no env var changes and nothing to redeploy.
+
+**The icon in the top-left.** Checkout renders the account *icon* (the square one),
+not the wider logo.
+
+- **Settings → Business → Branding → Icon**
+- Square, at least 128×128, PNG or JPG, under 512 KB. `kiba-logo-1024.png` in the
+  repo root works.
+- Set the brand/accent colour on the same screen while you're there.
+- Test and live mode have **separate** branding settings — set it in both, or the
+  icon will be missing for real customers even though test checkout looks right.
+
 ---
 
 ### 5. Upstash (Redis)

@@ -237,6 +237,20 @@ export class StripeWebhookController {
           this.config.get<string>('PIN_CHAT_MEDIA_URL') ??
           this.config.get<string>('PIN_CHAT_IMAGE_URL');
         if (pinMediaUrl) {
+          // Log the URL we're about to hand the provider. When this broke in prod
+          // (Karibi 2026-07-28) the TEXT arrived and only the attachment vanished
+          // — the provider accepted the payload and dropped the media on its own
+          // side, so nothing threw and nothing was logged. The most likely cause
+          // is a host serving the wrong Content-Type: raw.githubusercontent.com
+          // returns `application/octet-stream` for .mp4, which won't render as an
+          // attachment, while our own host returns a proper `video/mp4`. Without
+          // this line the only way to tell the two apart is a device test.
+          structuredLog(this.logger, 'log', {
+            service: 'stripe_webhook',
+            operation: 'pin_chat_media_send',
+            userId: user.id,
+            mediaUrl: pinMediaUrl,
+          });
           try {
             await this.messagingService.send(
               user.phone_number,
