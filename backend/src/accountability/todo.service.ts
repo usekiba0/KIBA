@@ -215,15 +215,35 @@ export function splitPlanDayIntoItems(entry: string): string[] {
   // checkable.
   const MODIFIER_OPENER =
     /^(be|being|no|not|don'?t|do it|just|stay|keep it|because|why|so|and|also|then|remember|honestly|seriously|for real)\b/i;
+  // A day entry often OPENS with a scene-setter rather than an action — "This is
+  // your easiest day. Eat normally but use smaller plates." The folding below
+  // only reaches backwards, so a narrative sentence in first position had nothing
+  // to attach to and became its own board item: uncheckable, never completable,
+  // and counted as a MISS in the weekly review — the same phantom-checkable class
+  // as the modifier case (seen live in prod 2026-07-28, "This is your easiest day"
+  // sitting on a 13-item board). Fold it FORWARDS into the first real task instead.
+  // Lossless: the text survives, attached to the task it was framing.
+  //
+  // Deliberately narrow. "You'll"/"It's" can legitimately open a real task
+  // ("You'll run 5K"), so only unambiguous scene-setters qualify.
+  const NARRATIVE_OPENER = /^(this is|this'?ll|that'?s|today is)\b/i;
   const folded: string[] = [];
+  let pendingLead = '';
   for (const item of items) {
+    if (folded.length === 0 && !pendingLead.includes(item) && NARRATIVE_OPENER.test(item)) {
+      pendingLead = pendingLead ? `${pendingLead}. ${item}` : item;
+      continue;
+    }
     const isModifier = item.split(/\s+/).length <= 4 && MODIFIER_OPENER.test(item);
     if (isModifier && folded.length > 0) {
       folded[folded.length - 1] = `${folded[folded.length - 1]}. ${item}`;
     } else {
-      folded.push(item);
+      folded.push(pendingLead ? `${pendingLead}. ${item}` : item);
+      pendingLead = '';
     }
   }
+  // Entry was nothing BUT narrative — keep it rather than silently drop the day.
+  if (pendingLead) folded.push(pendingLead);
 
   // Collapse near-duplicate items within the SAME day. The LLM plan entry
   // sometimes restates one action in two sentences — "Review your week. Review

@@ -254,7 +254,11 @@ export class StripeWebhookController {
           try {
             await this.messagingService.send(
               user.phone_number,
-              'one more thing — pin our chat so i stay at the top and you never lose track of your day 📌 here\'s how:',
+              // Karibi's wording (2026-07-28). Covers BOTH asks in one message —
+              // pin the chat AND save the contact — which matters because the
+              // separate .vcf contact-card send is a no-op while CONTACT_CARD_URL
+              // is unset, so this is currently the only prompt to save the number.
+              'to make sure i\'m always in your corner, pin our chat and add me to your contacts. just long press our chat and hit pin, then tap our number up top and save it as a contact!',
               pinMediaUrl,
             );
           } catch (err) {
@@ -349,6 +353,32 @@ export class StripeWebhookController {
         if (sub) {
           const user = await this.userRepo.findOne({ where: { id: sub.user_id } });
           if (user) {
+            // Stripe fires trial_will_end THREE DAYS BEFORE the trial ends. Our
+            // trial is 3 days (STRIPE_TRIAL_DAYS), so this event lands within
+            // moments of signup — and the copy below congratulates them for
+            // days of consistency they haven't had yet. Seen live: a user paid
+            // and was told "few days in and you're actually showing up" seconds
+            // later (Karibi screenshot 2026-07-28).
+            //
+            // Same fabricated-progress class as the day-7 false praise and the
+            // invented weight loss: praise the user can tell is untrue costs more
+            // trust than saying nothing. Gate on REAL elapsed time and stay silent
+            // when the claim wouldn't be true — a short trial simply doesn't get
+            // this touchpoint, which is correct.
+            const MIN_DAYS_FOR_PROGRESS_CLAIM = 2;
+            const elapsedDays = sub.created_at
+              ? (Date.now() - new Date(sub.created_at).getTime()) / 86_400_000
+              : 0;
+            if (elapsedDays < MIN_DAYS_FOR_PROGRESS_CLAIM) {
+              structuredLog(this.logger, 'log', {
+                service: 'stripe_webhook',
+                operation: 'trial_ending_nudge_suppressed',
+                userId: user.id,
+                elapsedDays: Number(elapsedDays.toFixed(2)),
+                reason: 'would_claim_unearned_progress',
+              });
+              break;
+            }
             // KIBA voice, momentum only — NO price here. The price reveal is its
             // own day-7 message (trial-price-reveal); pre-empting it with a SaaS
             // "trial ends, no action needed" notice kills that moment.

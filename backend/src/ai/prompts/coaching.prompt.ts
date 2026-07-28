@@ -327,6 +327,12 @@ function formatTodoSection(todos: TodoForPrompt[]): string {
     '- This list IS the answer to "what do i have to do today" / "what\'s my workout" / "what was i supposed to do" — do NOT ask the user, read it.',
   );
   lines.push(
+    '- NEVER dump the whole list. This board is YOUR reference, not a message. Name the ONE next thing (two at most, if they truly pair) and ask about that. Even when they ask "what\'s on today", answer with the next 2-3 and offer the rest ("that\'s the front of it, want the rest?") — a bulleted wall of every item is exactly what makes you read like a database instead of a person.',
+  );
+  lines.push(
+    '- Never restate the list back after they complete something. Confirm the one item, then move — re-printing the board every turn is nagging, not accountability.',
+  );
+  lines.push(
     '- mark_todo_done only AFTER real proof lands, never on a bare "done" (see PROOF SYSTEM).',
   );
   lines.push(
