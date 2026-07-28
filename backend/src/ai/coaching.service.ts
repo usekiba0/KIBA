@@ -734,6 +734,9 @@ export class CoachingService {
       lastMilestoneHit: number;
       loopingOnQuestion?: boolean;
     },
+    /** Send the model's pre-tool line straight away instead of making the user
+     * wait out the tool round-trip. See RunChatArgs.onInterimText. */
+    onInterimText?: (text: string) => Promise<void>,
   ): Promise<{ reply: string; tokenCount: number }> {
     const [profile, latestScore, strikeCount, knowledge, recentTasks] = await Promise.all([
       // SMS-first onboarding never created a profile row — lazy-create from
@@ -896,6 +899,7 @@ export class CoachingService {
       imageContentTypes,
       tools,
       dispatch,
+      onInterimText,
       userId: user.id,
       operationLabel: 'coaching_reply',
       userOffsetMinutes: liveOffset,
@@ -1036,6 +1040,12 @@ export class CoachingService {
     imageContentTypes?: string[];
     tools?: Tool[];
     dispatch?: (block: Anthropic.Messages.ToolUseBlock) => Promise<unknown>;
+    /**
+     * Send text the model emitted alongside a tool call, immediately, before the
+     * tools run. Optional — omit it and the turn behaves exactly as before
+     * (single reply at the end).
+     */
+    onInterimText?: (text: string) => Promise<void>;
     userId: string;
     operationLabel: string;
     /** User's UTC offset — when set, history is stamped with local send-times. */
@@ -1131,6 +1141,26 @@ export class CoachingService {
     let reminderWritesOk = 0;
     let reminderReads = 0;
 
+    const extractText = (msg: Anthropic.Messages.Message | undefined): string =>
+      msg && Array.isArray(msg.content)
+        ? msg.content
+            .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+            .map((b) => b.text)
+            .join('\n')
+            .trim()
+        : '';
+
+    // Text the model emitted ALONGSIDE its tool calls, already sent to the user.
+    // Claude usually opens a tool turn with a line like "bet, locking that in" —
+    // we used to discard it and make the user wait through the whole tool
+    // round-trip before hearing anything, which is what turned a tool-using turn
+    // into 10+ seconds of silence (Karibi 2026-07-28). Sending it immediately
+    // costs nothing and makes KIBA feel present while the work happens.
+    const interimSent: string[] = [];
+    // Long enough to be a real sentence. A stray fragment shipped as its own
+    // bubble reads worse than saying nothing.
+    const INTERIM_MIN_CHARS = 12;
+
     for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
       try {
         response = await this.client.messages.create({
@@ -1162,6 +1192,21 @@ export class CoachingService {
       if (response.stop_reason !== 'tool_use' || !args.dispatch) break;
 
       history.push({ role: 'assistant', content: response.content });
+
+      // Ship the preamble NOW, before the tools run and before the next model
+      // call. Best-effort: a failed early bubble must never break the turn, and
+      // the final reply still goes out normally.
+      const interim = extractText(response);
+      if (interim.length >= INTERIM_MIN_CHARS && args.onInterimText) {
+        try {
+          await args.onInterimText(interim);
+          interimSent.push(interim);
+        } catch (err) {
+          this.logger.warn(
+            `interim send failed (user ${args.userId}): ${(err as Error).message}`,
+          );
+        }
+      }
 
       const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
       for (const block of response.content) {
@@ -1205,16 +1250,24 @@ export class CoachingService {
       history.push({ role: 'user', content: toolResults });
     }
 
-    const extractText = (msg: Anthropic.Messages.Message | undefined): string =>
-      msg && Array.isArray(msg.content)
-        ? msg.content
-            .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
-            .map((b) => b.text)
-            .join('\n')
-            .trim()
-        : '';
-
     let finalReply = extractText(response);
+
+    // Don't say the preamble twice. The model often restates its opener in the
+    // post-tool reply ("bet, locking that in" → "bet, locking that in. done, it's
+    // on your list"), and that line already reached the user as an early bubble.
+    for (const sent of interimSent) {
+      if (finalReply === sent) {
+        finalReply = '';
+      } else if (finalReply.startsWith(sent)) {
+        // Drop the punctuation that joined the two clauses too, or the reply
+        // arrives starting with a stray ". " — the model wrote one sentence and
+        // we're removing its first half.
+        finalReply = finalReply
+          .slice(sent.length)
+          .replace(/^[\s.,;:!?—-]+/, '')
+          .trim();
+      }
+    }
 
     // The model can spend its whole turn (or hit the tool-iteration cap) calling
     // tools without ever emitting user-facing text — intake especially, since it's
@@ -1222,7 +1275,11 @@ export class CoachingService {
     // tripped the destructive "tell me your goal in one sentence" fallback (Karibi
     // 2026-06-20). The history already carries the tool calls + their results, so
     // force ONE final completion WITHOUT tools to get the human-facing reply.
-    if (!finalReply && args.dispatch) {
+    // ...but only when the user has heard NOTHING. If an early bubble already
+    // went out, an empty final reply is a complete turn, not a silent one — and
+    // forcing up to two more model calls to fill it would both re-say what they
+    // just read and add the very latency this change removes.
+    if (!finalReply && args.dispatch && interimSent.length === 0) {
       // Re-sending the same history without tools often STILL comes back empty —
       // the last thing the model sees is its own tool_result, so it thinks it's
       // already responded and ends the turn silently. Append an explicit nudge to
