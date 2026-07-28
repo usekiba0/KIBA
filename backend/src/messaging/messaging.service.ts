@@ -12,6 +12,13 @@ import { User } from '../data/entities/user.entity';
 import { normalizePhoneNumber } from '../common/phone';
 import { dedupKey } from './send-dedup';
 
+/**
+ * Twilio error 21610 — "Attempt to send to unsubscribed recipient". The only
+ * Twilio error that unambiguously means consent was revoked, which is why it is
+ * the only one we act on. See MessagingService.reconcileCarrierOptOut.
+ */
+export const TWILIO_UNSUBSCRIBED_RECIPIENT = 21610;
+
 @Injectable()
 export class MessagingService implements OnModuleInit {
   private readonly logger = new Logger(MessagingService.name);
@@ -333,8 +340,73 @@ export class MessagingService implements OnModuleInit {
       });
       this.logger.log(`[Twilio] Message SID: ${message.sid} status: ${message.status}`);
     } catch (err) {
+      // 21610 = "Attempt to send to unsubscribed recipient". The user texted STOP
+      // to the Twilio number and Twilio blocked them at its own edge, without our
+      // keyword handler ever seeing it. Reconcile that into our DB (see below) and
+      // treat the send as handled rather than failed — rethrowing would retry a
+      // message that can never be delivered and will fail identically each time.
+      if ((err as { code?: number }).code === TWILIO_UNSUBSCRIBED_RECIPIENT) {
+        await this.reconcileCarrierOptOut(to);
+        return;
+      }
       this.logger.error(`[Twilio] Send FAILED to ${to} from ${from}: ${(err as Error).message}`);
       throw err;
+    }
+  }
+
+  /**
+   * Record an opt-out that happened at the CARRIER, not in our keyword handler.
+   *
+   * KIBA is dual-channel and only one channel routes STOP through our code.
+   * Over iMessage (SendBlue) nothing intercepts, so `opt-out.ts` sees the keyword
+   * and does the full job. Over SMS, Twilio's default opt-out management answers
+   * STOP itself and blocks the number — our webhook may never receive it. Until
+   * something reconciles that, the user stays `opted_out_at: null`: they look
+   * active in the admin dashboard, their check-ins keep getting scheduled, and
+   * every one fails with a 21610 that reads like a generic send error.
+   *
+   * The first outbound attempt after their STOP is what surfaces it, so that is
+   * where we catch up. Deliberately narrow — ONLY 21610, which means exactly
+   * "this person unsubscribed". Carrier filtering (30007) and invalid-number
+   * errors are NOT treated as consent revocation: falsely flagging someone
+   * silences them permanently, which is a worse and much quieter failure than a
+   * bounced message.
+   *
+   * We do not drain queued jobs here the way the keyword path does. The outbound
+   * gate blocks any job that fires, which the opt-out path already documents as
+   * the real guarantee, and MessagingService has no accountability queue to drain
+   * without a circular dependency.
+   */
+  private async reconcileCarrierOptOut(to: string): Promise<void> {
+    try {
+      const user = await this.userRepo.findOne({
+        where: { phone_number: normalizePhoneNumber(to) },
+        select: { id: true, opted_out_at: true },
+      });
+      if (user && !user.opted_out_at) {
+        await this.userRepo.update(user.id, {
+          opted_out_at: new Date(),
+          // Distinguishes this from a keyword we handled ourselves, so the admin
+          // view shows WHERE the opt-out came from.
+          opt_out_keyword: 'carrier',
+        });
+      }
+      structuredLog(this.logger, 'warn', {
+        service: 'messaging',
+        operation: 'carrier_opt_out_reconciled',
+        to,
+        userId: user?.id,
+        alreadyFlagged: !!user?.opted_out_at,
+      });
+    } catch (err) {
+      // Never throw from here: the send is already correctly abandoned, and the
+      // next attempt will hit 21610 again and retry this reconciliation.
+      structuredLog(this.logger, 'error', {
+        service: 'messaging',
+        operation: 'carrier_opt_out_reconcile_failed',
+        to,
+        error: (err as Error).message,
+      });
     }
   }
 }
