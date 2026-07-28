@@ -212,6 +212,48 @@ describe('buildSystemPrompt', () => {
     expect(prompt.toLowerCase()).toMatch(/not my lane/); // listed as banned
   });
 
+  // Karibi 2026-07-29, item 1: "the perceived intelligence of a chat product is
+  // 50% latency". Measured on 07-28: generation time tracks reply length almost
+  // exactly (a 424-token reply took 4.4s), so the only remaining lever after the
+  // queue delays were removed is making KIBA write less. A hard word ceiling is
+  // the bluntest instruction available; the plan/list carve-out keeps it from
+  // truncating the one case where length is the point.
+  it('caps overall reply length, with an exception for plans', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    const lower = prompt.toLowerCase();
+    expect(lower).toMatch(/whole reply stays under 60 words/);
+    expect(lower).toMatch(/unless they asked for a plan or a list/);
+    // 3 bubbles, not 4 — each extra bubble is both more tokens and another
+    // 700ms gap before the reply finishes landing.
+    expect(lower).toMatch(/2 bubbles is the norm, 3 is the ceiling/);
+    expect(lower).not.toMatch(/max 4/);
+  });
+
+  // Karibi 2026-07-29: asked "who is DDG?", then "did he go to streamer u?".
+  // KIBA refused both — "i'm not answering random questions about other people,
+  // we're here to get you moving on your own thing" — and pushed the goal instead.
+  // That is not accountability, it is a bot refusing to be a friend, and it was
+  // emergent rather than instructed: nothing in the prompt told it to refuse, so
+  // the fix is an explicit rule rather than removing one.
+  it('treats a curiosity question as something to answer, not a focus problem', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
+    const lower = prompt.toLowerCase();
+
+    // Refusing in order to keep them on task is banned outright.
+    expect(lower).toMatch(/curiosity is not avoidance/);
+    expect(lower).toMatch(/never refuse one to keep them/);
+
+    // The answer comes first, and the re-anchor is capped at one line so the
+    // model cannot turn a question into a lecture.
+    expect(lower).toMatch(/answer it first/);
+    expect(lower).toMatch(/one re-anchor line/);
+    expect(lower).toMatch(/never a lecture/);
+
+    // And the re-anchor is gated on a real pattern — one curious question is
+    // just someone being a person, which is what KIBA got wrong.
+    expect(lower).toMatch(/third dodge in a row/);
+  });
+
   it('prohibits generic responses', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
     expect(prompt.toLowerCase()).toMatch(/generic|prohibited|never generic/);
@@ -332,9 +374,19 @@ describe('buildSystemPrompt', () => {
     // number as fact. Written at ~1.9k and compressed to 648 before landing,
     // per the compress-before-raising convention above.
     //
-    // NOTE FOR THE NEXT RAISE: this leaves ~120 chars of headroom, so the next
-    // rule of any size trips it. Compress first; only raise with a reason as
-    // concrete as the ones above.
+    // The 2026-07-29 curiosity rule ("curiosity is NOT avoidance") landed under
+    // this ceiling rather than raising it: +119 chars for the rule, paid for by
+    // deleting "everything else, just answer" from the LIVE-info line, which the
+    // new rule had made redundant. Net +90.
+    //
+    // The 2026-07-29 reply-length tightening also landed under this ceiling:
+    // +63 for the 60-word cap, paid for by -44 compressing the BURSTS rule
+    // (dropped "short bursts" as redundant, dropped the plan clause now covered
+    // by the cap, and took the bubble ceiling from 4 to 3). Net +19.
+    //
+    // NOTE FOR THE NEXT RAISE: 15 chars of headroom remain — effectively none.
+    // The next rule of any size trips this. Compress something first; every
+    // raise above bought a behaviour, and the next one has to as well.
     expect(prompt.length).toBeLessThan(36400);
   });
 

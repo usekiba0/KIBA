@@ -63,6 +63,13 @@ import { HealthController, VersionController } from './common/health/health.cont
         // Anthropic
         ANTHROPIC_API_KEY: Joi.string().required(),
         AI_MODEL: Joi.string().default('claude-haiku-4-5-20251001'),
+        // Every turn that carries an image — a photo in conversation, or a proof
+        // photo being verified — runs on this instead of AI_MODEL. Haiku's vision
+        // is too weak to read a storefront sign or judge evidence. Declared here
+        // so the value is visible in one place and validated at boot rather than
+        // living only as an inline default. See ai/model-params.ts before moving
+        // this to a 5-series id.
+        AI_VISION_MODEL: Joi.string().default('claude-sonnet-4-6'),
 
         // Crisis Detection — REQUIRED for safety
         CRISIS_CONFIDENCE_THRESHOLD: Joi.number().default(0.65),
