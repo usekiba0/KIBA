@@ -8,23 +8,16 @@ jest.mock('axios');
 describe('VisionService — validateProof', () => {
   let service: VisionService;
   let mockCreate: jest.Mock;
+  let configValues: Record<string, string>;
 
-  beforeEach(async () => {
-    mockCreate = jest.fn().mockResolvedValue({
-      content: [{ type: 'text', text: '{"is_valid":true,"confidence":0.92,"reason":"Image shows a running track"}' }],
-      usage: { input_tokens: 300, output_tokens: 30 },
-    });
-
+  async function build() {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         VisionService,
         {
           provide: ConfigService,
           useValue: {
-            get: jest.fn((key: string, def?: any) => {
-              if (key === 'AI_MODEL') return 'claude-haiku-4-5-20251001';
-              return def;
-            }),
+            get: jest.fn((key: string, def?: any) => configValues[key] ?? def),
             getOrThrow: jest.fn(() => 'sk-ant-test'),
           },
         },
@@ -33,6 +26,22 @@ describe('VisionService — validateProof', () => {
 
     service = module.get<VisionService>(VisionService);
     (service as any).client = { messages: { create: mockCreate } };
+  }
+
+  beforeEach(async () => {
+    mockCreate = jest.fn().mockResolvedValue({
+      content: [{ type: 'text', text: '{"is_valid":true,"confidence":0.92,"reason":"Image shows a running track"}' }],
+      usage: { input_tokens: 300, output_tokens: 30 },
+    });
+
+    // Deliberately different values: a regression that reads AI_MODEL again
+    // shows up as the wrong model id rather than passing silently.
+    configValues = {
+      AI_MODEL: 'claude-haiku-4-5-20251001',
+      AI_VISION_MODEL: 'claude-sonnet-4-6',
+    };
+
+    await build();
   });
 
   it('returns is_valid true when Claude confirms the proof matches the task', async () => {
@@ -77,6 +86,43 @@ describe('VisionService — validateProof', () => {
     const callArgs = mockCreate.mock.calls[0][0];
     const textContent = callArgs.messages[0].content.find((c: any) => c.type === 'text');
     expect(textContent.text).toContain('Do 50 push-ups');
+  });
+
+  describe('model selection', () => {
+    it('judges proof photos on the VISION model, never the cheap text model', async () => {
+      // Proof verification ran on Haiku until 2026-07-29 — the weakest vision
+      // model in the stack deciding whether someone's evidence counts.
+      await service.validateProof('Run 5km', Buffer.from('img'), 'image/jpeg');
+      expect(mockCreate.mock.calls[0][0].model).toBe('claude-sonnet-4-6');
+      expect(mockCreate.mock.calls[0][0].model).not.toBe('claude-haiku-4-5-20251001');
+    });
+
+    it('sends temperature: 0 while we are on a 4-series vision model', async () => {
+      await service.validateProof('Run 5km', Buffer.from('img'), 'image/jpeg');
+      expect(mockCreate.mock.calls[0][0].temperature).toBe(0);
+    });
+
+    it('adapts the request shape when AI_VISION_MODEL is moved to a 5-series id', async () => {
+      configValues.AI_VISION_MODEL = 'claude-sonnet-5';
+      await build();
+
+      await service.validateProof('Run 5km', Buffer.from('img'), 'image/jpeg');
+      const params = mockCreate.mock.calls[0][0];
+
+      expect(params.model).toBe('claude-sonnet-5');
+      // Non-default temperature is a 400 on the 5-series...
+      expect(params).not.toHaveProperty('temperature');
+      // ...and without this the 128-token budget goes on thinking, not JSON.
+      expect(params.thinking).toEqual({ type: 'disabled' });
+    });
+
+    it('tells the model to say so rather than guess at an unreadable photo', async () => {
+      await service.validateProof('Run 5km', Buffer.from('img'), 'image/jpeg');
+      const text = mockCreate.mock.calls[0][0].messages[0].content.find(
+        (c: any) => c.type === 'text',
+      ).text;
+      expect(text).toMatch(/low confidence rather than guessing/);
+    });
   });
 
   describe('validateProofFromUrl', () => {

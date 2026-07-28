@@ -9,6 +9,7 @@ import { createAnthropicClient } from './anthropic.factory';
 import { User } from '../data/entities/user.entity';
 import { buildNutritionPrompt } from './prompts/vision.prompt';
 import { structuredLog } from '../common/logger';
+import { deterministicParams } from './model-params';
 
 export interface ProofValidationResult {
   is_valid: boolean;
@@ -42,12 +43,25 @@ export class VisionService {
     this.client = createAnthropicClient(config);
   }
 
+  /**
+   * Every call in this service is a vision call, so every one of them belongs on
+   * the vision model — not the cheap text model.
+   *
+   * This used to read AI_MODEL, which meant proof photos were being judged by
+   * Haiku: the weakest vision model in the stack, deciding whether someone's
+   * evidence counts. Conversation photos were moved to AI_VISION_MODEL on
+   * 2026-06-29 after the Salata storefront miss; proof verification was missed
+   * at the time. (Karibi 2026-07-29 — vision accuracy)
+   */
+  private visionModel(): string {
+    return this.config.get<string>('AI_VISION_MODEL', 'claude-sonnet-4-6');
+  }
+
   async analyseFood(mediaUrl: string, user: User): Promise<NutritionResult> {
-    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    const model = this.visionModel();
     const response = await this.client.messages.create({
       model,
       max_tokens: 512,
-      temperature: 0,
       messages: [{
         role: 'user',
         content: [
@@ -55,7 +69,8 @@ export class VisionService {
           { type: 'text', text: buildNutritionPrompt(user) },
         ],
       }],
-    });
+      ...deterministicParams(model),
+    } as Anthropic.Messages.MessageCreateParamsNonStreaming);
     structuredLog(this.logger, 'log', {
       service: 'ai', operation: 'vision_analysis', userId: user.id,
       inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
@@ -64,7 +79,7 @@ export class VisionService {
   }
 
   async analyseFoodFromBytes(imageBytes: Buffer, mimeType: string, user: User): Promise<NutritionResult> {
-    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    const model = this.visionModel();
     const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     const mediaType = (validTypes.includes(mimeType) ? mimeType : 'image/jpeg') as
       'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
@@ -72,7 +87,6 @@ export class VisionService {
     const response = await this.client.messages.create({
       model,
       max_tokens: 512,
-      temperature: 0,
       messages: [{
         role: 'user',
         content: [
@@ -80,7 +94,8 @@ export class VisionService {
           { type: 'text', text: buildNutritionPrompt(user) },
         ],
       }],
-    });
+      ...deterministicParams(model),
+    } as Anthropic.Messages.MessageCreateParamsNonStreaming);
     structuredLog(this.logger, 'log', {
       service: 'ai', operation: 'vision_analysis_imessage', userId: user.id,
       inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
@@ -89,18 +104,22 @@ export class VisionService {
   }
 
   async validateProof(taskDescription: string, imageBytes: Buffer, mimeType: string): Promise<ProofValidationResult> {
-    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    const model = this.visionModel();
     const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     const mediaType = (validTypes.includes(mimeType) ? mimeType : 'image/jpeg') as
       'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
+    // "Say so rather than guess" matters more here than anywhere else: the
+    // caller only rejects on a CONFIDENT mismatch, so an honest low confidence
+    // is read as "accept" — an unsure model should never cost someone a strike.
     const prompt = `Does this image prove the person completed this task: "${taskDescription}"?
+If you cannot tell what the image shows, or it is too dark/blurry/cropped to judge, say so
+with a low confidence rather than guessing.
 Return ONLY valid JSON: {"is_valid": boolean, "confidence": 0.0-1.0, "reason": "one sentence"}`;
 
     const response = await this.client.messages.create({
       model,
       max_tokens: 128,
-      temperature: 0,
       messages: [{
         role: 'user',
         content: [
@@ -108,7 +127,8 @@ Return ONLY valid JSON: {"is_valid": boolean, "confidence": 0.0-1.0, "reason": "
           { type: 'text', text: prompt },
         ],
       }],
-    });
+      ...deterministicParams(model),
+    } as Anthropic.Messages.MessageCreateParamsNonStreaming);
 
     const raw = response.content[0].type === 'text' ? response.content[0].text : '{}';
     const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();

@@ -8,6 +8,7 @@ import axios from 'axios';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import heicConvert = require('heic-convert');
 import { createAnthropicClient } from './anthropic.factory';
+import { noThinking } from './model-params';
 import { User, IntakeData } from '../data/entities/user.entity';
 import { Message } from '../data/entities/message.entity';
 import {
@@ -1169,7 +1170,8 @@ export class CoachingService {
           system: args.systemPrompt,
           tools: args.tools,
           messages: history,
-        });
+          ...noThinking(model),
+        } as Anthropic.Messages.MessageCreateParamsNonStreaming);
       } catch (err: unknown) {
         const isImageError =
           usingImage &&
@@ -1296,7 +1298,8 @@ export class CoachingService {
             max_tokens: 512,
             system: args.systemPrompt,
             messages: [...history, nudge],
-          });
+            ...noThinking(model),
+          } as Anthropic.Messages.MessageCreateParamsNonStreaming);
           totalInputTokens += forced.usage.input_tokens;
           totalOutputTokens += forced.usage.output_tokens;
           cacheReadTokens += forced.usage.cache_read_input_tokens ?? 0;
