@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ProofService } from '../../src/accountability/proof.service';
 import { Proof, ProofType, ProofValidationStatus } from '../../src/data/entities/proof.entity';
@@ -74,6 +75,9 @@ describe('ProofService', () => {
         { provide: ScoreService, useValue: mockScoreService },
         { provide: MessagingService, useValue: mockMessagingService },
         { provide: OutboundRecorderService, useValue: mockRecorder },
+        // Reads CONTACT_CARD_URL / PIN_CHAT_MEDIA_URL for the one-time activation
+        // asks fired on first proof. Unset here → that path no-ops.
+        { provide: ConfigService, useValue: { get: () => undefined } },
       ],
     }).compile();
 

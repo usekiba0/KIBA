@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Proof, ProofType, ProofValidationStatus } from '../data/entities/proof.entity';
@@ -33,6 +34,7 @@ export class ProofService {
     private readonly scoreService: ScoreService,
     private readonly messagingService: MessagingService,
     private readonly recorder: OutboundRecorderService,
+    private readonly config: ConfigService,
   ) {}
 
   async submitProof(dto: SubmitProofDto): Promise<Proof> {
@@ -70,6 +72,14 @@ export class ProofService {
       this.logger.warn(`milestone check failed for ${dto.userId}: ${(err as Error).message}`);
     }
 
+    // One-time housekeeping asks (save the contact / pin the chat), fired on the
+    // FIRST accepted proof rather than on the payment webhook. Best-effort.
+    try {
+      await this.maybeSendActivationAsks(dto.userId);
+    } catch (err) {
+      this.logger.warn(`activation asks failed for ${dto.userId}: ${(err as Error).message}`);
+    }
+
     structuredLog(this.logger, 'log', {
       service: 'accountability',
       operation: 'proof_submitted',
@@ -79,6 +89,94 @@ export class ProofService {
     });
 
     return proof;
+  }
+
+  /**
+   * The one-time "save my contact" + "pin our chat" asks, fired ONCE, on the
+   * user's first accepted proof.
+   *
+   * These used to fire from the Stripe webhook the instant payment cleared,
+   * which broke two rules at once (Training Doc v2, section 4):
+   *   - "Message stacking on payment. Doc v1 said one message then wait." The
+   *     activation text + contact card + pin nudge landed as three back-to-back
+   *     texts at the highest-emotion moment in the funnel.
+   *   - "Pin ask timing. Doc v1 said pin ask fires AFTER first completed
+   *     check-in. T1 fired it immediately after payment."
+   *
+   * Asking a favour right after someone pays reads transactional. Asking it
+   * right after they've DONE something reads like a friend who plans to stick
+   * around. Both sends are best-effort and no-op until their URLs are set.
+   */
+  private async maybeSendActivationAsks(userId: string): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) return;
+    // Already sent — this is the first-proof moment only, never a repeat.
+    if (user.intake_data?.activation_asks_sent_at) return;
+
+    const contactCardUrl = this.config.get<string>('CONTACT_CARD_URL');
+    const pinMediaUrl =
+      this.config.get<string>('PIN_CHAT_MEDIA_URL') ??
+      this.config.get<string>('PIN_CHAT_IMAGE_URL');
+    // Nothing configured — don't burn the one-shot flag, so the asks still go
+    // out on a later proof once the URLs are live.
+    if (!contactCardUrl && !pinMediaUrl) return;
+
+    // Stamp BEFORE sending. A send that throws mid-flight must not re-fire the
+    // whole pair on the next proof; a missed one-time nudge is far cheaper than
+    // spamming a paying user.
+    await this.userRepo.update(userId, {
+      intake_data: { ...(user.intake_data ?? {}), activation_asks_sent_at: new Date().toISOString() },
+    });
+
+    // Apple-masking Path B (launch call 2026-07-10): the saved contact IS the
+    // branding — Apple has no native branding for a business that texts first,
+    // and a saved contact also defeats iOS "Screen Unknown Senders". The .vcf
+    // carries BOTH the SendBlue (iMessage) and Twilio (SMS) numbers so one save
+    // brands both threads. Sent BEFORE the pin nudge — save first, then pin.
+    if (contactCardUrl) {
+      try {
+        await this.messagingService.send(
+          user.phone_number,
+          'that\'s one. quick thing while you\'re here — save my contact so i always show up as KIBA in your texts 📲',
+          contactCardUrl,
+        );
+      } catch (err) {
+        this.logger.warn(`contact-card send failed for ${userId}: ${(err as Error).message}`);
+      }
+    }
+
+    // Retention nudge: a one-time "pin our chat" how-to so KIBA stays at the top
+    // of their messages. The media may be an image, GIF, or video — the send path
+    // hands the URL straight to SendBlue (media_url) / Twilio (mediaUrl). Keep it
+    // small: iMessage handles video natively but Android/MMS caps size, so a short
+    // GIF or a compressed <~1MB mp4 is safest cross-platform.
+    if (pinMediaUrl) {
+      // Log the URL we hand the provider. When this broke in prod (Karibi
+      // 2026-07-28) the TEXT arrived and only the attachment vanished — the
+      // provider accepted the payload and dropped the media on its own side, so
+      // nothing threw and nothing was logged. Likeliest cause is a wrong
+      // Content-Type (raw.githubusercontent.com returns application/octet-stream
+      // for .mp4). Without this line only a device test can tell them apart.
+      structuredLog(this.logger, 'log', {
+        service: 'accountability',
+        operation: 'pin_chat_media_send',
+        userId,
+        mediaUrl: pinMediaUrl,
+      });
+      try {
+        await this.messagingService.send(
+          user.phone_number,
+          // Karibi's wording (2026-07-28). Covers BOTH asks in one message — pin
+          // the chat AND save the contact — which matters because the separate
+          // .vcf send is a no-op while CONTACT_CARD_URL is unset, so this is
+          // currently the only prompt to save the number.
+          'to make sure i\'m always in your corner, pin our chat and add me to your contacts. just long press our chat and hit pin, then tap our number up top and save it as a contact!',
+          pinMediaUrl,
+        );
+      } catch (err) {
+        this.logger.warn(`pin-chat media send failed for ${userId}: ${(err as Error).message}`);
+      }
+    }
   }
 
   /**

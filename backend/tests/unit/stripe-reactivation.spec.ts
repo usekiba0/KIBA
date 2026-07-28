@@ -46,12 +46,13 @@ describe('StripeWebhookController — checkout.session.completed subscription re
     const messagingQueue: any = { add: jest.fn().mockResolvedValue({}) };
     const messagingService: any = { send: jest.fn().mockResolvedValue({}) };
     const checkinService: any = { scheduleCheckin: jest.fn().mockResolvedValue({}) };
+    const scoreService: any = { countExecutionDays: jest.fn().mockResolvedValue(0) };
     const config: any = { get: () => undefined };
     const accountabilityQueue: any = { add: jest.fn().mockResolvedValue({}) };
 
     const controller = new StripeWebhookController(
       stripeService, subRepo, userRepo, {} as any, profileRepo, goalRepo,
-      messagingQueue, messagingService, checkinService, config, accountabilityQueue,
+      messagingQueue, messagingService, checkinService, scoreService, config, accountabilityQueue,
     );
     return { controller, subRepo, userRepo, user, savedSubs, accountabilityQueue, messagingQueue, checkinService };
   }

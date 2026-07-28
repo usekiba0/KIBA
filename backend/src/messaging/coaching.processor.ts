@@ -58,6 +58,7 @@ import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
 import { referencesRecentPhoto, findRecentInboundImage } from './image-recall';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
+import { stripIdentityReferendum } from './intake-close-guard';
 import { sniffRemoteMediaType } from './media-type';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
 import {
@@ -1332,6 +1333,8 @@ export class CoachingProcessor {
       name: user.name,
       intakeData: (user.intake_data ?? {}) as IntakeData,
       utcOffsetMinutes: resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes),
+      // Settled config the close template must NOT re-ask for (Training Doc v2 P1.8).
+      checkinTime: user.checkin_time,
       nowUtc: new Date(),
       paymentLinkSent: !!user.payment_link_sent_at,
       sampleCoachingGiven: !!user.sample_coaching_given,
@@ -1509,7 +1512,20 @@ export class CoachingProcessor {
 
     // Strip the two intake tics Karibi keeps flagging — decorative emoji and the
     // "love it, ..." filler opener — deterministically, on top of humanizeVoice.
-    const outReply = scrubIntakeVoice(reply);
+    // Then strip a trailing identity referendum ("you ready to lock this in?").
+    // That one was banned in prompt twice — Doc v1 for emotional contexts, and
+    // again 2026-07-29 for closes — and the live sim still produced it on the
+    // first run, so it's enforced here rather than asked for (Training Doc v2
+    // P1.2). Non-destructive: returns the original if there'd be nothing left.
+    const scrubbed = scrubIntakeVoice(reply);
+    const outReply = stripIdentityReferendum(scrubbed);
+    if (outReply !== scrubbed) {
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'identity_referendum_stripped',
+        userId: user.id,
+      });
+    }
 
     // If we just gave the sample-coaching reply (post-link), flip the flag so
     // the next turn falls into the PAYWALL phase.
