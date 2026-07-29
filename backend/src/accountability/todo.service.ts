@@ -132,21 +132,42 @@ export class TodoService {
       .catch(() => null);
     const dayIndex = priorPlanRows ? priorPlanRows.length : 0;
 
-    const created: DailyTodo[] = [];
-    for (const goal of planned) {
+    // One list per goal, then interleave + cap. A user with two goals was getting
+    // BOTH plans' day-N entries seeded whole — 10 to 14 items every morning, none
+    // of them agreed to, with near-duplicates across the two plans ("Repeat Day 5
+    // routine exactly" next to "Repeat Day 5 structure"). Round-robin so every
+    // goal is represented before any goal gets a second item, and stop at the cap.
+    const perGoal = planned.map((goal) => {
       const dailyTasks = goal.action_plan.daily_tasks;
-      const dayEntry = dailyTasks[dayIndex % dailyTasks.length];
-      for (const item of splitPlanDayIntoItems(dayEntry)) {
-        created.push(
-          await this.todoRepo.save({
-            user_id: userId,
-            scheduled_date: today,
-            content: item,
-            status: DailyTodoStatus.OPEN,
-            source: DailyTodoSource.PLAN,
-          }),
-        );
+      return splitPlanDayIntoItems(dailyTasks[dayIndex % dailyTasks.length]);
+    });
+
+    const seen = new Set<string>();
+    const chosen: string[] = [];
+    for (let round = 0; chosen.length < MAX_PLAN_ITEMS_PER_DAY; round += 1) {
+      if (perGoal.every((items) => round >= items.length)) break;
+      for (const items of perGoal) {
+        if (chosen.length >= MAX_PLAN_ITEMS_PER_DAY) break;
+        const item = items[round];
+        if (!item) continue;
+        const key = normalisePlanItem(item);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        chosen.push(item);
       }
+    }
+
+    const created: DailyTodo[] = [];
+    for (const item of chosen) {
+      created.push(
+        await this.todoRepo.save({
+          user_id: userId,
+          scheduled_date: today,
+          content: item,
+          status: DailyTodoStatus.OPEN,
+          source: DailyTodoSource.PLAN,
+        }),
+      );
     }
     structuredLog(this.logger, 'log', {
       service: 'accountability',
@@ -155,6 +176,8 @@ export class TodoService {
       dayIndex,
       goalCount: planned.length,
       itemCount: created.length,
+      // What the cap dropped, so a silently-shrinking board is visible in logs.
+      candidateCount: perGoal.reduce((n, items) => n + items.length, 0),
     });
     return [...existing, ...created];
   }
@@ -164,6 +187,24 @@ export class TodoService {
     d.setHours(0, 0, 0, 0);
     return d;
   }
+}
+
+/**
+ * How many auto-seeded plan items a single day may carry, across ALL goals.
+ * Nobody agreed to these — they are a reference for the coach, not a workload —
+ * and a board this size is what produced "I guess it just made up new tasks for
+ * me" (2026-07-29). Anything the user actually commits to is added on top via
+ * add_todo and is not subject to this cap.
+ */
+export const MAX_PLAN_ITEMS_PER_DAY = 5;
+
+/** Dedup key for plan items — case, punctuation and spacing don't distinguish tasks. */
+export function normalisePlanItem(item: string): string {
+  return item
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
