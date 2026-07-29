@@ -22,6 +22,13 @@ export interface NightRecapData {
   excusePhrase?: string | null;
   /** Consecutive repeats of that excuse. >=2 triggers the callback. */
   excuseCount?: number;
+  /**
+   * Did the user actually talk to KIBA today? The ledger counters are all
+   * structurally zero for a user who never commits a to-do and logs by text
+   * rather than photo — so they cannot decide whether someone was engaged. This
+   * can. See the gate in buildNightRecapMessage.
+   */
+  wasActive?: boolean;
 }
 
 /** Keep the text SMS-sized — list at most this many items per bucket. */
@@ -69,7 +76,28 @@ function renderList(items: string[], mark: string): string {
  */
 export function buildNightRecapMessage(data: NightRecapData): string | null {
   const { done, missed, proofCount, score } = data;
-  if (done.length === 0 && missed.length === 0 && proofCount === 0) return null;
+  // THIRD TIME THIS GATE HAS KILLED THE FEATURE. Excluding never-agreed PLAN
+  // todos (2026-06-29) emptied `missed`; adding proofCount (2026-07-23) was
+  // supposed to catch the rest. It doesn't: a user who logs meals as TEXT never
+  // gets is_proof_submission set, and a user who never commits a to-do has
+  // nothing in `done`/`missed` either. Bianca — 843 messages, texting daily —
+  // got no recap between 2026-07-14 and 2026-07-29 because all three counters
+  // are structurally zero for how she actually uses the product.
+  //
+  // So the gate now asks the question it always meant to ask: did this person
+  // engage today? If they did, they get a recap — an honest one that claims
+  // nothing about a ledger we know is empty. Silence is only correct for
+  // someone who never showed up at all.
+  if (done.length === 0 && missed.length === 0 && proofCount === 0 && !data.wasActive) {
+    return null;
+  }
+
+  // Engaged, but the ledger holds nothing we're allowed to judge. A "day recap:"
+  // header over an empty list reads as a broken dashboard, so send the honest
+  // line on its own: we saw them, we can't see the work, what's tomorrow.
+  if (done.length === 0 && missed.length === 0 && proofCount === 0) {
+    return activeButEmptyLedgerLine(data);
+  }
 
   const lines: string[] = ['day recap:', ''];
 
@@ -86,6 +114,18 @@ export function buildNightRecapMessage(data: NightRecapData): string | null {
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * The user talked to KIBA today but nothing reached the ledger — no committed
+ * to-do, no photo proof. We know they showed up and we know nothing about what
+ * they actually did, so the copy must claim NEITHER success nor failure. It
+ * asks, and it hands them the one thing that makes tomorrow countable.
+ */
+function activeButEmptyLedgerLine(data: NightRecapData): string {
+  const name = data.userName?.trim();
+  const tail = name ? ` ${name}` : '';
+  return `we talked today${tail} but nothing made it onto the board, so i've got no read on how the day actually went. what got done — and what's the one thing you're locking in for tomorrow? name it and it's on the board.`;
 }
 
 /**
@@ -145,6 +185,8 @@ export interface WeeklyReviewData {
   proofCount: number;
   /** Current execution score /100, or null if not computable. */
   score: number | null;
+  /** Days this week the user actually messaged KIBA. See the gate above. */
+  activeDays?: number;
   /** Recurring weak-excuse phrase — surfaced as the week's "biggest leak". */
   excusePhrase?: string | null;
   excuseCount?: number;
@@ -158,7 +200,16 @@ export interface WeeklyReviewData {
  */
 export function buildWeeklyReviewMessage(data: WeeklyReviewData): string | null {
   const { doneCount, missedCount, proofCount, score } = data;
-  if (doneCount === 0 && missedCount === 0 && proofCount === 0) return null;
+  // Twin of the night recap's gate, and it failed the same way: the weekly
+  // review went silent for every user from 2026-07-26 onward — the first Sunday
+  // after counts began keying on committed_at — because nothing in the coaching
+  // flow ever stamps a commitment. The job fired and claimed the date; only the
+  // copy was missing. `activeDays` is what tells an engaged week from an empty
+  // one. See buildNightRecapMessage.
+  if (doneCount === 0 && missedCount === 0 && proofCount === 0) {
+    if (!data.activeDays) return null;
+    return weekActiveButEmptyLedger(data);
+  }
   const name = data.userName?.trim();
   const tail = name ? ` ${name}` : '';
 
@@ -180,6 +231,29 @@ export function buildWeeklyReviewMessage(data: WeeklyReviewData): string | null 
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * An engaged week with an empty ledger. Report the ONE thing we can actually
+ * verify — that they kept showing up — and convert it into a commitment for
+ * next week. Never a count, never a verdict.
+ */
+function weekActiveButEmptyLedger(data: WeeklyReviewData): string {
+  const name = data.userName?.trim();
+  const tail = name ? ` ${name}` : '';
+  const days = data.activeDays ?? 0;
+  const showedUp =
+    days >= 6
+      ? `you showed up every day this week${tail}.`
+      : `you showed up ${days} day${days === 1 ? '' : 's'} this week${tail}.`;
+  return [
+    'week in review:',
+    '',
+    showedUp,
+    "nothing got locked onto the board though, so i can't tell you what actually moved.",
+    '',
+    "that's the fix for next week: one thing, agreed up front, every day. tell me what it is and i'll hold you to it.",
+  ].join('\n');
 }
 
 function weeklyClose(doneCount: number, missedCount: number, tail: string): string {

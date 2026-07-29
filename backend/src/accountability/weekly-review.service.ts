@@ -1,6 +1,6 @@
 import { Injectable, Logger, Inject, forwardRef, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
+import { Between, In, MoreThanOrEqual, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { User, UserStatus, OnboardingStage } from '../data/entities/user.entity';
@@ -180,6 +180,37 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
     await this.rescheduleNext(user);
   }
 
+  /**
+   * Distinct local days in the last 7 on which the user sent at least one
+   * message. The one thing about the week we can state as fact when the ledger
+   * is empty.
+   */
+  private async countActiveDaysInWeek(userId: string, offset: number | null): Promise<number> {
+    try {
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60_000);
+      const rows = await this.messageRepo.find({
+        where: {
+          user_id: userId,
+          role: MessageRole.USER,
+          created_at: MoreThanOrEqual(since),
+        },
+        select: { id: true, created_at: true },
+      });
+      const days = new Set(
+        rows.map((r) =>
+          new Date(new Date(r.created_at).getTime() + (offset ?? 0) * 60_000)
+            .toISOString()
+            .slice(0, 10),
+        ),
+      );
+      return days.size;
+    } catch {
+      // Never block the review on this — 0 just means we skip the "you showed
+      // up N days" line, same as before.
+      return 0;
+    }
+  }
+
   /** True if the user sent anything within the window — we're mid-conversation. */
   private async userActiveWithin(userId: string, windowMs: number): Promise<boolean> {
     const last = await this.messageRepo.findOne({
@@ -220,12 +251,16 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
 
   private async buildAndSend(user: User, offset: number | null): Promise<void> {
     const weekDates = lastNLocalDates(7, offset);
-    const [todos, proofCount, scoreSnapshot] = await Promise.all([
+    const [todos, proofCount, scoreSnapshot, activeDays] = await Promise.all([
       this.todoRepo.find({
         where: { user_id: user.id, scheduled_date: In(weekDates) as unknown as Date },
       }),
       this.countProofsForWeek(user.id, weekDates[weekDates.length - 1], offset),
       this.honestScore(user.id),
+      // How many days they actually showed up. Without this the review is silent
+      // for anyone who never commits a to-do — which, as of 2026-07-26, was
+      // everyone.
+      this.countActiveDaysInWeek(user.id, offset),
     ]);
 
     // Counts key on COMMITMENT, not source (task-composition Approach C, Phase 1
@@ -252,6 +287,7 @@ export class WeeklyReviewService implements OnApplicationBootstrap {
       score: scoreSnapshot,
       excusePhrase: user.last_excuse_phrase,
       excuseCount: user.same_excuse_count,
+      activeDays,
     });
 
     if (!message) {

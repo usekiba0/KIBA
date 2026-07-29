@@ -1163,7 +1163,7 @@ export class CoachingProcessor {
         mediaUrls.slice(0, 4),
         mediaContentTypes.slice(0, 4),
         this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
-        visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
+        visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status, committed: t.committed_at != null })),
         visionPatterns,
       );
       const genMs = Date.now() - genStart;
@@ -1229,7 +1229,7 @@ export class CoachingProcessor {
       recallUrls,
       recallCts,
       this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
-      todos.map((t) => ({ id: t.id, content: t.content, status: t.status })),
+      todos.map((t) => ({ id: t.id, content: t.content, status: t.status, committed: t.committed_at != null })),
       patterns,
       // Early bubble: when the model opens a tool turn with a line of its own,
       // send it while the tools run rather than after. Goes through the normal

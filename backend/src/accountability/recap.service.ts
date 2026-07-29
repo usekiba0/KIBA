@@ -241,12 +241,16 @@ export class RecapService implements OnApplicationBootstrap {
   }
 
   private async buildAndSend(user: User, localDate: string, offset: number | null): Promise<void> {
-    const [todos, proofCount, scoreSnapshot] = await Promise.all([
+    const [todos, proofCount, scoreSnapshot, wasActive] = await Promise.all([
       this.todoRepo.find({
         where: { user_id: user.id, scheduled_date: localDate as unknown as Date },
       }),
       this.countProofsForLocalDay(user.id, localDate, offset),
       this.honestScore(user.id),
+      // Did they talk to us today? The ledger counters can all be zero for an
+      // active user (nothing committed, meals logged as text not photos), so
+      // this is what keeps the recap from going silent on them.
+      this.userActiveWithin(user.id, 24 * 60 * 60_000),
     ]);
 
     // Counts key on COMMITMENT, not source (task-composition Approach C, Phase 1).
@@ -273,6 +277,7 @@ export class RecapService implements OnApplicationBootstrap {
       score: scoreSnapshot,
       excusePhrase: user.last_excuse_phrase,
       excuseCount: user.same_excuse_count,
+      wasActive,
     });
 
     // Nothing on the board today → nothing to recap. Stay quiet.
