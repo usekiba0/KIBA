@@ -247,6 +247,31 @@ describe('buildIntakeSystemPrompt', () => {
     expect(p).not.toMatch(/do NOT know their timezone/i);
   });
 
+  // Karibi's own live thread, 2026-07-29. The NAME BEAT example was written as
+  // "karibi - i know that name, kalabari right? what's going on bro?" — so when
+  // the real Karibi texted in, KIBA parroted the example verbatim: it guessed his
+  // heritage at him AND sent the example's generic tail INSTEAD of the step 2 goal
+  // ask, which is the one question that gives a cold lead something to answer. He
+  // replied "nothing" and the conversation died with no name and no goal saved.
+  it('never illustrates the name beat with a real user name or a heritage guess', () => {
+    const p = buildIntakeSystemPrompt(ctx());
+    expect(p).not.toMatch(/kalabari/i);
+    // An example built from a live user's name is one coincidence away from being
+    // read back to that user as if KIBA knows them.
+    expect(p).not.toMatch(/"karibi\b/i);
+    expect(p).toMatch(/NEVER GUESS WHERE A NAME IS FROM/);
+  });
+
+  it('makes the name turn save the name AND still ask the goal question', () => {
+    const p = buildIntakeSystemPrompt(ctx());
+    expect(p).toMatch(/THE BEAT IS A HINGE, NOT A DETOUR/);
+    // The reaction never replaces the two things the turn exists to do.
+    expect(p).toMatch(/save_intake_field\("name"[^\n]*the beat is not a substitute/);
+    expect(p).toMatch(/end the turn with step 2's GOAL question/);
+    // And the vague opener that displaced it is named as the failure mode.
+    expect(p).toMatch(/what's been sitting on your mind[^\n]*cold lead/);
+  });
+
   it('treats a goal list (no explicit anchor) as a captured goal, not missing', () => {
     const p = buildIntakeSystemPrompt(ctx({
       name: 'Sam',

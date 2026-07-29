@@ -54,6 +54,7 @@ import {
   parseReminderTime,
 } from './reminder-parser';
 import { resolveReminderFireAt, humanizeFireDelta } from './reminder-time';
+import { captureNameFromReply } from './name-capture';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
 import { referencesRecentPhoto, findRecentInboundImage } from './image-recall';
@@ -1324,6 +1325,24 @@ export class CoachingProcessor {
           operation: 'checkin_captured_from_text',
           userId: user.id,
           checkinTime,
+        });
+      }
+    }
+    // The name has the same failure mode and a worse blast radius: the intake
+    // recovery nudge refuses to chase a lead with no name (intake-nudge.ts), so a
+    // name the model forgot to save doesn't just read badly — it drops that lead
+    // out of the funnel for good. Karibi 2026-07-29: asked, answered, echoed back,
+    // never persisted. Only fires when KIBA's last message actually asked.
+    if (!user.name) {
+      const lastAi = [...recentMessages].reverse().find((m) => m.role === MessageRole.AI)?.content;
+      const capturedName = captureNameFromReply(body, lastAi, user.name);
+      if (capturedName) {
+        await this.userRepo.update(user.id, { name: capturedName });
+        user = { ...user, name: capturedName };
+        structuredLog(this.logger, 'log', {
+          service: 'onboarding',
+          operation: 'name_captured_from_reply',
+          userId: user.id,
         });
       }
     }
