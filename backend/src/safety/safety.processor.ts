@@ -81,10 +81,33 @@ export class SafetyProcessor {
       await this.messagingService.sendViaTwilio(coachPhone, smsTxt);
     }
 
-    // Send email alert to coach
+    // Send email alert to coach. NEVER let this fail the job: SMS above is the
+    // primary channel and has already gone out, but a throw here skipped the
+    // coach_alerted update and the SLA log, and Bull's `attempts: 3` then re-ran
+    // the whole handler — re-texting the coach on every retry while the alert
+    // still showed as un-alerted in the admin Crisis tab. Found 2026-07-29 with
+    // SMTP_HOST unset in prod (only SMTP_PASS was configured), so every crisis
+    // alert would have taken that path.
     const coachEmail = this.config.get<string>('CRISIS_COACH_ALERT_EMAIL');
-    if (coachEmail) {
-      await this.sendEmailAlert(coachEmail, emailText, userName);
+    const smtpHost = this.config.get<string>('SMTP_HOST');
+    if (coachEmail && smtpHost) {
+      try {
+        await this.sendEmailAlert(coachEmail, emailText, userName);
+      } catch (err) {
+        structuredLog(this.logger, 'error', {
+          service: 'safety',
+          operation: 'coach_email_alert_failed',
+          alertId: job.data.alertId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } else if (coachEmail && !smtpHost) {
+      structuredLog(this.logger, 'warn', {
+        service: 'safety',
+        operation: 'coach_email_alert_skipped',
+        alertId: job.data.alertId,
+        reason: 'SMTP_HOST not configured',
+      });
     }
 
     const now = new Date();
