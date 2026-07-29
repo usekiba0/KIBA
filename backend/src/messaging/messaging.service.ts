@@ -19,6 +19,38 @@ import { dedupKey } from './send-dedup';
  */
 export const TWILIO_UNSUBSCRIBED_RECIPIENT = 21610;
 
+/**
+ * SendBlue's equivalent. A real decline, captured 2026-07-29 during the STOP
+ * test, looks like:
+ *
+ *   {"status":"ERROR","error_code":402,"error_message":"OPTED_OUT",
+ *    "error_reason":"SpamRule",
+ *    "error_detail":"Your message has been declined because the user has
+ *                    opted out of your messages"}
+ *
+ * Matched on `error_message` (the stable machine field) with `error_code` 402 as
+ * a secondary. `error_reason: SpamRule` is deliberately NOT matched — SendBlue
+ * uses it for other spam declines that are not consent revocations.
+ */
+export const SENDBLUE_OPTED_OUT_CODE = 402;
+
+export function isSendBlueOptOut(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false;
+  const b = body as { error_message?: unknown; error_code?: unknown };
+  if (typeof b.error_message === 'string' && b.error_message.toUpperCase() === 'OPTED_OUT') {
+    return true;
+  }
+  return b.error_code === SENDBLUE_OPTED_OUT_CODE;
+}
+
+/** Thrown so `send()` can tell "unreachable" apart from "unsubscribed". */
+export class SendBlueOptedOutError extends Error {
+  constructor(readonly to: string) {
+    super(`SendBlue declined: recipient ${to} has opted out`);
+    this.name = 'SendBlueOptedOutError';
+  }
+}
+
 @Injectable()
 export class MessagingService implements OnModuleInit {
   private readonly logger = new Logger(MessagingService.name);
@@ -167,7 +199,31 @@ export class MessagingService implements OnModuleInit {
         await this.sendViaSendBlue(to, clean, sendBlueKeyId, sendBlueSecret, mediaUrl);
         return;
       } catch (err) {
-        this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
+        // SendBlue declined because the user opted out. Falling back to Twilio
+        // here would text someone — from a DIFFERENT number — immediately after
+        // they asked us to stop. That is the exact dual-channel hole carriers
+        // audit for, and it was live: a real STOP on 2026-07-29 got its
+        // confirmation delivered over SMS because any SendBlue failure fell
+        // through. Mirrors the Twilio 21610 path (#51) in the other direction.
+        if (err instanceof SendBlueOptedOutError) {
+          await this.reconcileCarrierOptOut(to);
+          // The compliance set — unsubscribe confirmation, HELP, opt-in — is the
+          // one thing carriers REQUIRE to reach an opted-out number, and it is
+          // the only caller that passes allowOptedOut. Everything else stops here.
+          if (!allowOptedOut) {
+            structuredLog(this.logger, 'warn', {
+              service: 'messaging',
+              operation: 'send_suppressed_carrier_opt_out',
+              to,
+            });
+            return;
+          }
+          this.logger.warn(
+            `[Send] SendBlue opted-out for ${to}; delivering compliance message via Twilio`,
+          );
+        } else {
+          this.logger.warn(`[Send] SendBlue failed, falling back to Twilio: ${(err as Error).message}`);
+        }
       }
     }
 
@@ -189,6 +245,7 @@ export class MessagingService implements OnModuleInit {
       const errorCode = response.data?.error_code;
       this.logger.log(`[SendBlue] Send response for ${to}: status=${status} error_code=${errorCode} handle=${response.data?.message_handle} raw=${JSON.stringify(response.data)}`);
       if (status === 'ERROR' || errorCode) {
+        if (isSendBlueOptOut(response.data)) throw new SendBlueOptedOutError(to);
         throw new Error(`SendBlue rejected send: status=${status} error_code=${errorCode} error=${response.data?.error_message}`);
       }
       structuredLog(this.logger, 'log', {
@@ -199,10 +256,16 @@ export class MessagingService implements OnModuleInit {
         messageHandle: response.data?.message_handle,
       });
     } catch (err) {
-      const detail = (err as any)?.response?.data
-        ? JSON.stringify((err as any).response.data)
-        : '';
+      const body = (err as any)?.response?.data;
+      const detail = body ? JSON.stringify(body) : '';
       this.logger.error(`[SendBlue] Send failed to ${to}: ${(err as Error).message} | body: ${detail}`);
+      // A 400 whose body says OPTED_OUT is not a transport failure — it is the
+      // carrier telling us this person unsubscribed. Re-throw it as the typed
+      // error so `send()` can suppress the Twilio fallback instead of routing
+      // around the opt-out.
+      if (!(err instanceof SendBlueOptedOutError) && isSendBlueOptOut(body)) {
+        throw new SendBlueOptedOutError(to);
+      }
       throw err;
     }
   }
