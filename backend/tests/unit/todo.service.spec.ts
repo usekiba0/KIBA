@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { TodoService } from '../../src/accountability/todo.service';
+import { TodoService, MAX_PLAN_ITEMS_PER_DAY } from '../../src/accountability/todo.service';
 import {
   DailyTodo,
   DailyTodoStatus,
@@ -114,5 +114,65 @@ describe('TodoService commitment semantics', () => {
     for (const call of todoRepo.save.mock.calls) {
       expect(call[0].committed_at ?? null).toBeNull();
     }
+  });
+
+  // Bianca 2026-07-29: two goals, both 7-day plans seeded whole, 12 items on the
+  // board before she'd said a word — "I guess it just made up new tasks for me."
+  describe('multi-goal seeding', () => {
+    function stubDayIndex(rows: unknown[] = []) {
+      (todoRepo as unknown as { createQueryBuilder: jest.Mock }).createQueryBuilder = jest.fn(
+        () => ({
+          select: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          getRawMany: jest.fn().mockResolvedValue(rows),
+        }),
+      );
+    }
+
+    it('caps the day at MAX_PLAN_ITEMS_PER_DAY across ALL goals', async () => {
+      goalRepo.find.mockResolvedValue([
+        {
+          action_plan: {
+            daily_tasks: [
+              'Day 6: Prep 3 dinners and freeze 2. Eat one prepped dinner. Measure all cooking oils and condiments today.',
+            ],
+          },
+        },
+        {
+          action_plan: {
+            daily_tasks: [
+              'Day 6: Repeat Day 5 routine exactly. Notice if you have urges to snack outside the 3pm window. Write down what triggered each urge.',
+            ],
+          },
+        },
+      ] as Goal[]);
+      todoRepo.find.mockResolvedValue([]);
+      stubDayIndex();
+
+      await service.ensureSeededForToday('u-1');
+
+      expect(todoRepo.save.mock.calls.length).toBeLessThanOrEqual(MAX_PLAN_ITEMS_PER_DAY);
+      // Round-robin: both goals are represented, not just the first one.
+      const contents = todoRepo.save.mock.calls.map((c) => c[0].content as string);
+      expect(contents).toContain('Prep 3 dinners and freeze 2');
+      expect(contents).toContain('Repeat Day 5 routine exactly');
+    });
+
+    it('drops an item the other goal already contributed', async () => {
+      goalRepo.find.mockResolvedValue([
+        { action_plan: { daily_tasks: ['Day 1: Take a 20-minute walk. Drink 2 liters of water.'] } },
+        { action_plan: { daily_tasks: ['Day 1: take a 20-minute walk! Eat 3 meals at set times.'] } },
+      ] as Goal[]);
+      todoRepo.find.mockResolvedValue([]);
+      stubDayIndex();
+
+      await service.ensureSeededForToday('u-1');
+
+      const walks = todoRepo.save.mock.calls.filter((c) =>
+        /20-minute walk/i.test(c[0].content as string),
+      );
+      expect(walks).toHaveLength(1);
+    });
   });
 });

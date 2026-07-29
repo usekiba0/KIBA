@@ -42,6 +42,7 @@ import {
   correctWeekdayClaims,
   describeActivationDay,
 } from './time-claim-guard';
+import { capBoardDump } from './board-dump-guard';
 import { extractWeighIns, correctWeightClaims } from './weight-claim-guard';
 import { detectCancellationIntent, enforceCancellationPath } from './cancellation-guard';
 import { structuredLog, warnTokenBudget } from '../common/logger';
@@ -905,6 +906,7 @@ export class CoachingService {
       operationLabel: 'coaching_reply',
       userOffsetMinutes: liveOffset,
       activatedAtUtc,
+      boardItems: (todos ?? []).map((t) => t.content),
     });
   }
 
@@ -1054,6 +1056,8 @@ export class CoachingService {
     /** When the user's subscription was created (checkout completed). Grounds the
      * deterministic payment-timing guard so KIBA can't invent a wrong "you paid X" day. */
     activatedAtUtc?: Date | null;
+    /** Today's board, so the dump guard knows which bullets came off the list. */
+    boardItems?: string[];
   }): Promise<{ reply: string; tokenCount: number }> {
     const baseModel = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
     // Photos need real OCR + brand/world knowledge — read the "Salata" sign off a
@@ -1395,6 +1399,22 @@ export class CoachingService {
         operation: 'weekday_claim_corrected',
         userId: args.userId,
         corrections: dowGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on dumping the board. The prompt has forbidden this since
+    // 2026-07-28 and the model did it anyway — fourteen un-agreed plan items in
+    // one message, which read to the user as KIBA inventing tasks for her. Only
+    // lines that match today's list are eligible, so this can't touch a list the
+    // model wrote about anything else.
+    const boardGuard = capBoardDump(finalReply, args.boardItems ?? []);
+    if (boardGuard.dropped > 0) {
+      finalReply = boardGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'board_dump_capped',
+        userId: args.userId,
+        dropped: boardGuard.dropped,
       });
     }
 

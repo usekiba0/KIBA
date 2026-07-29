@@ -29,12 +29,13 @@ describe('buildCheckinMessage', () => {
   });
 
   it('humanizes a robotic "Day N Weekday:" schedule into the primary action only', () => {
-    const stored = 'Day 7 Sunday: Gym optional but encouraged (20min), business planning for Week 2, review compliance.';
+    const stored =
+      'Day 7 Sunday: Gym optional but encouraged (20min), business planning for Week 2, review compliance.';
     for (let i = 0; i < 30; i++) {
       const msg = buildCheckinMessage('Alex', testProfile, stored);
       expect(msg).toContain('Gym optional but encouraged (20min)');
-      expect(msg).not.toContain('Day 7 Sunday');        // prefix stripped
-      expect(msg).not.toContain('business planning');     // secondary items dropped (they live on the to-do list)
+      expect(msg).not.toContain('Day 7 Sunday'); // prefix stripped
+      expect(msg).not.toContain('business planning'); // secondary items dropped (they live on the to-do list)
     }
   });
 
@@ -49,6 +50,38 @@ describe('buildCheckinMessage', () => {
     expect(msg.length).toBeGreaterThan(0);
   });
 
+  // Task-composition Approach C, Phase 2: the morning check-in no longer asserts
+  // an un-agreed auto-seeded plan task — it asks what the user is locking in, so
+  // nothing gets counted or scolded that they never agreed to. The null-task
+  // path is the commit-ask (the processor now always passes null).
+  describe('commit-ask (silent-until-agreed)', () => {
+    it('asks what the user is locking in, not "no tasks / rest day"', () => {
+      for (let i = 0; i < 40; i++) {
+        const msg = buildCheckinMessage('Alex', testProfile, null, { localDow: 1 }).toLowerCase();
+        expect(msg).toMatch(/locking in|lock in|one thing|what are you|what's the/);
+        expect(msg).not.toContain('no tasks');
+        expect(msg).not.toContain('rest day');
+      }
+    });
+
+    it('keeps the end-of-week pressure but as a commit-ask (Thu/Fri)', () => {
+      for (const dow of [4, 5] as const) {
+        for (let i = 0; i < 20; i++) {
+          const msg = buildCheckinMessage('Alex', testProfile, null, {
+            localDow: dow,
+          }).toLowerCase();
+          expect(msg).toMatch(/(two days|last day) left/); // end-of-week pressure kept
+          expect(msg).toMatch(/locking in|lock in|one thing|what are you|where are you/);
+          expect(msg).not.toContain('no tasks');
+        }
+      }
+    });
+
+    it('still renders a task when one IS given (committed items keep working)', () => {
+      expect(buildCheckinMessage('Alex', testProfile, 'Run 5km')).toContain('Run 5km');
+    });
+  });
+
   it('renders a combined multi-goal check-in covering every goal (newline-separated)', () => {
     // TaskService stores one DailyTask whose description is each goal's action,
     // newline-separated. The check-in must surface ALL of them, not just one.
@@ -57,7 +90,7 @@ describe('buildCheckinMessage', () => {
       const msg = buildCheckinMessage('Alex', testProfile, combined, { localDow: 1 });
       expect(msg).toContain('30 min workout');
       expect(msg).toContain('cold-call 5 leads');
-      expect(msg).not.toContain('Day 1 Monday');   // prefix stripped per goal
+      expect(msg).not.toContain('Day 1 Monday'); // prefix stripped per goal
     }
   });
 
@@ -67,10 +100,10 @@ describe('buildCheckinMessage', () => {
     const combined =
       'Day 1 (Monday): Audit subscriber data—calculate CAC\nDay 1 (Monday): map the subscriber journey';
     const msg = buildCheckinMessage('Sam', testProfile, combined, { localDow: 4 });
-    expect(msg).not.toMatch(/Day 1/i);     // no leaked day label
+    expect(msg).not.toMatch(/Day 1/i); // no leaked day label
     expect(msg).not.toContain('(Monday)'); // no leaked weekday
-    expect(msg).not.toContain('•');        // no bullet char
-    expect(msg).not.toMatch(/[–—]/);       // no em/en-dash
+    expect(msg).not.toContain('•'); // no bullet char
+    expect(msg).not.toMatch(/[–—]/); // no em/en-dash
     expect(msg).toContain('Audit subscriber data');
   });
 });
@@ -82,10 +115,10 @@ describe('humanizeTask', () => {
   });
 
   it('keeps only the first clause (primary action)', () => {
-    expect(humanizeTask('Day 7 Sunday: Gym (20min), business planning, review compliance.'))
-      .toBe('Gym (20min)');
-    expect(humanizeTask('Block Netflix. Schedule gym 5am. Define 3 tasks.'))
-      .toBe('Block Netflix');
+    expect(humanizeTask('Day 7 Sunday: Gym (20min), business planning, review compliance.')).toBe(
+      'Gym (20min)',
+    );
+    expect(humanizeTask('Block Netflix. Schedule gym 5am. Define 3 tasks.')).toBe('Block Netflix');
   });
 
   it('leaves a plain task untouched', () => {
@@ -93,8 +126,9 @@ describe('humanizeTask', () => {
   });
 
   it('strips a parenthesized weekday prefix and normalizes em-dashes', () => {
-    expect(humanizeTask('Day 1 (Monday): Audit subscriber data—calculate CAC'))
-      .toBe('Audit subscriber data, calculate CAC');
+    expect(humanizeTask('Day 1 (Monday): Audit subscriber data—calculate CAC')).toBe(
+      'Audit subscriber data, calculate CAC',
+    );
     expect(humanizeTask('Day 3 [Wed]: ship the feature')).toBe('ship the feature');
   });
 });
