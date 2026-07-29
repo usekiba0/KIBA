@@ -144,6 +144,16 @@ export interface TodoForPrompt {
   content: string;
   /** 'open' | 'done' | 'skipped' */
   status: string;
+  /**
+   * Whether the USER agreed to this item (daily_todos.committed_at is set), as
+   * opposed to it being auto-seeded from the onboarding plan and never
+   * confirmed. Without this the board is a flat list and the model cannot tell
+   * the difference — which is how a real user got told "you set 3pm snack time
+   * yourself last week... why the flip now" about a task she had never seen
+   * (2026-07-28). Optional so older callers still compile; absent is treated as
+   * un-committed, the safe direction.
+   */
+  committed?: boolean;
 }
 
 export interface PatternSignals {
@@ -312,17 +322,29 @@ function formatTodoSection(todos: TodoForPrompt[]): string {
   }
   const open = todos.filter((t) => t.status === 'open');
   const done = todos.filter((t) => t.status === 'done');
+  // AGREED vs SUGGESTED is marked per line, because the difference decides what
+  // you're allowed to SAY about an item — see the TODO RULES below.
+  const mark = (t: TodoForPrompt) => (t.committed ? '[AGREED]' : '[SUGGESTED]');
   const lines = ["TODAY'S LIST:"];
   if (open.length > 0) {
     lines.push('OPEN:');
-    for (const t of open) lines.push(`- [${t.id}] ${t.content}`);
+    for (const t of open) lines.push(`- [${t.id}] ${mark(t)} ${t.content}`);
   }
   if (done.length > 0) {
     lines.push('DONE:');
-    for (const t of done) lines.push(`- [${t.id}] ✓ ${t.content}`);
+    for (const t of done) lines.push(`- [${t.id}] ${mark(t)} ✓ ${t.content}`);
   }
   lines.push('');
   lines.push('TODO RULES:');
+  lines.push(
+    '- [AGREED] vs [SUGGESTED] — READ THE MARKER BEFORE YOU REFERENCE AN ITEM. [AGREED] means the user actually committed to it in conversation. [SUGGESTED] means it was auto-seeded from the plan built at signup and they have NEVER confirmed it — to them it does not exist.',
+  );
+  lines.push(
+    '- NEVER tell the user they agreed to a [SUGGESTED] item. Not "you set this yourself", not "you said this was a priority", not "that came from the plan we built together", and never "why the flip now" when they deny it. A real user was accused of setting a snack time she had never seen, pushed to explain herself, and was right to deny it. If they say they never agreed to something, THEY ARE RIGHT — drop it and move on, do not argue and do not re-explain where it came from.',
+  );
+  lines.push(
+    '- A [SUGGESTED] item is yours to OFFER, not to hold them to: "want me to put X on today?" If they say yes, call add_todo — that is what turns it into a real commitment. Only [AGREED] items may be chased, counted, or referenced as something they owe.',
+  );
   lines.push(
     '- This list IS the answer to "what do i have to do today" / "what\'s my workout" / "what was i supposed to do" — do NOT ask the user, read it.',
   );
