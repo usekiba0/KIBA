@@ -96,9 +96,17 @@ export class MessagingController {
     // for however long the AI takes to reply. Fire-and-forget: never block the
     // webhook ack on this. Internal errors get logged but don't bubble — read
     // receipts are best-effort UX, not correctness.
+    // ...and start the "…" typing bubble in the same breath. The reply itself is
+    // model-bound and can't ship until the whole guard chain has seen the
+    // complete text, so this is the only thing that reaches the user inside a
+    // few hundred milliseconds. Same fire-and-forget contract as the read
+    // receipt — a failed indicator must never cost the webhook its 200.
     setImmediate(() => {
       this.messagingService.sendReadReceipt(from).catch((err) => {
         this.logger.warn(`[SendBlue] Read receipt error for ${from}: ${(err as Error).message}`);
+      });
+      this.messagingService.sendTypingIndicator(from).catch((err) => {
+        this.logger.warn(`[SendBlue] Typing indicator error for ${from}: ${(err as Error).message}`);
       });
     });
 
