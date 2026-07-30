@@ -462,7 +462,21 @@ export class CoachingProcessor {
 
     // Session boundary check (must happen before saving message so we have a real session_id)
     const boundary = await this.sessionBoundary.checkAndHandle(user.id);
-    await this.sessionBoundary.recordMessage(boundary.sessionId);
+    // Two writes (a counter increment and a timestamp) that nothing in THIS turn
+    // reads — only the NEXT turn's checkAndHandle does, seconds later. Awaiting
+    // them parked two DB round trips in front of the model call for no benefit.
+    // Same treatment as last_active_at in PR #59. Fire-and-forget, but log
+    // failures: a silently lost increment drifts the session-boundary count.
+    const boundaryUserId = user.id;
+    void this.sessionBoundary.recordMessage(boundary.sessionId).catch((err: unknown) => {
+      structuredLog(this.logger, 'warn', {
+        service: 'messaging',
+        operation: 'record_message_failed',
+        userId: boundaryUserId,
+        sessionId: boundary.sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     // Save inbound message with real session_id. The unique twilio_sid /
     // provider_message_id columns make this the ATOMIC, cross-instance dedup

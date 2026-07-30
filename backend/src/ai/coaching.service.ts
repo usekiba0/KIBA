@@ -1170,7 +1170,16 @@ export class CoachingService {
       try {
         response = await this.client.messages.create({
           model,
-          max_tokens: 512,
+          // Backstop, not the primary limit — the 60-word / 5-line caps in the
+          // prompt are. Generation time is the dominant cost of a turn and it
+          // scales with OUTPUT length: measured on prod 2026-07-30,
+          // genMs ~= 1624ms + 8.0ms per output token (n=33, r=0.67). Observed
+          // output was p50 76 / p95 373 / max 424 tokens, so 512 never actually
+          // bound anything; 400 clips only the true runaways (~1s saved there)
+          // while leaving every compliant reply untouched. Do not lower further
+          // without checking outputTokens percentiles again — below ~p95 this
+          // starts truncating real replies mid-sentence.
+          max_tokens: 400,
           system: args.systemPrompt,
           tools: args.tools,
           messages: history,

@@ -218,11 +218,20 @@ describe('buildSystemPrompt', () => {
   // queue delays were removed is making KIBA write less. A hard word ceiling is
   // the bluntest instruction available; the plan/list carve-out keeps it from
   // truncating the one case where length is the point.
-  it('caps overall reply length, with an exception for plans', () => {
+  // 2026-07-30: the plan/list carve-out used to be UNBOUNDED ("unless they asked
+  // for a plan or a list"), and prod showed exactly where that went — output was
+  // p50 76 tokens but p90 298, i.e. the tail is all plans. Generation time scales
+  // with output length (genMs ~= 1624ms + 8.0ms/token, n=33), so that tail was
+  // ~2.4s of pure generation. The carve-out now has its own ceiling. Keep BOTH
+  // halves asserted: the 60-word cap alone never bound the plan case, which is
+  // the one that actually cost seconds.
+  it('caps overall reply length, and bounds the plan/list exception', () => {
     const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0);
     const lower = prompt.toLowerCase();
     expect(lower).toMatch(/whole reply stays under 60 words/);
-    expect(lower).toMatch(/unless they asked for a plan or a list/);
+    expect(lower).toMatch(/plans\/lists: 5 lines max, 10 words each/);
+    // The carve-out must never go back to being open-ended.
+    expect(lower).not.toMatch(/unless they asked for a plan or a list/);
     // 3 bubbles, not 4 — each extra bubble is both more tokens and another
     // 700ms gap before the reply finishes landing.
     expect(lower).toMatch(/2 bubbles is the norm, 3 is the ceiling/);
