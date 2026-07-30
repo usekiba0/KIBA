@@ -335,6 +335,74 @@ export class MessagingService implements OnModuleInit {
   }
 
   /**
+   * Show the "…" typing bubble in iMessage while the AI composes its reply.
+   *
+   * This is the only lever we have on *perceived* latency. The real wait is
+   * model-bound — the reply can't ship until the whole guard chain in
+   * coaching.service has seen the complete text — so the user sits on dead air
+   * for the full generation. A typing bubble within ~200ms of their message
+   * turns that silence into visible activity without touching a single guard.
+   *
+   * Endpoint per Sendblue docs (https://docs.sendblue.com/api-v2/typing-indicators/):
+   * POST /api/send-typing-indicator with `number`, `from_number`, optional
+   * `state` ("start" | "stop") and `max_duration_ms` (1–300000, default 60000).
+   * Hosted on the same api.sendblue.co origin as send-message and mark-read —
+   * the docs cite api.sendblue.com, but .co is the host this account's sends
+   * already run through, and a cross-host POST redirect can drop the body.
+   *
+   * `max_duration_ms` is deliberately well under the default 60s: the indicator
+   * auto-clears, and the outbound reply clears it anyway, so there is no `stop`
+   * call on the reply path — that would be an extra round-trip sitting in front
+   * of the very bubble we're trying to speed up.
+   *
+   * iMessage only; SMS and RCS have no typing concept. Sendblue also requires an
+   * existing conversation with the recipient, so the very first inbound message
+   * from a new lead will not show one. Best-effort throughout: never throws,
+   * never blocks a turn. A missing typing bubble is a UX downgrade, not a
+   * correctness bug. Call it fire-and-forget from the webhook handler.
+   */
+  async sendTypingIndicator(to: string, maxDurationMs = 30_000): Promise<void> {
+    if (!this.sendBlueReady) return;
+    const keyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
+    const secret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
+    const fromNumber = this.config.get<string>('SENDBLUE_FROM_NUMBER');
+    if (!keyId || !secret) return;
+    if (!fromNumber) {
+      this.logger.warn('[SendBlue] SENDBLUE_FROM_NUMBER missing — skipping typing indicator');
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        'https://api.sendblue.co/api/send-typing-indicator',
+        { number: to, from_number: fromNumber, state: 'start', max_duration_ms: maxDurationMs },
+        {
+          headers: {
+            'sb-api-key-id': keyId,
+            'sb-api-secret-key': secret,
+            'Content-Type': 'application/json',
+          },
+          timeout: 5_000,
+        },
+      );
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'send_typing_indicator',
+        to,
+        status: response.data?.status ?? 'ok',
+      });
+    } catch (err) {
+      const detail = (err as any)?.response?.data
+        ? JSON.stringify((err as any).response.data)
+        : '';
+      const status = (err as any)?.response?.status;
+      this.logger.warn(
+        `[SendBlue] Typing indicator failed for ${to}: http=${status} ${(err as Error).message} | body: ${detail}`,
+      );
+    }
+  }
+
+  /**
    * Send an iMessage tapback (heart / thumbs / laugh / etc.) onto a message the
    * user sent us. iMessage-only — SMS/RCS have no tapback concept, so this no-ops
    * with ok:false off-iMessage rather than sending the ugly "Liked 'x'" text.

@@ -411,8 +411,20 @@ export class CoachingProcessor {
       this.logger.log(`[Onboarding] Created lead ${user.id} for ${from} (variant: ${variant})`);
     }
 
-    // Update last active
-    await this.userRepo.update(user.id, { last_active_at: new Date() });
+    // Update last active. Deliberately NOT awaited: nothing later in this turn
+    // reads last_active_at, and it sat directly in front of the model call, so
+    // every single reply paid a Postgres round-trip for a write that only the
+    // dashboard and the re-engagement scheduler ever read back. Errors are
+    // swallowed on purpose — a failed activity stamp must never cost the user
+    // their reply (2026-07-30, latency).
+    const activeUserId = user.id;
+    void this.userRepo
+      .update(activeUserId, { last_active_at: new Date() })
+      .catch((err: Error) =>
+        this.logger.warn(
+          `[Handler] last_active_at update failed for ${activeUserId}: ${err.message}`,
+        ),
+      );
 
     // ── Compliance keywords (STOP / START) ───────────────────────────────────
     // Runs before EVERYTHING: dedup, crisis detection, intake, coaching. Consent
@@ -2165,17 +2177,27 @@ export class CoachingProcessor {
 
     const toSend = bubbles.length ? bubbles : [reply.trim()].filter(Boolean);
     // 700ms, down from 1200ms (Karibi 2026-07-28 — "takes more than 10 sec").
-    // This delay is pure added wait on every multi-bubble reply: a 3-bubble
-    // answer paid 2.4s of it before the last bubble landed. 700ms still reads as
-    // typed-in-sequence rather than dumped, and iMessage preserves send order
-    // independently of the gap, so the ordering rationale below is unaffected.
-    const delayMs = this.config.get<number>('MESSAGE_BUBBLE_DELAY_MS', 700);
+    // Read as the TOTAL cadence between two bubbles, not an extra wait stacked on
+    // top of the send. `send()` is not free — an opt-out query plus a provider
+    // round-trip, ~200-400ms — and sleeping the full delay *after* it meant every
+    // gap silently cost delay + send, so a 3-bubble reply paid ~800ms more than
+    // the knob says. Subtracting the send we just did keeps the typed-in-sequence
+    // feel identical from the phone's side and gives that time back (2026-07-30).
+    // 350 as of 2026-07-30: now that the send's own cost is subtracted rather
+    // than stacked, 700 was landing bubbles further apart than it ever did
+    // before — the old number had the send time baked into it. 350 restores the
+    // cadence people were actually seeing while removing the double-count.
+    const delayMs = this.config.get<number>('MESSAGE_BUBBLE_DELAY_MS', 350);
     for (let i = 0; i < toSend.length; i++) {
+      const sendStartedAt = Date.now();
       await this.messagingService.send(user.phone_number, toSend[i]);
       // Small gap between bubbles so they arrive in order and feel typed, not
-      // dumped. No delay after the last one.
+      // dumped. No delay after the last one. The sends themselves stay strictly
+      // sequential — firing them concurrently would race the provider's ordering,
+      // which is the one thing this loop exists to guarantee.
       if (i < toSend.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        const remaining = delayMs - (Date.now() - sendStartedAt);
+        if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
       }
     }
 
