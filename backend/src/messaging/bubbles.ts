@@ -12,9 +12,78 @@
 const MAX_BUBBLES = 4;
 
 /**
- * Split a reply into ordered text bubbles on the `[pause]` marker.
+ * Below this, a reply is already one natural text. Tomo's opener ("yooo, what's
+ * the move today?", 28 chars) shipped as its own bubble, but only because a
+ * SECOND thought followed it — a short reply with nothing after it is one text.
+ */
+const AUTO_SPLIT_MIN_CHARS = 80;
+/** Neither half may be shorter than this — a 4-char orphan reads like a glitch. */
+const AUTO_SPLIT_MIN_PART = 12;
+
+/**
+ * Index just past the first usable sentence boundary, or null if there isn't one.
+ *
+ * Deliberately conservative — every `continue` here is a case where splitting
+ * would read worse than not splitting:
+ *  - `...` / `?!` — trailing off is a single beat, not two (the prompt allows it).
+ *  - abbreviations (`a.m.`, `e.g.`) — the dot isn't a sentence end.
+ *  - a fragment on either side — see AUTO_SPLIT_MIN_PART.
+ */
+function firstSentenceBreak(text: string): number | null {
+  const re = /[.!?]+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m[0].length > 1) continue; // "..." or "?!" — one beat
+    const end = m.index + 1;
+    if (end >= text.length) break; // punctuation ends the reply: nothing to split
+    if (!/\s/.test(text[end])) continue; // needs whitespace after to be a break
+
+    const lastToken = text.slice(0, m.index).split(/\s+/).pop() ?? '';
+    // "a" in "a.m." / "e.g" — a dot inside the token means abbreviation, not sentence.
+    if (lastToken.length < 2 || lastToken.includes('.')) continue;
+
+    const head = text.slice(0, end).trim();
+    const tail = text.slice(end).trim();
+    if (head.length < AUTO_SPLIT_MIN_PART || tail.length < AUTO_SPLIT_MIN_PART) continue;
+    if (/^[\s.,!?;:)\]]/.test(tail)) continue; // tail must start a real thought
+
+    return end;
+  }
+  return null;
+}
+
+/**
+ * Split a marker-less reply into "first beat, then the rest".
+ *
+ * WHY THIS EXISTS: the `[pause]` marker below is a PROMPT-only instruction, and
+ * prod measured it firing on 1 of 151 replies (2026-07-30) — 99.3% of replies
+ * shipped as a single block while the prompt said "2 bubbles is the norm". That
+ * is the same failure mode as every other prompt-only guard on haiku-4-5, so the
+ * behaviour moves into code and `[pause]` stays as the model's explicit override.
+ *
+ * Capped at TWO bubbles on purpose: the prompt calls 2 the norm, and each extra
+ * bubble is another send round-trip plus MESSAGE_BUBBLE_DELAY_MS before the reply
+ * finishes landing. The first bubble goes out at exactly the same moment it would
+ * have as a single message, so nothing gets slower to START.
+ */
+function autoSplit(text: string): string[] {
+  if (text.length < AUTO_SPLIT_MIN_CHARS) return [text];
+  // A plan/list is one structure — splitting it strands the intro from its items.
+  if (/^\s*[-•*]\s/m.test(text)) return [text];
+  // Checkout/payment links must stay attached to the sentence that explains them.
+  if (/https?:\/\//i.test(text)) return [text];
+
+  const at = firstSentenceBreak(text);
+  if (at === null) return [text];
+  return [text.slice(0, at).trim(), text.slice(at).trim()];
+}
+
+/**
+ * Split a reply into ordered text bubbles.
+ * - `[pause]` markers win when the model emits them (up to MAX_BUBBLES).
+ * - With NO marker, falls back to a deterministic first-sentence split (max 2) —
+ *   see autoSplit; the marker alone left 99.3% of replies as one block.
  * - Trims each bubble and drops empties.
- * - Returns a single-element array when there's no marker (normal one-shot reply).
  * - Returns `[]` only for empty/whitespace input (caller should send nothing).
  * - Caps at MAX_BUBBLES, folding any overflow into the final bubble so nothing
  *   is silently dropped.
@@ -26,7 +95,9 @@ export function splitBubbles(reply: string): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  if (parts.length <= 1) return parts; // 0 handled above; 1 = no marker
+  // No marker: decide in code whether this reads as one beat or two.
+  if (parts.length === 1) return dedupeBubbles(autoSplit(parts[0]));
+  if (parts.length === 0) return parts;
 
   if (parts.length > MAX_BUBBLES) {
     const head = parts.slice(0, MAX_BUBBLES - 1);
