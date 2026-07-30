@@ -73,6 +73,38 @@ the marker it replaces. On 8 realistic replies it split 4, all at the natural be
 1 | [proof in ✓ "gym session" logged. score updated 💪]     (short — correctly left alone)
 ```
 
+### Better signal found after the first pass: the model's own blank line
+
+While answering an unrelated question (Karibi asking why KIBA can't web-search) I
+ran four questions through the real prompt and the live model — and haiku separated
+its beats with a **blank line every single time**, in exactly the places a person
+would send a second text:
+
+```
+40. born in '84.
+⏎
+why, what's the connection?
+```
+
+So `\n\n` is the model's *intent*, not a guess at it — strictly better than the
+sentence heuristic, and it catches every break on a three-beat reply where a
+first-sentence split only ever gets the first. Verified `humanizeVoice()` does not
+collapse it (`[ \t]{2,}` is space/tab only) before relying on it.
+
+Order is now: `[pause]` → blank line → first-sentence fallback. The URL guard was
+moved **above** the blank-line split, since a checkout link in its own paragraph
+would otherwise ship as a standalone bubble that can fail independently.
+
+End-to-end on real model output (`humanizeVoice` → `splitBubbles`): **4 of 5 replies
+split**, vs 1 in 151 in prod. Including the prompt's own big-win pattern, which had
+never once shipped as designed:
+
+```
+Q: i hit a new squat PR today
+   bubble 1: WAIT.
+   bubble 2: what's the number. and proof.
+```
+
 ### Latency trade, stated plainly
 
 The first bubble goes out at **exactly the same moment** it does today — the guard

@@ -67,15 +67,42 @@ function firstSentenceBreak(text: string): number | null {
  * have as a single message, so nothing gets slower to START.
  */
 function autoSplit(text: string): string[] {
+  // Checkout/payment links stay whole on EVERY path. A link that lands as its own
+  // bubble can fail independently of the sentence that sets it up, and that costs a
+  // conversion — so this guard runs before the blank-line split, not after it.
+  if (/https?:\/\//i.test(text)) return [text];
+
+  // The model's OWN beat marker, and the better signal. Measured 2026-07-30: asked
+  // four unrelated questions, haiku separated its beats with a blank line every
+  // single time — in exactly the places a person would send a second text:
+  //     "40. born in '84."  ⏎⏎  "why, what's the connection?"
+  // Prefer it over the sentence heuristic below: it is the model's intent rather
+  // than our guess at it, and on a three-beat reply it gets all the breaks where a
+  // first-sentence split would only ever get the first one.
+  const paragraphs = text
+    .split(/\n[ \t]*\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (paragraphs.length > 1) return paragraphs;
+
+  // No blank line: fall back to "first sentence, then the rest".
   if (text.length < AUTO_SPLIT_MIN_CHARS) return [text];
   // A plan/list is one structure — splitting it strands the intro from its items.
   if (/^\s*[-•*]\s/m.test(text)) return [text];
-  // Checkout/payment links must stay attached to the sentence that explains them.
-  if (/https?:\/\//i.test(text)) return [text];
 
   const at = firstSentenceBreak(text);
   if (at === null) return [text];
   return [text.slice(0, at).trim(), text.slice(at).trim()];
+}
+
+/** Enforce MAX_BUBBLES, folding overflow into the last so nothing is dropped. */
+function capBubbles(parts: string[]): string[] {
+  if (parts.length > MAX_BUBBLES) {
+    const head = parts.slice(0, MAX_BUBBLES - 1);
+    const tail = parts.slice(MAX_BUBBLES - 1).join(' ');
+    return dedupeBubbles([...head, tail]);
+  }
+  return dedupeBubbles(parts);
 }
 
 /**
@@ -95,16 +122,10 @@ export function splitBubbles(reply: string): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  // No marker: decide in code whether this reads as one beat or two.
-  if (parts.length === 1) return dedupeBubbles(autoSplit(parts[0]));
   if (parts.length === 0) return parts;
-
-  if (parts.length > MAX_BUBBLES) {
-    const head = parts.slice(0, MAX_BUBBLES - 1);
-    const tail = parts.slice(MAX_BUBBLES - 1).join(' ');
-    return dedupeBubbles([...head, tail]);
-  }
-  return dedupeBubbles(parts);
+  // No marker: decide in code where the beats are.
+  if (parts.length === 1) return capBubbles(autoSplit(parts[0]));
+  return capBubbles(parts);
 }
 
 /**

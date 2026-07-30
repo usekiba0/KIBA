@@ -41,6 +41,40 @@ describe('splitBubbles', () => {
 // the norm, 3 is the ceiling". A prompt-only rule that haiku-4-5 ignores, same as
 // the reply-length carve-out. These lock the code fallback that replaces it.
 describe('splitBubbles — deterministic split when the model omits [pause]', () => {
+  // Measured 2026-07-30: asked haiku four unrelated questions through the real
+  // coaching prompt and it separated its beats with a blank line every time. That
+  // is the model's own intent — prefer it over our sentence heuristic.
+  it('splits on the blank line the model uses to mark its own beats', () => {
+    expect(splitBubbles("40. born in '84.\n\nwhy, what's the connection?")).toEqual([
+      "40. born in '84.",
+      "why, what's the connection?",
+    ]);
+  });
+
+  it('honours every beat, not just the first, on a multi-beat reply', () => {
+    const reply = 'chicken + rice + beans, ~45g protein.\n\nskip the queso if cutting.\n\nbuilding or leaning out?';
+    expect(splitBubbles(reply)).toEqual([
+      'chicken + rice + beans, ~45g protein.',
+      'skip the queso if cutting.',
+      'building or leaning out?',
+    ]);
+  });
+
+  it('splits a short two-beat reply — a blank line beats the length floor', () => {
+    expect(splitBubbles('yo\n\nyou good?')).toEqual(['yo', 'you good?']);
+  });
+
+  it('still caps at 4 bubbles when the model writes many paragraphs', () => {
+    const out = splitBubbles('one\n\ntwo\n\nthree\n\nfour\n\nfive\n\nsix');
+    expect(out).toHaveLength(4);
+    expect(out[3]).toBe('four five six');
+  });
+
+  it('keeps a checkout link whole even when it sits in its own paragraph', () => {
+    const reply = "here you go, pay this and we're live.\n\nhttps://checkout.stripe.com/c/pay/abc123";
+    expect(splitBubbles(reply)).toHaveLength(1);
+  });
+
   it('splits a long reply into first beat + the rest', () => {
     const reply =
       "damn that's rough, sorry to hear it. you still got the workout in tho, or we pushing it to tomorrow?";
