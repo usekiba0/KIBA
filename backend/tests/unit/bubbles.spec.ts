@@ -82,9 +82,21 @@ describe('splitBubbles — deterministic split when the model omits [pause]', ()
     expect(splitBubbles(reply)).toHaveLength(1);
   });
 
-  it('splits a long reply into first beat + the rest', () => {
+  // Reversed 2026-07-31. This used to split at the first sentence, and because
+  // almost nothing KIBA says is under 80 chars it fired on nearly every reply —
+  // "2 bubbles when there are 2 beats" was really "2 bubbles always". The client
+  // reported the result as bubbles that "feel like two different AI responses to
+  // the same prompt". One paragraph is one thought; only the model's own blank
+  // line marks a beat now.
+  it('keeps a one-paragraph reply as one text, however long', () => {
     const reply =
       "damn that's rough, sorry to hear it. you still got the workout in tho, or we pushing it to tomorrow?";
+    expect(splitBubbles(reply)).toEqual([reply]);
+  });
+
+  it('splits the same reply once the model marks the beat itself', () => {
+    const reply =
+      "damn that's rough, sorry to hear it.\n\nyou still got the workout in tho, or we pushing it to tomorrow?";
     expect(splitBubbles(reply)).toEqual([
       "damn that's rough, sorry to hear it.",
       'you still got the workout in tho, or we pushing it to tomorrow?',
@@ -124,20 +136,47 @@ describe('splitBubbles — deterministic split when the model omits [pause]', ()
     expect(splitBubbles(reply)).toHaveLength(1);
   });
 
-  it('caps the automatic split at 2 bubbles even with many sentences', () => {
+  it('does not split a many-sentence paragraph — sentences are not beats', () => {
     const reply =
       'first thought here for you. second thought here for you. third thought here for you. fourth one too.';
-    expect(splitBubbles(reply)).toHaveLength(2);
+    expect(splitBubbles(reply)).toHaveLength(1);
+  });
+
+  // The reply that started this (message row 7e1f8905). Two beats, marked by the
+  // model, and they read as one continued thought in order: the acknowledgement,
+  // then what to do about it. Splitting here is right — delivering it backwards is
+  // what made it look like two competing answers.
+  it('keeps a marked two-beat reply in the order the model wrote it', () => {
+    const reply =
+      "lol fair - your parents handle it.\n\nshow them the link, they tap it, and you're good.";
+    expect(splitBubbles(reply)).toEqual([
+      'lol fair - your parents handle it.',
+      "show them the link, they tap it, and you're good.",
+    ]);
   });
 
   it('lets an explicit [pause] override the automatic rule', () => {
     expect(splitBubbles('short. [pause] also short.')).toEqual(['short.', 'also short.']);
   });
 
-  it('collapses a self-repeated reply that the split would have duplicated', () => {
+  // Karibi 2026-07-08. This used to be caught for free — the sentence split cut the
+  // repeat into two identical bubbles and dedupeBubbles dropped one. With no
+  // automatic split there is nothing to dedupe, so collapseSelfRepeat has to find it
+  // in the text or it ships as one message saying the same thing twice.
+  it('collapses a self-repeated reply with no marker of any kind', () => {
     const reply =
       'you already know exactly what you need to do here. you already know exactly what you need to do here.';
     expect(splitBubbles(reply)).toEqual(['you already know exactly what you need to do here.']);
+  });
+
+  it('collapses a multi-sentence block the model emitted twice', () => {
+    const reply = 'that gap is real. we close it this week. that gap is real. we close it this week.';
+    expect(splitBubbles(reply)).toEqual(['that gap is real. we close it this week.']);
+  });
+
+  it('leaves a reply whose halves merely rhyme structurally alone', () => {
+    const reply = 'you good? we moving today.';
+    expect(splitBubbles(reply)).toEqual([reply]);
   });
 });
 
