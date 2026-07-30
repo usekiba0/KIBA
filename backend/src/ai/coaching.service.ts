@@ -1166,7 +1166,16 @@ export class CoachingService {
     // bubble reads worse than saying nothing.
     const INTERIM_MIN_CHARS = 12;
 
+    // How many model calls this turn actually cost. A tool call means a SECOND
+    // full round trip (~1.6s), and until now nothing recorded whether that was
+    // happening: this log fires once per turn, after the loop, so a 2-call turn
+    // looked identical to a 1-call turn. Measured 2026-07-30 that genMs spreads
+    // 853-3229ms with no obvious bimodality, which suggests reply length rather
+    // than tool calls — but that was an inference off 23 turns, and inferences
+    // have lost to measurement all day. This settles it passively.
+    let toolIterations = 0;
     for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+      toolIterations = iter + 1;
       try {
         response = await this.client.messages.create({
           model,
@@ -1337,6 +1346,9 @@ export class CoachingService {
       totalTokens: totalInputTokens + totalOutputTokens,
       cacheReadTokens,
       cacheWriteTokens,
+      // >1 means the tool loop ran again — i.e. this turn paid for two or more
+      // full model round trips. Compare against genMs to price tool turns.
+      toolIterations,
     });
     warnTokenBudget(this.logger, {
       service: 'ai',

@@ -2202,16 +2202,35 @@ export class CoachingProcessor {
     // before — the old number had the send time baked into it. 350 restores the
     // cadence people were actually seeing while removing the double-count.
     const delayMs = this.config.get<number>('MESSAGE_BUBBLE_DELAY_MS', 350);
-    for (let i = 0; i < toSend.length; i++) {
-      const sendStartedAt = Date.now();
-      await this.messagingService.send(user.phone_number, toSend[i]);
-      // Small gap between bubbles so they arrive in order and feel typed, not
-      // dumped. No delay after the last one. The sends themselves stay strictly
-      // sequential — firing them concurrently would race the provider's ordering,
-      // which is the one thing this loop exists to guarantee.
-      if (i < toSend.length - 1) {
-        const remaining = delayMs - (Date.now() - sendStartedAt);
-        if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+    // EXPERIMENT, default OFF (`MESSAGE_CONCURRENT_BUBBLES=true` to enable).
+    //
+    // Sends are sequential and each one costs ~450ms of SendBlue round trip
+    // (measured 2026-07-30 via send_timing: the opt-out DB check is 1-9ms, the
+    // provider call is everything). On a 2-bubble reply that is ~900ms, now the
+    // single largest controllable slice of a turn — bigger than anything left in
+    // generation. Firing them together would roughly halve it.
+    //
+    // The reason we have NOT done it is that concurrent sends could race the
+    // provider's ordering, and bubble 2 landing before bubble 1 reads as broken.
+    // But that was an assumption written into a comment, never tested — and
+    // assumptions have lost to measurement repeatedly on this codebase. So: a
+    // flag rather than a rewrite. Flip it in Render, watch a few replies land,
+    // and flip it back if order breaks. No deploy needed either way.
+    const concurrentBubbles =
+      this.config.get<string>('MESSAGE_CONCURRENT_BUBBLES', 'false') === 'true';
+
+    if (concurrentBubbles && toSend.length > 1) {
+      await Promise.all(toSend.map((b) => this.messagingService.send(user.phone_number, b)));
+    } else {
+      for (let i = 0; i < toSend.length; i++) {
+        const sendStartedAt = Date.now();
+        await this.messagingService.send(user.phone_number, toSend[i]);
+        // Small gap between bubbles so they arrive in order and feel typed, not
+        // dumped. No delay after the last one.
+        if (i < toSend.length - 1) {
+          const remaining = delayMs - (Date.now() - sendStartedAt);
+          if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+        }
       }
     }
 
