@@ -104,7 +104,12 @@ import { HealthController, VersionController } from './common/health/health.cont
           migrationsRun: true,
           logging: config.get('NODE_ENV') === 'development',
           ssl: isCloudDb ? { rejectUnauthorized: false } : false,
-          extra: isCloudDb ? { family: 4 } : {},
+          // `keepAlive` puts TCP keep-alive probes on pooled connections so an
+          // idle socket to Render Postgres is not silently dropped by the network
+          // between turns — at ~1 turn an hour, almost every query was otherwise
+          // the first query on a cold connection. `family: 4` stays: Render's
+          // internal DNS hands back an AAAA record the container cannot route.
+          extra: isCloudDb ? { family: 4, keepAlive: true } : {},
         };
       },
     }),

@@ -6,6 +6,7 @@ import { Repository, IsNull, Not } from 'typeorm';
 import { Queue } from 'bull';
 import * as twilio from 'twilio';
 import axios from 'axios';
+import { keepAliveHttpsAgent } from './http-agent';
 import { structuredLog } from '../common/logger';
 import { humanizeVoice } from './voice';
 import { User } from '../data/entities/user.entity';
@@ -151,6 +152,12 @@ export class MessagingService implements OnModuleInit {
    * flag is still set.
    */
   async send(to: string, body: string, mediaUrl?: string, allowOptedOut = false): Promise<void> {
+    // `sendMs` in turn_latency covers this whole function, which was enough to see
+    // that sending got slow (6.25s on the first message after a 29-min idle gap,
+    // vs ~400ms warm) but NOT enough to say which half — the opt-out DB round trip
+    // or the provider HTTP call. Splitting it here so the next cold turn answers
+    // that instead of being reasoned about.
+    const optOutStart = Date.now();
     if (!allowOptedOut && (await this.hasOptedOut(to))) {
       structuredLog(this.logger, 'warn', {
         service: 'messaging',
@@ -196,7 +203,15 @@ export class MessagingService implements OnModuleInit {
 
     if (this.sendBlueReady && sendBlueKeyId && sendBlueSecret) {
       try {
+        const providerStart = Date.now();
         await this.sendViaSendBlue(to, clean, sendBlueKeyId, sendBlueSecret, mediaUrl);
+        structuredLog(this.logger, 'log', {
+          service: 'messaging',
+          operation: 'send_timing',
+          to,
+          optOutMs: providerStart - optOutStart,
+          providerMs: Date.now() - providerStart,
+        });
         return;
       } catch (err) {
         // SendBlue declined because the user opted out. Falling back to Twilio
@@ -239,7 +254,11 @@ export class MessagingService implements OnModuleInit {
       const response = await axios.post(
         'https://api.sendblue.co/api/send-message',
         payload,
-        { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret } },
+        {
+          headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret },
+          // Reuses the socket the typing indicator already opened for this turn.
+          httpsAgent: keepAliveHttpsAgent,
+        },
       );
       const status = response.data?.status;
       const errorCode = response.data?.error_code;
@@ -314,6 +333,7 @@ export class MessagingService implements OnModuleInit {
             'Content-Type': 'application/json',
           },
           timeout: 5_000,
+          httpsAgent: keepAliveHttpsAgent,
         },
       );
       structuredLog(this.logger, 'log', {
@@ -383,6 +403,7 @@ export class MessagingService implements OnModuleInit {
             'Content-Type': 'application/json',
           },
           timeout: 5_000,
+          httpsAgent: keepAliveHttpsAgent,
         },
       );
       structuredLog(this.logger, 'log', {
@@ -435,7 +456,11 @@ export class MessagingService implements OnModuleInit {
       const response = await axios.post(
         'https://api.sendblue.co/api/send-reaction',
         { from_number: fromNumber, message_handle: messageHandle, reaction, part_index: partIndex },
-        { headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret, 'Content-Type': 'application/json' }, timeout: 5_000 },
+        {
+          headers: { 'sb-api-key-id': keyId, 'sb-api-secret-key': secret, 'Content-Type': 'application/json' },
+          timeout: 5_000,
+          httpsAgent: keepAliveHttpsAgent,
+        },
       );
       const status = response.data?.status;
       if (status && String(status).toUpperCase() === 'ERROR') {
