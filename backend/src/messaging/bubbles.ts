@@ -21,6 +21,26 @@ const AUTO_SPLIT_MIN_CHARS = 80;
 const AUTO_SPLIT_MIN_PART = 12;
 
 /**
+ * Hard ceiling for a split WE decided on. `MAX_BUBBLES` (4) stays the limit for an
+ * explicit `[pause]`, where the model asked for the break.
+ *
+ * Measured the hard way, 2026-07-30: shipping the blank-line split without this cap
+ * let haiku's 3-4 paragraph replies through as 3-4 bubbles, and `sendMs` went from
+ * 399ms to ~1,600ms median — each bubble is its own provider round-trip (~400ms)
+ * plus MESSAGE_BUBBLE_DELAY_MS between them. Karibi felt it immediately. Two bubbles
+ * is what the prompt calls the norm and what the latency budget actually affords;
+ * beyond that the burst costs more than the human rhythm is worth.
+ */
+const AUTO_SPLIT_MAX = 2;
+
+/** Fold a self-decided split down to AUTO_SPLIT_MAX, merging the tail. */
+function capAuto(parts: string[]): string[] {
+  if (parts.length <= AUTO_SPLIT_MAX) return parts;
+  const head = parts.slice(0, AUTO_SPLIT_MAX - 1);
+  return [...head, parts.slice(AUTO_SPLIT_MAX - 1).join(' ')];
+}
+
+/**
  * Index just past the first usable sentence boundary, or null if there isn't one.
  *
  * Deliberately conservative — every `continue` here is a case where splitting
@@ -83,7 +103,7 @@ function autoSplit(text: string): string[] {
     .split(/\n[ \t]*\n/)
     .map((s) => s.trim())
     .filter(Boolean);
-  if (paragraphs.length > 1) return paragraphs;
+  if (paragraphs.length > 1) return capAuto(paragraphs);
 
   // No blank line: fall back to "first sentence, then the rest".
   if (text.length < AUTO_SPLIT_MIN_CHARS) return [text];

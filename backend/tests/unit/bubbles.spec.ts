@@ -51,21 +51,28 @@ describe('splitBubbles — deterministic split when the model omits [pause]', ()
     ]);
   });
 
-  it('honours every beat, not just the first, on a multi-beat reply', () => {
+  // Regression, 2026-07-30: shipped without this cap and haiku's 3-4 paragraph
+  // replies became 3-4 bubbles. sendMs went 399ms -> ~1,600ms median, because every
+  // bubble is its own provider round-trip plus MESSAGE_BUBBLE_DELAY_MS. A split WE
+  // decide on stops at 2; only an explicit [pause] may go to MAX_BUBBLES.
+  it('folds a 3-paragraph reply down to 2 bubbles, keeping all the text', () => {
     const reply = 'chicken + rice + beans, ~45g protein.\n\nskip the queso if cutting.\n\nbuilding or leaning out?';
     expect(splitBubbles(reply)).toEqual([
       'chicken + rice + beans, ~45g protein.',
-      'skip the queso if cutting.',
-      'building or leaning out?',
+      'skip the queso if cutting. building or leaning out?',
     ]);
+  });
+
+  it('never lets a self-decided split exceed 2 bubbles', () => {
+    expect(splitBubbles('one\n\ntwo\n\nthree\n\nfour\n\nfive')).toHaveLength(2);
   });
 
   it('splits a short two-beat reply — a blank line beats the length floor', () => {
     expect(splitBubbles('yo\n\nyou good?')).toEqual(['yo', 'you good?']);
   });
 
-  it('still caps at 4 bubbles when the model writes many paragraphs', () => {
-    const out = splitBubbles('one\n\ntwo\n\nthree\n\nfour\n\nfive\n\nsix');
+  it('still allows 4 bubbles when the MODEL asked for them via [pause]', () => {
+    const out = splitBubbles('one [pause] two [pause] three [pause] four [pause] five [pause] six');
     expect(out).toHaveLength(4);
     expect(out[3]).toBe('four five six');
   });
