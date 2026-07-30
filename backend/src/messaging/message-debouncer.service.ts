@@ -22,13 +22,21 @@ interface BufferState {
   firstPushAt: number;
 }
 
-// IMAGE bursts: 3s. People who send photos usually send SEVERAL (a few gym
-// shots, multiple screenshots), and each photo is its own webhook that can land
-// 1-3s after the last on mobile data — at 1.5s KIBA replied to each one
+// IMAGE bursts: 3s by default. People who send photos usually send SEVERAL (a
+// few gym shots, multiple screenshots), and each photo is its own webhook that
+// can land 1-3s after the last on mobile data — at 1.5s KIBA replied to each one
 // separately, which reads spammy/botty (Karibi 2026-06-25). The timer resets on
 // every new image, so the batch always waits for the last one; a ~3s pause
 // before reacting to a photo reads like natural "looking at it" time.
-const IMAGE_DEBOUNCE_MS = 3000;
+//
+// Tunable via env because this window is pure added latency on the SINGLE-photo
+// case, which prod suggests is the common one (2026-07-30: every sampled vision
+// turn ran the full 3s, i.e. no second photo ever reset the timer). But 1.5s is
+// already a KNOWN-BAD value, so do not "optimise" this back down blind — lower it
+// a step at a time in Render and watch for per-photo replies before going again.
+// Vision e2e is ~15s p50; this 3s is the small half. The real cost is the
+// AI_VISION_MODEL generation (7-11s) — see scripts/sim-vision.ts.
+const IMAGE_DEBOUNCE_MS = Number(process.env.MESSAGE_IMAGE_DEBOUNCE_MS ?? 3000);
 // TEXT bursts: OFF (Karibi 2026-07-21). Was 2s, then 1.5s. In real use it never
 // merged anything — people leave 3-8s between bubbles, so almost every message
 // flushed alone and the window was pure added latency on the common case (a

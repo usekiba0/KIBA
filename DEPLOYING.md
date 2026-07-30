@@ -104,6 +104,16 @@ STRIPE_TRIAL_DAYS=30
 
 ANTHROPIC_API_KEY=<sk-ant-...>
 AI_MODEL=claude-haiku-4-5-20251001
+AI_VISION_MODEL=claude-sonnet-4-6
+
+# Latency knobs. Both are safe to change in the dashboard without a code deploy.
+# MESSAGE_BUBBLE_DELAY_MS: gap between multi-bubble replies (total cadence, not
+#   additive on top of send time).
+# MESSAGE_IMAGE_DEBOUNCE_MS: how long a photo burst waits for more photos before
+#   KIBA reacts. 1500 is KNOWN-BAD (it made KIBA reply to each photo separately);
+#   step down from 3000 gradually and watch for per-photo replies.
+MESSAGE_BUBBLE_DELAY_MS=350
+MESSAGE_IMAGE_DEBOUNCE_MS=3000
 
 CRISIS_CONFIDENCE_THRESHOLD=0.65
 CRISIS_COACH_ALERT_EMAIL=<coach email>
