@@ -39,7 +39,7 @@ describe('claimsReminderScheduled', () => {
     'you should set a reminder for yourself',
     'what time do you want it?',
     'aight. gym at 6. go.',
-    "tomorrow morning we start for real.",
+    'tomorrow morning we start for real.',
   ])('leaves %j alone', (text) => {
     expect(claimsReminderScheduled(text)).toBe(false);
   });
@@ -87,10 +87,55 @@ describe('stripFalseReminderClaims', () => {
 
   it('never leaves a dangling half sentence', () => {
     const res = stripFalseReminderClaims(
-      "locked. 9am every morning starting tomorrow. fires in 12h 51m. now get some sleep.",
+      'locked. 9am every morning starting tomorrow. fires in 12h 51m. now get some sleep.',
     );
     expect(res.text).toContain('now get some sleep');
     expect(res.text).not.toMatch(/fires in/);
     expect(res.text).not.toMatch(/9am/);
+  });
+
+  describe('at a checkout close (paymentLinkSent)', () => {
+    // 2026-07-31 audit: the reminder question got bolted onto the payment link
+    // three times, once a message after the user had already given a time.
+    // Verified in prod as operation "false_reminder_claim_stripped" on each of
+    // those turns — the model was never the source, this guard was.
+    const CLOSE =
+      "it's the checkout - tap it, put in your info, and you're locked in. " +
+      "the second it goes through i'm in your texts every morning at 9am calling you before you head to lifetime. " +
+      'tap it and come back with "done" the second you\'re in and we build out your full plan.';
+
+    it('still strips the false promise', () => {
+      const res = stripFalseReminderClaims(CLOSE, { paymentLinkSent: true });
+      expect(res.corrected).toBe(true);
+      expect(res.text).not.toMatch(/every morning at 9am/);
+      expect(res.dropped.join(' ')).toMatch(/every morning at 9am/);
+    });
+
+    it('does NOT bolt a reminder question onto the close', () => {
+      const res = stripFalseReminderClaims(CLOSE, { paymentLinkSent: true });
+      expect(res.text).not.toMatch(/what time do you want/i);
+      expect(res.text).not.toMatch(/i'll set it/i);
+    });
+
+    it('keeps the rest of the close intact', () => {
+      const res = stripFalseReminderClaims(CLOSE, { paymentLinkSent: true });
+      expect(res.text).toContain("it's the checkout");
+      expect(res.text).toContain('come back with "done"');
+    });
+
+    it('still asks when the claim was the ENTIRE reply — never ship an empty message', () => {
+      // Suppressing the fallback here would leave the user with nothing at all,
+      // which is worse than an unnecessary question.
+      // Both sentences trip the promise patterns, so nothing survives the strip.
+      const res = stripFalseReminderClaims('your reminder is set. fires in 12h 51m.', {
+        paymentLinkSent: true,
+      });
+      expect(res.text).toMatch(/what time/i);
+    });
+
+    it('leaves normal (non-checkout) turns exactly as they were', () => {
+      const res = stripFalseReminderClaims(CLOSE);
+      expect(res.text).toMatch(/what time do you want/i);
+    });
   });
 });

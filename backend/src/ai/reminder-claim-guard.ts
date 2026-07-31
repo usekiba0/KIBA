@@ -81,8 +81,29 @@ export interface ReminderClaimResult {
   dropped: string[];
 }
 
-const FALLBACK =
-  "what time do you want that reminder? give me the time and i'll set it.";
+export interface ReminderClaimOptions {
+  /**
+   * A checkout link went out on this turn.
+   *
+   * The close promises accountability in the abstract ("every morning at 9am i'm
+   * on you") without scheduling anything — correctly, because there is nothing to
+   * schedule until they pay. That trips the promise patterns, and the reply then
+   * ends with a reminder question the user never asked for, glued to the payment
+   * link. Observed three times in the 2026-07-31 audit, including one message
+   * after the user had already given a time:
+   *
+   *   "...tap it and come back with 'done' the second you're in and we build out
+   *    your full plan. what time do you want that reminder? give me the time and
+   *    i'll set it."
+   *
+   * `intake.prompt.ts` already names this as a known bug and tells the model not
+   * to do it; the model was never the source. Stripping the false claim is still
+   * right — asking for a reminder time mid-checkout is not.
+   */
+  paymentLinkSent?: boolean;
+}
+
+const FALLBACK = "what time do you want that reminder? give me the time and i'll set it.";
 
 /**
  * Strip false reminder claims from a reply.
@@ -96,8 +117,16 @@ const FALLBACK =
  * false, we do NOT know what the true replacement is (we have no time to
  * schedule and no proof the user gave one). Asking is the only honest move, so
  * if stripping empties the reply we ask for the time.
+ *
+ * Note the asymmetry that caused the 2026-07-31 bug: the fallback question is
+ * only NEEDED when nothing else survived, because then the user is left with no
+ * reply at all. When other sentences survive, appending it is an extra ask the
+ * user never invited — and at a checkout close it actively damages the close.
  */
-export function stripFalseReminderClaims(text: string): ReminderClaimResult {
+export function stripFalseReminderClaims(
+  text: string,
+  options: ReminderClaimOptions = {},
+): ReminderClaimResult {
   const original = text ?? '';
   if (!claimsReminderScheduled(original)) {
     return { text: original, corrected: false, dropped: [] };
@@ -111,9 +140,16 @@ export function stripFalseReminderClaims(text: string): ReminderClaimResult {
   }
 
   // The claim spanned the whole reply (or the sentence split couldn't isolate
-  // it). Replace wholesale rather than shipping a half-sentence.
+  // it). Replace wholesale rather than shipping a half-sentence — without this
+  // the user gets an empty message, which is worse than an unnecessary question.
   if (kept.length === 0) {
     return { text: FALLBACK, corrected: true, dropped };
+  }
+
+  // Real content survived, and a checkout link is going out with it. Drop the
+  // false promise and stop — do not bolt a reminder question onto the close.
+  if (options.paymentLinkSent) {
+    return { text: kept.join(' '), corrected: true, dropped };
   }
 
   return { text: `${kept.join(' ')} ${FALLBACK}`.trim(), corrected: true, dropped };
