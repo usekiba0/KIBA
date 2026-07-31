@@ -22,6 +22,7 @@ import { Subscription } from '../data/entities/subscription.entity';
 import { currentStreakFromTasks } from '../accountability/score.service';
 import { validateRecurringMessage } from '../accountability/reminder-content';
 import { stripFalseReminderClaims } from './reminder-claim-guard';
+import { isInertAcknowledgmentTurn, ACK_WRITE_SUPPRESSED_NOTE } from './ack-guard';
 import { evaluate } from './calc';
 import { correctArithmeticClaims } from './math-claim-guard';
 import {
@@ -1146,6 +1147,12 @@ export class CoachingService {
     let reminderWritesOk = 0;
     let reminderReads = 0;
 
+    // A bare "bet" acknowledging a statement is inert — it asks for nothing. Prod
+    // took one as an instruction and re-scheduled an already-fired reminder onto
+    // the wrong day, then spent 196 tokens explaining the contradiction it had
+    // just created. Computed once per turn; see ack-guard.ts for the full trace.
+    const inertAck = isInertAcknowledgmentTurn(args.incomingText, args.recentMessages);
+
     const extractText = (msg: Anthropic.Messages.Message | undefined): string =>
       msg && Array.isArray(msg.content)
         ? msg.content
@@ -1235,6 +1242,24 @@ export class CoachingService {
       const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
       for (const block of response.content) {
         if (block.type !== 'tool_use') continue;
+        // Inert acknowledgment: refuse the WRITE, keep reads. Returning ok:false
+        // also leaves reminderWritesOk at 0, so if the model still narrates a
+        // reminder it never made, stripFalseReminderClaims below deletes the claim.
+        if (inertAck && block.name === 'schedule_reminder') {
+          structuredLog(this.logger, 'warn', {
+            service: 'ai',
+            operation: 'ack_reminder_write_suppressed',
+            userId: args.userId,
+            incomingPreview: args.incomingText.slice(0, 40),
+          });
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify({ ok: false, error: ACK_WRITE_SUPPRESSED_NOTE }),
+            is_error: true,
+          });
+          continue;
+        }
         try {
           const result = await args.dispatch(block);
           const isError =
