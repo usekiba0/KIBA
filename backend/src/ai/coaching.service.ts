@@ -23,6 +23,7 @@ import { currentStreakFromTasks } from '../accountability/score.service';
 import { validateRecurringMessage } from '../accountability/reminder-content';
 import { stripFalseReminderClaims } from './reminder-claim-guard';
 import { isInertAcknowledgmentTurn, ACK_WRITE_SUPPRESSED_NOTE } from './ack-guard';
+import { declaredMinorAgeInThread, ageBlockedNote } from './age-guard';
 import { evaluate } from './calc';
 import { correctArithmeticClaims } from './math-claim-guard';
 import {
@@ -1153,6 +1154,11 @@ export class CoachingService {
     // just created. Computed once per turn; see ack-guard.ts for the full trace.
     const inertAck = isInertAcknowledgmentTurn(args.incomingText, args.recentMessages);
 
+    // Age is never collected as a field, so the only signal is what they
+    // volunteered — and it may have been many turns ago (2026-07-30: declared at
+    // 15:47Z, checkout link sent at 21:03Z). Scan the whole user side.
+    const minorAge = declaredMinorAgeInThread(args.incomingText, args.recentMessages);
+
     const extractText = (msg: Anthropic.Messages.Message | undefined): string =>
       msg && Array.isArray(msg.content)
         ? msg.content
@@ -1227,8 +1233,17 @@ export class CoachingService {
       // Ship the preamble NOW, before the tools run and before the next model
       // call. Best-effort: a failed early bubble must never break the turn, and
       // the final reply still goes out normally.
+      // If we're about to block a checkout link, its preamble must not ship
+      // either. In the audited thread the preamble ("bet. tap this and we start
+      // tonight:") went out 919ms AHEAD of the URL — sending it while the link
+      // is refused would leave a dangling promise, which is worse than either
+      // outcome on its own. Let the model reply properly once it sees the block.
+      const blockedMinorCheckout =
+        minorAge !== null &&
+        response.content.some((b) => b.type === 'tool_use' && b.name === 'send_payment_link');
+
       const interim = extractText(response);
-      if (interim.length >= INTERIM_MIN_CHARS && args.onInterimText) {
+      if (!blockedMinorCheckout && interim.length >= INTERIM_MIN_CHARS && args.onInterimText) {
         try {
           await args.onInterimText(interim);
           interimSent.push(interim);
@@ -1256,6 +1271,23 @@ export class CoachingService {
             type: 'tool_result',
             tool_use_id: block.id,
             content: JSON.stringify({ ok: false, error: ACK_WRITE_SUPPRESSED_NOTE }),
+            is_error: true,
+          });
+          continue;
+        }
+        // Never sell to a self-declared minor. Blocks the checkout link only —
+        // KIBA keeps coaching them. See age-guard.ts.
+        if (minorAge !== null && block.name === 'send_payment_link') {
+          structuredLog(this.logger, 'warn', {
+            service: 'ai',
+            operation: 'payment_link_blocked_minor',
+            userId: args.userId,
+            declaredAge: minorAge,
+          });
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify({ ok: false, error: ageBlockedNote(minorAge) }),
             is_error: true,
           });
           continue;

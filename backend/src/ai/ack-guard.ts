@@ -114,7 +114,9 @@ const MAX_ACK_WORDS = 4;
 
 /** Emoji, variation selectors and ZWJ — a thumbs-up alone is an acknowledgment. */
 const EMOJI = /\p{Extended_Pictographic}(\p{Emoji_Modifier}|️)?|‍/gu;
-const PUNCT = /[.!?,;:~\-–—_"'`()[\]{}]/g;
+// Includes the curly apostrophe/quotes — iMessage substitutes them and every
+// real thread is full of them.
+const PUNCT = /[.!?,;:~\-–—_"'`’‘“”()[\]{}]/g;
 
 /**
  * Stretched spellings are the norm over SMS: "bettt", "coool", "niiice".
