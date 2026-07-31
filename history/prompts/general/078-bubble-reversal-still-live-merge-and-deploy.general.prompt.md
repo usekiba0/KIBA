@@ -1,5 +1,5 @@
 ---
-id: 076
+id: 078
 title: Bubble reversal still live — merge PR #65 and deploy
 stage: green
 date: 2026-07-31
