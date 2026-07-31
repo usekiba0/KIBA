@@ -393,7 +393,19 @@ describe('buildSystemPrompt', () => {
     // (dropped "short bursts" as redundant, dropped the plan clause now covered
     // by the cap, and took the bubble ceiling from 4 to 3). Net +19.
     //
-    // NOTE FOR THE NEXT RAISE: 15 chars of headroom remain — effectively none.
+    // The 2026-07-31 positive-ack rule landed UNDER this ceiling rather than
+    // raising it (Karibi: KIBA answered a one-word "Bettt" with a paragraph
+    // re-litigating a time it had already given). The SHORT/DRY TEXTERS rule
+    // tells the model to PUSH one-worders — correct for "maybe"/"idk", wrong for
+    // "bet", which is agreement. +61 for the distinction, paid for by -57
+    // compressing three rationale clauses in the same rule ("mirroring makes it
+    // land as banter" -> "it lands as banter"; "never a paragraph at a one-word
+    // reply" -> "never a paragraph"; dropped "for these users" and "on its own").
+    // The rest of the rule — never re-schedule or recompute off an ack — is NOT
+    // in the prompt at all: it is enforced deterministically by ack-guard.ts,
+    // same reasoning as stripFalseReminderClaims above. Net +4.
+    //
+    // NOTE FOR THE NEXT RAISE: ~11 chars of headroom remain — effectively none.
     // The next rule of any size trips this. Compress something first; every
     // raise above bought a behaviour, and the next one has to as well.
     expect(prompt.length).toBeLessThan(36400);
