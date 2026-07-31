@@ -24,6 +24,7 @@ import { validateRecurringMessage } from '../accountability/reminder-content';
 import { stripFalseReminderClaims } from './reminder-claim-guard';
 import { isInertAcknowledgmentTurn, ACK_WRITE_SUPPRESSED_NOTE } from './ack-guard';
 import { declaredMinorAgeInThread, ageBlockedNote } from './age-guard';
+import { stripPriceAtCheckout, userAskedAboutPrice } from './price-guard';
 import { evaluate } from './calc';
 import { correctArithmeticClaims } from './math-claim-guard';
 import {
@@ -1150,6 +1151,10 @@ export class CoachingService {
     // A checkout link went out this turn — the false-promise guard must not bolt
     // a reminder question onto the close. See reminder-claim-guard.ts.
     let paymentLinkSent = false;
+    // Naming a number at the moment of commitment makes people think about
+    // cancelling, so the close must not quote one. Unless they ASKED — answering
+    // that directly is mandatory, and dodging it is its own bug. See price-guard.ts.
+    const priceAsked = userAskedAboutPrice(args.incomingText);
 
     // A bare "bet" acknowledging a statement is inert — it asks for nothing. Prod
     // took one as an instruction and re-scheduled an already-fired reminder onto
@@ -1241,19 +1246,34 @@ export class CoachingService {
       // tonight:") went out 919ms AHEAD of the URL — sending it while the link
       // is refused would leave a dangling promise, which is worse than either
       // outcome on its own. Let the model reply properly once it sees the block.
-      const blockedMinorCheckout =
-        minorAge !== null &&
-        response.content.some((b) => b.type === 'tool_use' && b.name === 'send_payment_link');
+      const linkTurn = response.content.some(
+        (b) => b.type === 'tool_use' && b.name === 'send_payment_link',
+      );
+      const blockedMinorCheckout = minorAge !== null && linkTurn;
 
-      const interim = extractText(response);
+      // The preamble ships AHEAD of the link, so a price quoted here reaches the
+      // user before the final reply is ever guarded. Strip it on the way out.
+      let interim = extractText(response);
+      if (linkTurn && !priceAsked) {
+        const priceGuard = stripPriceAtCheckout(interim);
+        if (priceGuard.corrected) {
+          interim = priceGuard.text;
+          structuredLog(this.logger, 'warn', {
+            service: 'ai',
+            operation: 'price_quoted_at_checkout_stripped',
+            userId: args.userId,
+            where: 'interim',
+            dropped: priceGuard.dropped,
+          });
+        }
+      }
+
       if (!blockedMinorCheckout && interim.length >= INTERIM_MIN_CHARS && args.onInterimText) {
         try {
           await args.onInterimText(interim);
           interimSent.push(interim);
         } catch (err) {
-          this.logger.warn(
-            `interim send failed (user ${args.userId}): ${(err as Error).message}`,
-          );
+          this.logger.warn(`interim send failed (user ${args.userId}): ${(err as Error).message}`);
         }
       }
 
@@ -1576,6 +1596,24 @@ export class CoachingService {
           operation: 'false_reminder_claim_stripped',
           userId: args.userId,
           dropped: claimGuard.dropped,
+        });
+      }
+    }
+
+    // Never volunteer a number at the moment of commitment. Runs only on a turn
+    // that actually sent a checkout link — outside the close the price
+    // conversation is legitimate (it is scheduled for the reveal day), so a
+    // blanket strip would delete real copy. Stands down entirely if they asked.
+    if (paymentLinkSent && !priceAsked) {
+      const priceGuard = stripPriceAtCheckout(finalReply);
+      if (priceGuard.corrected) {
+        finalReply = priceGuard.text;
+        structuredLog(this.logger, 'warn', {
+          service: 'ai',
+          operation: 'price_quoted_at_checkout_stripped',
+          userId: args.userId,
+          where: 'final',
+          dropped: priceGuard.dropped,
         });
       }
     }
