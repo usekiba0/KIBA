@@ -1147,6 +1147,9 @@ export class CoachingService {
     // false-promise guard below must not touch the reply.
     let reminderWritesOk = 0;
     let reminderReads = 0;
+    // A checkout link went out this turn — the false-promise guard must not bolt
+    // a reminder question onto the close. See reminder-claim-guard.ts.
+    let paymentLinkSent = false;
 
     // A bare "bet" acknowledging a statement is inert — it asks for nothing. Prod
     // took one as an instruction and re-scheduled an already-fired reminder onto
@@ -1302,6 +1305,7 @@ export class CoachingService {
           if (!isError) {
             if (block.name === 'schedule_reminder') reminderWritesOk++;
             if (block.name === 'list_my_reminders') reminderReads++;
+            if (block.name === 'send_payment_link') paymentLinkSent = true;
           }
           toolResults.push({
             type: 'tool_result',
@@ -1564,7 +1568,7 @@ export class CoachingService {
     // the turn neither created nor read back a reminder — otherwise the claim is
     // true and deleting it would be its own lie. (Karibi 2026-07-21)
     if (args.dispatch && reminderWritesOk === 0 && reminderReads === 0) {
-      const claimGuard = stripFalseReminderClaims(finalReply);
+      const claimGuard = stripFalseReminderClaims(finalReply, { paymentLinkSent });
       if (claimGuard.corrected) {
         finalReply = claimGuard.text;
         structuredLog(this.logger, 'warn', {
