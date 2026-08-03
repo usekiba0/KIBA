@@ -405,6 +405,11 @@ export class AdminService {
         'content',
         'media_url',
         'media_content_type',
+        // The full batch: one row can carry several photos (a multi-photo send
+        // is merged into a single turn), and without these the admin thread
+        // rendered a 4-photo message as one image (Karibi 2026-08-03).
+        'media_urls',
+        'media_content_types',
         'created_at',
         'token_count',
         'flagged',

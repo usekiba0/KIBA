@@ -31,11 +31,25 @@ export class Message {
   @Column({ type: 'text' })
   content: string;
 
+  // Entry [0] of the batch below. Kept because every historical row has it and
+  // several read paths (admin API, proof submission) still want a single photo.
   @Column({ type: 'text', nullable: true })
   media_url: string | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
   media_content_type: string | null;
+
+  // The FULL ordered attachment batch for this turn. A multi-photo send arrives
+  // as one webhook per photo and the debouncer merges them, so a single row can
+  // legitimately carry four images — storing only media_url meant photo recall
+  // and the admin thread view saw one image for a turn that carried several
+  // (Karibi 2026-08-03). Backfilled to a one-entry array for legacy rows, so
+  // readers can treat these as authoritative and never branch on NULL.
+  @Column({ type: 'jsonb', nullable: true })
+  media_urls: string[] | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  media_content_types: string[] | null;
 
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 50, nullable: true })

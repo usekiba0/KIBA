@@ -12,7 +12,10 @@ type AlertStatus = 'open' | 'acknowledged' | 'resolved';
 interface AdminUserSub { id: string; plan: string; status: SubStatus; trial_end: string; current_period_end: string | null; }
 interface AdminUser { id: string; name: string; phone_number: string; coaching_focus: string; goals: string; status: UserStatus; crisis_hold: boolean; last_active_at: string | null; registered_at: string; subscription: AdminUserSub | null; execution_score: number | null; strike_count: number; plan_status: string; }
 interface CoachSettings { coach_alert_phone: string; coach_alert_email: string; }
-interface Message { id: string; session_id: string; role: 'user' | 'ai'; content: string; media_url: string | null; media_content_type: string | null; created_at: string; token_count: number | null; flagged: boolean; flag_reason: string | null; message_type: string; is_checkin_prompt: boolean; is_proof_submission: boolean; }
+// media_urls carries the FULL attachment batch — a multi-photo send is merged
+// into one turn, so a single row can hold several images. media_url stays as
+// entry [0] for rows written before that column existed.
+interface Message { id: string; session_id: string; role: 'user' | 'ai'; content: string; media_url: string | null; media_content_type: string | null; media_urls: string[] | null; media_content_types: string[] | null; created_at: string; token_count: number | null; flagged: boolean; flag_reason: string | null; message_type: string; is_checkin_prompt: boolean; is_proof_submission: boolean; }
 interface UserSubDetail { subscription: { stripe_customer_id: string; stripe_subscription_id: string; plan: string; status: string; trial_start: string; trial_end: string; current_period_end: string | null; created_at: string; } | null; stats: { total_messages: number; user_messages: number; ai_messages: number; flagged_messages: number; total_tokens_used: number; first_message_at: string | null; last_message_at: string | null; }; }
 interface DashStats { total_users: number; active_users: number; trial_users: number; paused_users: number; cancelled_users: number; crisis_hold_count: number; active_subs: number; trialing_subs: number; past_due_subs: number; cancelled_subs: number; trial_to_paid_count: number; mrr_cents: number; arr_cents: number; stripe_live_mode: boolean; paying_subs: number; test_mode_subs: number; messages_last_24h: number; messages_last_7d: number; flagged_messages_total: number; open_alerts: number; acknowledged_alerts: number; alerts_last_30d: number; }
 interface CrisisAlert { id: string; user_id: string; user_name: string; user_phone: string; detection_method: string; confidence_score: number | null; coach_alerted: boolean; coach_alerted_at: string | null; coach_alert_channel: string | null; holding_message_sent: boolean; status: AlertStatus; resolved_by: string | null; resolved_at: string | null; created_at: string; }
@@ -807,9 +810,13 @@ export default function AdminPage() {
                               border: msg.flagged ? '1px solid #7f1d1d' : 'none',
                               color: '#f0f9ff', fontSize: 14, lineHeight: 1.5,
                             }}>
-                              {msg.media_url ? (
+                              {(msg.media_urls?.length ? msg.media_urls : msg.media_url ? [msg.media_url] : []).length > 0 ? (
                                 <>
-                                  <MediaImage url={msg.media_url} apiKey={key} />
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                    {(msg.media_urls?.length ? msg.media_urls : [msg.media_url as string]).map((u) => (
+                                      <MediaImage key={u} url={u} apiKey={key} />
+                                    ))}
+                                  </div>
                                   {msg.content && msg.content !== '[image]' && (
                                     <div style={{ marginTop: 6 }}>{msg.content}</div>
                                   )}

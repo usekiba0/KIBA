@@ -17,6 +17,9 @@ export interface RecallableMessage {
   role: string; // 'user' | 'ai'
   media_url: string | null;
   media_content_type: string | null;
+  /** The full attachment batch (added 2026-08-03). NULL on pre-migration rows. */
+  media_urls?: string[] | null;
+  media_content_types?: string[] | null;
   created_at: Date | string;
 }
 
@@ -38,23 +41,65 @@ export interface RecalledImage {
 }
 
 /**
- * The most recent INBOUND image within `windowMs` of `nowMs`, newest first.
- * Skips GIFs (reaction media, not a real photo) and non-image media. `messages`
- * may be in any order — we scan for the latest qualifying one.
+ * Read a message's attachments as a batch. Prefers the `media_urls` array (one
+ * row can carry several photos — a multi-photo send is merged into a single
+ * turn); falls back to the singular pair for rows written before that column
+ * existed. Index-aligned; a missing type reads as ''.
+ */
+function attachmentsOf(m: RecallableMessage): Array<{ url: string; contentType: string }> {
+  if (m.media_urls?.length) {
+    return m.media_urls.map((url, i) => ({
+      url,
+      contentType: (m.media_content_types?.[i] ?? '').toLowerCase(),
+    }));
+  }
+  return m.media_url
+    ? [{ url: m.media_url, contentType: (m.media_content_type ?? '').toLowerCase() }]
+    : [];
+}
+
+/** A real photo — not reaction media, not audio/video. */
+function isRecallablePhoto(contentType: string): boolean {
+  return contentType.startsWith('image/') && contentType !== 'image/gif';
+}
+
+/**
+ * EVERY photo from the most recent qualifying inbound turn within `windowMs` of
+ * `nowMs`. Skips GIFs (reaction media, not a real photo) and non-image media.
+ * `messages` may be in any order — we scan for the latest qualifying turn.
+ *
+ * Returns the whole batch rather than one image: a user who sent three photos
+ * and then asks "what about the other one" was previously handed back only the
+ * first, so KIBA answered about the wrong picture (Karibi 2026-08-03).
+ */
+export function findRecentInboundImages(
+  messages: RecallableMessage[],
+  nowMs: number,
+  windowMs: number,
+  maxImages = 4,
+): RecalledImage[] {
+  let best: { images: RecalledImage[]; ts: number } | null = null;
+  for (const m of messages) {
+    if (m.role !== 'user') continue;
+    const ts = new Date(m.created_at).getTime();
+    if (Number.isNaN(ts) || nowMs - ts > windowMs || ts > nowMs) continue;
+    if (best && ts <= best.ts) continue;
+    const images = attachmentsOf(m)
+      .filter((a) => isRecallablePhoto(a.contentType))
+      .map((a) => ({ url: a.url, contentType: a.contentType }));
+    if (images.length > 0) best = { images, ts };
+  }
+  return best ? best.images.slice(0, maxImages) : [];
+}
+
+/**
+ * Back-compat single-image view of {@link findRecentInboundImages} — the first
+ * photo of the most recent qualifying turn, or null.
  */
 export function findRecentInboundImage(
   messages: RecallableMessage[],
   nowMs: number,
   windowMs: number,
 ): RecalledImage | null {
-  let best: { url: string; contentType: string; ts: number } | null = null;
-  for (const m of messages) {
-    if (m.role !== 'user' || !m.media_url) continue;
-    const ct = m.media_content_type ?? '';
-    if (!ct.startsWith('image/') || ct === 'image/gif') continue;
-    const ts = new Date(m.created_at).getTime();
-    if (Number.isNaN(ts) || nowMs - ts > windowMs || ts > nowMs) continue;
-    if (!best || ts > best.ts) best = { url: m.media_url, contentType: ct, ts };
-  }
-  return best ? { url: best.url, contentType: best.contentType } : null;
+  return findRecentInboundImages(messages, nowMs, windowMs)[0] ?? null;
 }

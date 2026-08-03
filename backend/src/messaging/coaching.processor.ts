@@ -57,7 +57,7 @@ import { resolveReminderFireAt, humanizeFireDelta } from './reminder-time';
 import { captureNameFromReply } from './name-capture';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
-import { referencesRecentPhoto, findRecentInboundImage } from './image-recall';
+import { referencesRecentPhoto, findRecentInboundImages } from './image-recall';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
 import { stripIdentityReferendum } from './intake-close-guard';
 import { sniffRemoteMediaType } from './media-type';
@@ -495,6 +495,17 @@ export class CoachingProcessor {
         content: body,
         media_url: mediaUrls[0] ?? null,
         media_content_type: mediaContentTypes[0] ?? null,
+        // The WHOLE batch, so a later turn can recall every photo of a
+        // multi-photo send rather than just the first (Karibi 2026-08-03).
+        // Types here are the controller's extension guess; the sniff that
+        // resolves extension-less URLs is a network call and must not be parked
+        // in front of this insert, which is the cross-instance dedup point. The
+        // resolved types are patched onto this row a few lines below.
+        media_urls: mediaUrls.length > 0 ? mediaUrls : null,
+        media_content_types:
+          mediaUrls.length > 0
+            ? mediaUrls.map((_, i) => (mediaContentTypes[i] ?? '').toLowerCase().split(';')[0].trim())
+            : null,
         twilio_sid: twilioSid,
         provider_message_id: messageHandle,
       });
@@ -637,6 +648,30 @@ export class CoachingProcessor {
     const firstMediaUrl = classified.primaryUrl;
     const resolvedMediaCt = classified.primaryContentType;
     const inboundIsImage = numMedia > 0 && classified.hasImage;
+
+    // Patch the row we just inserted with the RESOLVED types. Without this, an
+    // extension-less SendBlue URL stays recorded as application/octet-stream and
+    // photo recall — which only re-attaches media whose type starts with
+    // "image/" — skips a photo the model demonstrably just looked at. Nothing in
+    // THIS turn reads it back (recall runs on a LATER turn), so it stays off the
+    // reply path; failures are logged, never swallowed.
+    if (sniffedCount > 0 && resolvedMediaCts.length > 0) {
+      const patchId = inboundMsg.id;
+      void this.messageRepo
+        .update(patchId, {
+          media_content_type: resolvedMediaCts[0] ?? null,
+          media_content_types: resolvedMediaCts,
+        })
+        .catch((err: unknown) => {
+          structuredLog(this.logger, 'warn', {
+            service: 'messaging',
+            operation: 'media_type_patch_failed',
+            userId: user.id,
+            messageId: patchId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }
 
     // "what time is it in <place>" — compute deterministically from the runtime's
     // DST-aware tz database. The model hallucinates other-city times ("it's 3:31pm
@@ -1259,14 +1294,17 @@ export class CoachingProcessor {
     let recallUrls: string[] | undefined;
     let recallCts: string[] | undefined;
     if (referencesRecentPhoto(body)) {
-      const recalled = findRecentInboundImage(dbMessages, Date.now(), 30 * 60_000);
-      if (recalled) {
-        recallUrls = [recalled.url];
-        recallCts = [recalled.contentType];
+      // The whole batch, not just the first photo — "what about the other one"
+      // needs every image of that turn back in front of the model.
+      const recalled = findRecentInboundImages(dbMessages, Date.now(), 30 * 60_000);
+      if (recalled.length > 0) {
+        recallUrls = recalled.map((r) => r.url);
+        recallCts = recalled.map((r) => r.contentType);
         structuredLog(this.logger, 'log', {
           service: 'messaging',
           operation: 'image_recall_reattached',
           userId: user.id,
+          images: recalled.length,
         });
       }
     }
