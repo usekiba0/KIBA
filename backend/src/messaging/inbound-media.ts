@@ -80,19 +80,29 @@ export interface ClassifiedMedia {
 /**
  * Cap on images sent to the model in one turn. Bounds vision cost and latency.
  *
- * Raised 4 -> 6 on 2026-08-03, together with the adaptive burst window in
- * message-debouncer.service.ts. The two MUST move together: the burst window
- * merges dumps that previously split across several turns, and a 6-photo dump
- * merged into one turn but capped at 4 would show the model FEWER photos than
- * the old split-turn behaviour did — a coverage regression hiding inside a fix.
- * Six matches the largest real dump observed in prod.
+ * History, because this number has moved twice in one day and the reasons matter:
+ *   4 -> 6  alongside the adaptive burst window, so a merged dump wouldn't show
+ *           the model FEWER photos than the old split-turn behaviour did.
+ *   6 -> 3  after measuring what six actually costs. On a 19-photo prod send,
+ *           `genMs` was 32-36s for six-image turns versus 13-21s for two or
+ *           three, pushing `perceivedMs` to 60-90s per reply. Batching had cured
+ *           the per-photo spam and replaced it with replies nobody waits for.
+ *           Three keeps turns coherent while roughly halving generation.
+ *
+ * The cap and the burst window still move together — the window decides how many
+ * photos gather, this decides how many one turn may carry, and the debouncer
+ * flushes the moment the buffer reaches it.
+ *
+ * NOTE: like any process.env read this is fixed at process start, so changing
+ * MESSAGE_MAX_TURN_IMAGES needs a restart. Reading it lazily would not change
+ * that — process.env doesn't update underneath a running service.
  *
  * This is the single source of truth: the coaching service imports it rather
  * than keeping its own constant, so the two can't drift apart and silently
  * re-truncate the batch. Anything past the cap is reported, never dropped
  * quietly — see `droppedOverCap`.
  */
-export const MAX_TURN_IMAGES = Number(process.env.MESSAGE_MAX_TURN_IMAGES ?? 6);
+export const MAX_TURN_IMAGES = Number(process.env.MESSAGE_MAX_TURN_IMAGES ?? 3);
 
 export function classifyInboundMedia(
   urls: string[],
