@@ -1124,9 +1124,16 @@ export class CoachingService {
       usingImage = true;
       const fallbackCaption =
         blocks.length > 1
-          ? 'The user sent these photos with no caption — react to what you actually see across them, in your voice.'
+          ? `The user sent these ${blocks.length} photos with no caption — react to what you actually see across ALL of them, in your voice.`
           : 'The user sent this photo with no caption — react to what you actually see in it, in your voice.';
-      lastContent = [...blocks, { type: 'text', text: args.incomingText || fallbackCaption }];
+      // With a caption AND several photos the model tends to answer the text and
+      // describe only the first image. State the count so every photo is
+      // accounted for (Karibi 2026-08-03 — "it only reads one").
+      const captioned =
+        blocks.length > 1 && args.incomingText
+          ? `${args.incomingText}\n\n(the user attached ${blocks.length} photos to this message — take all ${blocks.length} into account, don't react to just the first one)`
+          : args.incomingText;
+      lastContent = [...blocks, { type: 'text', text: captioned || fallbackCaption }];
     } else {
       lastContent = args.incomingText || 'I sent you a message.';
     }

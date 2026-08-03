@@ -61,6 +61,7 @@ import { referencesRecentPhoto, findRecentInboundImage } from './image-recall';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
 import { stripIdentityReferendum } from './intake-close-guard';
 import { sniffRemoteMediaType } from './media-type';
+import { resolveMediaContentTypes, classifyInboundMedia } from './inbound-media';
 import { isTimeQuery, formatLocalClock12h } from './local-time';
 import {
   detectKeyword,
@@ -575,24 +576,28 @@ export class CoachingProcessor {
     // "it's not seeing the photo" — the image branch below only ran for COMPLETE
     // users, so pre-payment photos were silently dropped and the AI improvised
     // "i can't see images").
-    const firstMediaUrl = mediaUrls[0] ?? null;
-    let resolvedMediaCt = (mediaContentTypes[0] ?? '').toLowerCase().split(';')[0].trim();
-    if (
-      numMedia > 0 &&
-      firstMediaUrl &&
-      (!resolvedMediaCt || resolvedMediaCt === 'application/octet-stream')
-    ) {
-      const sniffed = await sniffRemoteMediaType(firstMediaUrl);
-      if (sniffed) {
-        structuredLog(this.logger, 'log', {
-          service: 'messaging',
-          operation: 'media_type_sniffed',
-          userId: user.id,
-          channel,
-          contentType: sniffed,
-        });
-        resolvedMediaCt = sniffed;
-      }
+    //
+    // Resolved for EVERY attachment, not just the first. A multi-photo send
+    // arrives as one webhook per photo and the debouncer merges them, so this is
+    // a BATCH — classifying it off entry [0] made photos 2..N reach the model
+    // still labelled application/octet-stream, where the format check dropped
+    // them and KIBA read only the first one (Karibi 2026-08-03).
+    let resolvedMediaCts =
+      numMedia > 0
+        ? await resolveMediaContentTypes(mediaUrls, mediaContentTypes, sniffRemoteMediaType)
+        : [];
+    const sniffedCount = resolvedMediaCts.filter(
+      (ct, i) => ct && ct !== (mediaContentTypes[i] ?? '').toLowerCase().split(';')[0].trim(),
+    ).length;
+    if (sniffedCount > 0) {
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'media_type_sniffed',
+        userId: user.id,
+        channel,
+        sniffedCount,
+        contentType: resolvedMediaCts.join(','),
+      });
     }
     // A shared LINK (whop.com, YouTube, an article) reaches us as an iMessage
     // link-preview attachment, NOT a photo: the URL has no media extension so
@@ -604,22 +609,34 @@ export class CoachingProcessor {
     // reaching the coach. When the attachment is unidentifiable but the message
     // has text, drop the attachment and run the turn as plain text so KIBA
     // actually responds to what they sent. (Karibi 2026-07-21)
-    if (
-      numMedia > 0 &&
-      (!resolvedMediaCt || resolvedMediaCt === 'application/octet-stream') &&
-      (body ?? '').trim().length > 0
-    ) {
+    let classified = classifyInboundMedia(mediaUrls, resolvedMediaCts);
+    if (numMedia > 0 && classified.allUnidentified && (body ?? '').trim().length > 0) {
       structuredLog(this.logger, 'log', {
         service: 'messaging',
         operation: 'unidentified_media_demoted_to_text',
         userId: user.id,
         channel,
-        contentType: resolvedMediaCt || 'none',
+        contentType: resolvedMediaCts.join(',') || 'none',
       });
       numMedia = 0;
-      resolvedMediaCt = '';
+      resolvedMediaCts = [];
+      classified = classifyInboundMedia([], []);
     }
-    const inboundIsImage = numMedia > 0 && resolvedMediaCt.startsWith('image/');
+    // A truncated batch must never look like a complete one — if someone sends
+    // six photos we read four, and that shows up in the logs.
+    if (classified.droppedOverCap > 0) {
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'media_batch_truncated',
+        userId: user.id,
+        channel,
+        read: classified.imageUrls.length,
+        dropped: classified.droppedOverCap,
+      });
+    }
+    const firstMediaUrl = classified.primaryUrl;
+    const resolvedMediaCt = classified.primaryContentType;
+    const inboundIsImage = numMedia > 0 && classified.hasImage;
 
     // "what time is it in <place>" — compute deterministically from the runtime's
     // DST-aware tz database. The model hallucinates other-city times ("it's 3:31pm
@@ -904,8 +921,8 @@ export class CoachingProcessor {
         body,
         boundary.sessionId,
         inboundMsg.id,
-        inboundIsImage ? (firstMediaUrl ?? undefined) : undefined,
-        inboundIsImage ? resolvedMediaCt : undefined,
+        inboundIsImage ? classified.imageUrls : undefined,
+        inboundIsImage ? classified.imageContentTypes : undefined,
       );
       const genMs = Date.now() - genStart;
       const sendStart = Date.now();
@@ -1090,7 +1107,13 @@ export class CoachingProcessor {
       // the model describe a single ambiguous frame, then contradict itself
       // ("why you looking at me like that" → "nah what gif?"). Branch it out of
       // proof, and ground the reply so it reacts coherently. (Karibi 2026-06-30)
-      const isGif = mediaCt === 'image/gif';
+      // EVERY image must be a GIF for the batch to count as a reaction. A GIF
+      // arriving alongside a real photo is a photo turn — treating the whole
+      // batch as a meme because the meme happened to land first would skip proof
+      // and leave the actual photo unremarked on.
+      const isGif =
+        classified.imageContentTypes.length > 0 &&
+        classified.imageContentTypes.every((ct) => ct === 'image/gif');
 
       // Non-image media: voice notes / video / unknown blobs route here. We
       // can't run vision on audio bytes (that's how the "couldn't read that
@@ -1186,8 +1209,11 @@ export class CoachingProcessor {
         dbMessages,
         incomingText,
         latestSummary?.summary,
-        mediaUrls.slice(0, 4),
-        mediaContentTypes.slice(0, 4),
+        // The RESOLVED image set — every photo in the batch, each with the type
+        // we actually established (sniffed where the URL had no extension), so
+        // none of them gets dropped downstream as an unsupported format.
+        classified.imageUrls,
+        classified.imageContentTypes,
         this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
         visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status, committed: t.committed_at != null })),
         visionPatterns,
@@ -1297,8 +1323,8 @@ export class CoachingProcessor {
     body: string,
     sessionId: string,
     userMessageId: string,
-    imageUrl?: string,
-    imageContentType?: string,
+    imageUrls?: string[],
+    imageContentTypes?: string[],
   ): Promise<string> {
     // ── Deterministic slot capture (don't trust the model to do the math) ──
     // The intake prompt's "STILL MISSING" gate reads PERSISTED state, but the
@@ -1472,8 +1498,8 @@ export class CoachingProcessor {
       intakeText,
       ctx,
       handlers,
-      imageUrl ? [imageUrl] : undefined,
-      imageContentType ? [imageContentType] : undefined,
+      imageUrls?.length ? imageUrls : undefined,
+      imageContentTypes?.length ? imageContentTypes : undefined,
     );
 
     // ── Link delivery: explicit ask + safety-net ──────────────────────────
