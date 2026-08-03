@@ -73,28 +73,65 @@ describe('MessageDebouncerService', () => {
     expect(mockProcessor.process).toHaveBeenCalledTimes(2);
   });
 
-  it('flushes an image burst at the 3s image window', async () => {
+  it('flushes a single image at the 4s image window', async () => {
     service.push(msg({
       text: 'check this', uniqueId: 'img1', dateSent: 1_000,
       mediaUrls: ['https://example.com/p.heic'], mediaContentTypes: ['image/heic'],
     }));
-    jest.advanceTimersByTime(1500);
+    jest.advanceTimersByTime(3999);
     await Promise.resolve();
-    expect(mockProcessor.process).not.toHaveBeenCalled(); // not at 1.5s anymore
-    jest.advanceTimersByTime(1500);
+    expect(mockProcessor.process).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
     await Promise.resolve();
     expect(mockProcessor.process).toHaveBeenCalledTimes(1);
     expect((processCalls[0] as { numMedia: number }).numMedia).toBe(1);
   });
 
-  it('batches multiple images arriving up to 3s apart into ONE reply (no per-image spam)', async () => {
+  it('batches multiple images arriving within the window into ONE reply (no per-image spam)', async () => {
     service.push(msg({ uniqueId: 'i1', text: '', dateSent: 1, mediaUrls: ['a.jpg'], mediaContentTypes: ['image/jpeg'] }));
     jest.advanceTimersByTime(2500); // second photo lands 2.5s later (within window)
     service.push(msg({ uniqueId: 'i2', text: '', dateSent: 2, mediaUrls: ['b.jpg'], mediaContentTypes: ['image/jpeg'] }));
-    jest.advanceTimersByTime(3000);
+    jest.advanceTimersByTime(8000); // two photos buffered -> burst window
     await Promise.resolve();
     expect(mockProcessor.process).toHaveBeenCalledTimes(1);
     expect((processCalls[0] as { numMedia: number; mediaUrls: string[] }).numMedia).toBe(2);
+  });
+
+  // Karibi 2026-08-03. Replay of the REAL prod sequence (user +92, 6 photos)
+  // whose arrival gaps were 3349 / 5306 / 3057 / 2764 / 5899 ms. Under the flat
+  // 4000ms window two gaps overflowed and this split into THREE turns, so KIBA
+  // sent three replies and the first two described the same photos.
+  it('holds a real-world 6-photo dump together in ONE turn (prod gap replay)', async () => {
+    const GAPS = [3349, 5306, 3057, 2764, 5899];
+    service.push(msg({ uniqueId: 'p0', text: '', dateSent: 0, mediaUrls: ['p0.jpg'], mediaContentTypes: ['image/jpeg'] }));
+    GAPS.forEach((gap, i) => {
+      jest.advanceTimersByTime(gap);
+      service.push(msg({
+        uniqueId: `p${i + 1}`, text: '', dateSent: i + 1,
+        mediaUrls: [`p${i + 1}.jpg`], mediaContentTypes: ['image/jpeg'],
+      }));
+    });
+    // Nothing may have flushed yet — a split here is the bug.
+    expect(mockProcessor.process).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(8000);
+    await Promise.resolve();
+
+    expect(mockProcessor.process).toHaveBeenCalledTimes(1);
+    const call = processCalls[0] as { numMedia: number; mediaUrls: string[] };
+    expect(call.numMedia).toBe(6);
+    expect(call.mediaUrls).toHaveLength(6);
+  });
+
+  it('does NOT charge the burst wait to a lone photo sent with a text bubble', async () => {
+    service.push(msg({ uniqueId: 't1', text: 'which one', dateSent: 1, mediaUrls: [] }));
+    service.push(msg({ uniqueId: 'i1', text: '', dateSent: 2, mediaUrls: ['a.jpg'], mediaContentTypes: ['image/jpeg'] }));
+
+    // One photo + one text = still a single-photo turn: flushes at 4s, not 8s.
+    jest.advanceTimersByTime(4000);
+    await Promise.resolve();
+    expect(mockProcessor.process).toHaveBeenCalledTimes(1);
+    expect((processCalls[0] as { numMedia: number }).numMedia).toBe(1);
   });
 
   it('sorts merged messages by dateSent so the image arriving late lands in order', async () => {
@@ -106,8 +143,8 @@ describe('MessageDebouncerService', () => {
       mediaUrls: ['https://example.com/photo.heic'], mediaContentTypes: ['image/heic'],
     }));
 
-    // Buffer has media -> flushes at the 3s image window.
-    jest.advanceTimersByTime(3000);
+    // One photo (plus a text bubble) -> the single-photo window, not the burst one.
+    jest.advanceTimersByTime(4000);
     await Promise.resolve();
 
     expect(mockProcessor.process).toHaveBeenCalledTimes(1);
@@ -148,7 +185,18 @@ describe('debounceDelayFor', () => {
   it('adds no delay for a text-only burst', () => {
     expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: [] }])).toBe(0);
   });
-  it('uses the 3s image window when any message has media', () => {
-    expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: ['x'] }])).toBe(3000);
+  it('uses the 4s image window for a single photo', () => {
+    expect(debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: ['x'] }])).toBe(4000);
+  });
+  it('escalates to the 8s burst window once a SECOND photo lands', () => {
+    expect(debounceDelayFor([{ mediaUrls: ['x'] }, { mediaUrls: ['y'] }])).toBe(8000);
+  });
+  it('counts media, not messages — one webhook carrying two photos is a burst', () => {
+    expect(debounceDelayFor([{ mediaUrls: ['x', 'y'] }])).toBe(8000);
+  });
+  it('keeps a lone photo on the fast window no matter how many text bubbles ride along', () => {
+    expect(
+      debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: ['x'] }, { mediaUrls: [] }]),
+    ).toBe(4000);
   });
 });

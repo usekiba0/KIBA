@@ -78,11 +78,21 @@ export interface ClassifiedMedia {
 }
 
 /**
- * Cap on images sent to the model in one turn. Bounds vision cost and latency on
- * a burst; four is enough for the real behaviour (a couple of angles, a few
- * screenshots). Anything past it is reported, never dropped quietly.
+ * Cap on images sent to the model in one turn. Bounds vision cost and latency.
+ *
+ * Raised 4 -> 6 on 2026-08-03, together with the adaptive burst window in
+ * message-debouncer.service.ts. The two MUST move together: the burst window
+ * merges dumps that previously split across several turns, and a 6-photo dump
+ * merged into one turn but capped at 4 would show the model FEWER photos than
+ * the old split-turn behaviour did — a coverage regression hiding inside a fix.
+ * Six matches the largest real dump observed in prod.
+ *
+ * This is the single source of truth: the coaching service imports it rather
+ * than keeping its own constant, so the two can't drift apart and silently
+ * re-truncate the batch. Anything past the cap is reported, never dropped
+ * quietly — see `droppedOverCap`.
  */
-export const MAX_TURN_IMAGES = 4;
+export const MAX_TURN_IMAGES = Number(process.env.MESSAGE_MAX_TURN_IMAGES ?? 6);
 
 export function classifyInboundMedia(
   urls: string[],
