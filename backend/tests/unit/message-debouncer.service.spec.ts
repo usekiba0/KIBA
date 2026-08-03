@@ -4,6 +4,7 @@ import {
   debounceDelayFor,
   providerLagMs,
 } from '../../src/messaging/message-debouncer.service';
+import { MAX_TURN_IMAGES } from '../../src/messaging/inbound-media';
 
 // Text bursts flush immediately (window turned off 2026-07-21 — it never merged
 // real bubbles and was pure latency); image bursts still batch at 3000ms.
@@ -107,26 +108,30 @@ describe('MessageDebouncerService', () => {
   // whose arrival gaps were 3349 / 5306 / 3057 / 2764 / 5899 ms. Under the flat
   // 4000ms window two gaps overflowed and this split into THREE turns, so KIBA
   // sent three replies and the first two described the same photos.
-  it('holds a real-world 6-photo dump together in ONE turn (prod gap replay)', async () => {
+  // Prod gap replay for the +92 user's 6-photo send. Before the burst window this
+  // was 3 turns; it is now bounded by the image cap rather than by the gaps —
+  // the cap exists because six-image turns cost 32-36s of generation.
+  it('groups a real-world 6-photo dump into cap-sized turns, losing none', async () => {
     const GAPS = [3349, 5306, 3057, 2764, 5899];
     service.push(msg({ uniqueId: 'p0', text: '', dateSent: 0, mediaUrls: ['p0.jpg'], mediaContentTypes: ['image/jpeg'] }));
-    GAPS.forEach((gap, i) => {
-      jest.advanceTimersByTime(gap);
+    for (let i = 0; i < GAPS.length; i++) {
+      jest.advanceTimersByTime(GAPS[i]);
+      await Promise.resolve();
       service.push(msg({
         uniqueId: `p${i + 1}`, text: '', dateSent: i + 1,
         mediaUrls: [`p${i + 1}.jpg`], mediaContentTypes: ['image/jpeg'],
       }));
-    });
-    // Nothing may have flushed yet — a split here is the bug.
-    expect(mockProcessor.process).not.toHaveBeenCalled();
-
-    jest.advanceTimersByTime(8000);
+    }
+    jest.advanceTimersByTime(9000);
+    await Promise.resolve();
     await Promise.resolve();
 
-    expect(mockProcessor.process).toHaveBeenCalledTimes(1);
-    const call = processCalls[0] as { numMedia: number; mediaUrls: string[] };
-    expect(call.numMedia).toBe(6);
-    expect(call.mediaUrls).toHaveLength(6);
+    const sizes = processCalls.map((c) => (c as { numMedia: number }).numMedia);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(6);
+    // Ceiling of 6/cap turns, and never a per-photo split.
+    expect(sizes.length).toBeLessThanOrEqual(Math.ceil(6 / MAX_TURN_IMAGES) + 1);
+    sizes.forEach((n) => expect(n).toBeLessThanOrEqual(MAX_TURN_IMAGES));
+    expect(sizes.filter((n) => n === 1).length).toBeLessThanOrEqual(1);
   });
 
   it('does NOT charge the burst wait to a lone photo sent with a text bubble', async () => {
@@ -194,7 +199,7 @@ describe('MessageDebouncerService', () => {
   // 2065-6046ms (the spacing is Apple's sequential upload, NOT the provider —
   // span at SendBlue 44998ms vs 44773ms at our end). Photos 1-5 each exceeded
   // the 4000ms base window and flushed ALONE, producing five per-photo replies.
-  it('collapses a 12-photo dump from six turns to three (prod arrival replay)', async () => {
+  it('collapses a 12-photo dump well below the six turns prod saw (arrival replay)', async () => {
     const GAPS = [4374, 6043, 4800, 5998, 4599, 2228, 4480, 2211, 3739, 2069, 4232];
     const photo = (i: number) => msg({
       uniqueId: `d${i}`, text: '', dateSent: i,
@@ -214,18 +219,23 @@ describe('MessageDebouncerService', () => {
     const sizes = processCalls.map((c) => (c as { numMedia: number }).numMedia);
     const totalPhotos = sizes.reduce((a, b) => a + b, 0);
 
-    // Every photo still accounted for, and far fewer turns than the 6 prod saw.
+    // Every photo still accounted for. Turn count is now governed by the image
+    // cap rather than by arrival gaps: ceil(11 remaining / cap) after the lone
+    // first photo. The win over prod's six turns is that only ONE turn is a
+    // singleton and every other turn is full — and each is far cheaper to
+    // generate than a six-image turn was.
     expect(totalPhotos).toBe(12);
-    expect(sizes.length).toBeLessThanOrEqual(3);
+    expect(sizes.length).toBeLessThanOrEqual(1 + Math.ceil(11 / MAX_TURN_IMAGES));
+    expect(sizes.filter((n) => n === 1).length).toBe(1);
     // The first photo still answers on the FAST window — that's the whole point
     // of the recency escalation rather than a bigger base window.
     expect(sizes[0]).toBe(1);
     // No turn may exceed the cap; the cap-flush is what bounds the wait.
-    sizes.forEach((n) => expect(n).toBeLessThanOrEqual(6));
+    sizes.forEach((n) => expect(n).toBeLessThanOrEqual(MAX_TURN_IMAGES));
   });
 
   it('flushes IMMEDIATELY once the image cap is reached, without waiting out the window', async () => {
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < MAX_TURN_IMAGES; i++) {
       service.push(msg({
         uniqueId: `c${i}`, text: '', dateSent: i,
         mediaUrls: [`c${i}.jpg`], mediaContentTypes: ['image/jpeg'],
@@ -235,7 +245,7 @@ describe('MessageDebouncerService', () => {
     await Promise.resolve();
 
     expect(mockProcessor.process).toHaveBeenCalledTimes(1);
-    expect((processCalls[0] as { numMedia: number }).numMedia).toBe(6);
+    expect((processCalls[0] as { numMedia: number }).numMedia).toBe(MAX_TURN_IMAGES);
   });
 
   it('does NOT escalate a lone photo sent long after the previous one', async () => {
@@ -327,12 +337,14 @@ describe('debounceDelayFor', () => {
     expect(debounceDelayFor([{ mediaUrls: [] }], 400)).toBe(0);
   });
   it('flushes immediately once the buffer reaches the image cap', () => {
-    const six = Array.from({ length: 6 }, () => ({ mediaUrls: ['x'] }));
-    expect(debounceDelayFor(six)).toBe(0);
-    expect(debounceDelayFor(six, 400)).toBe(0);
+    const atCap = Array.from({ length: MAX_TURN_IMAGES }, () => ({ mediaUrls: ['x'] }));
+    expect(debounceDelayFor(atCap)).toBe(0);
+    expect(debounceDelayFor(atCap, 400)).toBe(0);
+    // And beyond it, in case a single webhook ever carries several attachments.
+    expect(debounceDelayFor([{ mediaUrls: Array(MAX_TURN_IMAGES + 2).fill('x') }])).toBe(0);
   });
   it('still batches below the cap', () => {
-    const five = Array.from({ length: 5 }, () => ({ mediaUrls: ['x'] }));
-    expect(debounceDelayFor(five)).toBe(8000);
+    const belowCap = Array.from({ length: MAX_TURN_IMAGES - 1 }, () => ({ mediaUrls: ['x'] }));
+    expect(debounceDelayFor(belowCap)).toBe(MAX_TURN_IMAGES - 1 >= 2 ? 8000 : 4000);
   });
 });

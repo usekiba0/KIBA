@@ -325,17 +325,17 @@ describe('CoachingService', () => {
       expect(imageBlocks.length).toBe(MAX_TURN_IMAGES);
     });
 
-    it('sends a 6-photo dump in full — the size the burst window now merges', async () => {
+    it('sends a full-cap batch in one turn — the size the burst window merges', async () => {
       mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'seen them' }], usage: { input_tokens: 10, output_tokens: 5 } });
-      const six = Array.from({ length: 6 }, (_, i) => `${i}.jpg`);
+      const batch = Array.from({ length: MAX_TURN_IMAGES }, (_, i) => `${i}.jpg`);
       await (service as any).runChat({
         systemPrompt: 'sys', recentMessages: [], incomingText: 'which of these',
-        imageUrls: six, imageContentTypes: six.map(() => 'image/jpeg'),
+        imageUrls: batch, imageContentTypes: batch.map(() => 'image/jpeg'),
         userId: 'u1', operationLabel: 'test',
       });
       const sent = mockCreate.mock.calls[0][0];
       const last = sent.messages[sent.messages.length - 1];
-      expect((last.content as Array<{ type: string }>).filter((b) => b.type === 'image').length).toBe(6);
+      expect((last.content as Array<{ type: string }>).filter((b) => b.type === 'image').length).toBe(MAX_TURN_IMAGES);
     });
   });
 
