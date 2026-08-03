@@ -36,7 +36,26 @@ interface BufferState {
 // a step at a time in Render and watch for per-photo replies before going again.
 // Vision e2e is ~15s p50; this 3s is the small half. The real cost is the
 // AI_VISION_MODEL generation (7-11s) — see scripts/sim-vision.ts.
-const IMAGE_DEBOUNCE_MS = Number(process.env.MESSAGE_IMAGE_DEBOUNCE_MS ?? 3000);
+// Default raised 3000 -> 4000 on 2026-08-03 after measuring real arrival gaps in
+// prod (see the burst window below). Prod also sets the env var explicitly.
+const IMAGE_DEBOUNCE_MS = Number(process.env.MESSAGE_IMAGE_DEBOUNCE_MS ?? 4000);
+
+// ADAPTIVE second stage. Once TWO photos are in the buffer, a burst is a fact
+// rather than a guess, so we can afford to wait longer for the rest of it —
+// without charging that wait to the single-photo case, which is the common one.
+//
+// Why this exists (Karibi 2026-08-03): a real user (+92, Pakistan) sent 6 photos
+// whose arrival gaps were 3349 / 5306 / 3057 / 2764 / 5899 ms. Two of those blew
+// past the 4000ms window, so the dump split into THREE turns and KIBA sent three
+// replies — the first two redundantly describing the same SSD and the same
+// fintech panel. Exactly the per-photo spam the debouncer exists to prevent.
+//
+// The window had been tuned on founder testing (US wifi, gaps 2155-2793ms). The
+// first real user roughly DOUBLED that. Never tune this on founder data alone.
+//
+// 8000 covers the observed 5899ms worst case with margin. Env-tunable so it can
+// be dialled back without a deploy if it costs too much perceived latency.
+const IMAGE_BURST_DEBOUNCE_MS = Number(process.env.MESSAGE_IMAGE_BURST_DEBOUNCE_MS ?? 8000);
 // TEXT bursts: OFF (Karibi 2026-07-21). Was 2s, then 1.5s. In real use it never
 // merged anything — people leave 3-8s between bubbles, so almost every message
 // flushed alone and the window was pure added latency on the common case (a
@@ -50,11 +69,20 @@ const IMAGE_DEBOUNCE_MS = Number(process.env.MESSAGE_IMAGE_DEBOUNCE_MS ?? 3000);
 // webhooks really do land 1-3s apart, so that window merges and is worth its cost.
 const TEXT_DEBOUNCE_MS = 0;
 
-/** Delay before flushing a buffer: image bursts flush fast, text bursts wait a
- * touch longer so quick-succession bubbles are read as one message. */
+/**
+ * Delay before flushing a buffer. Three cases:
+ *   no media  -> flush immediately (the text window is off)
+ *   1 photo   -> IMAGE_DEBOUNCE_MS, the cost paid by the common single-photo case
+ *   2+ photos -> IMAGE_BURST_DEBOUNCE_MS, because a burst is now confirmed
+ *
+ * Counting MEDIA (not messages) is what makes the escalation honest: a photo
+ * plus a separate text bubble is still a single-photo turn and must not be
+ * charged the burst wait.
+ */
 export function debounceDelayFor(messages: { mediaUrls: string[] }[]): number {
-  const hasMedia = messages.some((m) => m.mediaUrls.length > 0);
-  return hasMedia ? IMAGE_DEBOUNCE_MS : TEXT_DEBOUNCE_MS;
+  const mediaCount = messages.reduce((n, m) => n + m.mediaUrls.length, 0);
+  if (mediaCount === 0) return TEXT_DEBOUNCE_MS;
+  return mediaCount >= 2 ? IMAGE_BURST_DEBOUNCE_MS : IMAGE_DEBOUNCE_MS;
 }
 
 // Keep webhook IDs around long enough to absorb Twilio/SendBlue retries even

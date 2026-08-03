@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { CoachingService } from '../../src/ai/coaching.service';
+import { MAX_TURN_IMAGES } from '../../src/messaging/inbound-media';
 import { User, UserStatus } from '../../src/data/entities/user.entity';
 import { Message, MessageRole, MessageType } from '../../src/data/entities/message.entity';
 import { PsychologicalProfile, PressurePreference } from '../../src/data/entities/psychological-profile.entity';
@@ -305,18 +306,36 @@ describe('CoachingService', () => {
       expect(result.reply).toBe('nice shots');
     });
 
-    it('caps at 4 images even when more are sent', async () => {
+    // The cap is shared with the debouncer's burst window via inbound-media.ts —
+    // asserting against the imported constant instead of a literal keeps this
+    // test honest if the cap moves, and stops the service re-truncating a batch
+    // the processor already sized (Karibi 2026-08-03).
+    it(`caps at MAX_TURN_IMAGES (${MAX_TURN_IMAGES}) even when more are sent`, async () => {
       mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'got all of those' }], usage: { input_tokens: 10, output_tokens: 5 } });
+      const many = Array.from({ length: MAX_TURN_IMAGES + 3 }, (_, i) => `${i}.jpg`);
       await (service as any).runChat({
         systemPrompt: 'sys', recentMessages: [], incomingText: '',
-        imageUrls: ['1.jpg', '2.jpg', '3.jpg', '4.jpg', '5.jpg', '6.jpg'],
-        imageContentTypes: ['image/jpeg', 'image/jpeg', 'image/jpeg', 'image/jpeg', 'image/jpeg', 'image/jpeg'],
+        imageUrls: many,
+        imageContentTypes: many.map(() => 'image/jpeg'),
         userId: 'u1', operationLabel: 'test',
       });
       const sent = mockCreate.mock.calls[0][0];
       const last = sent.messages[sent.messages.length - 1];
       const imageBlocks = (last.content as Array<{ type: string }>).filter((b) => b.type === 'image');
-      expect(imageBlocks.length).toBe(4);
+      expect(imageBlocks.length).toBe(MAX_TURN_IMAGES);
+    });
+
+    it('sends a 6-photo dump in full — the size the burst window now merges', async () => {
+      mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'seen them' }], usage: { input_tokens: 10, output_tokens: 5 } });
+      const six = Array.from({ length: 6 }, (_, i) => `${i}.jpg`);
+      await (service as any).runChat({
+        systemPrompt: 'sys', recentMessages: [], incomingText: 'which of these',
+        imageUrls: six, imageContentTypes: six.map(() => 'image/jpeg'),
+        userId: 'u1', operationLabel: 'test',
+      });
+      const sent = mockCreate.mock.calls[0][0];
+      const last = sent.messages[sent.messages.length - 1];
+      expect((last.content as Array<{ type: string }>).filter((b) => b.type === 'image').length).toBe(6);
     });
   });
 

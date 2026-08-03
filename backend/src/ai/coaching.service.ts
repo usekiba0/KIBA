@@ -38,6 +38,7 @@ import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/paym
 import { CorrectionService } from '../data/correction.service';
 import { formatHistoryStamp, localDayOfWeek } from '../messaging/local-time';
 import { resolveOffsetMinutes } from '../messaging/world-time';
+import { MAX_TURN_IMAGES } from '../messaging/inbound-media';
 import {
   buildDateFactsBlock,
   correctTimeClaims,
@@ -1094,9 +1095,13 @@ export class CoachingService {
 
     // Multi-image: people send several photos at once (a few angles, a couple of
     // screenshots). Claude sees them all in one message, so KIBA reacts to the
-    // SET in one reply instead of one-per-photo. Cap at 4 to bound vision cost.
-    const MAX_IMAGES = 4;
-    const urls = (args.imageUrls ?? []).slice(0, MAX_IMAGES);
+    // SET in one reply instead of one-per-photo.
+    //
+    // The cap comes from inbound-media.ts rather than being redeclared here. It
+    // used to be a local `const MAX_IMAGES = 4`, which meant the processor could
+    // resolve a 6-photo batch and this slice would quietly cut it back to 4 —
+    // one cap silently overriding the other.
+    const urls = (args.imageUrls ?? []).slice(0, MAX_TURN_IMAGES);
     let usingImage = false;
     let lastContent:
       | string
