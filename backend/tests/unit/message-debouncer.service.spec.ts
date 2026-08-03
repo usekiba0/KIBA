@@ -190,6 +190,68 @@ describe('MessageDebouncerService', () => {
     expect((processCalls[0] as { providerLagMs: number | null }).providerLagMs).toBeNull();
   });
 
+  // Karibi 2026-08-03: 12 photos sent "together" arrived over 44.8s with gaps of
+  // 2065-6046ms (the spacing is Apple's sequential upload, NOT the provider —
+  // span at SendBlue 44998ms vs 44773ms at our end). Photos 1-5 each exceeded
+  // the 4000ms base window and flushed ALONE, producing five per-photo replies.
+  it('collapses a 12-photo dump from six turns to three (prod arrival replay)', async () => {
+    const GAPS = [4374, 6043, 4800, 5998, 4599, 2228, 4480, 2211, 3739, 2069, 4232];
+    const photo = (i: number) => msg({
+      uniqueId: `d${i}`, text: '', dateSent: i,
+      mediaUrls: [`d${i}.jpg`], mediaContentTypes: ['image/jpeg'],
+    });
+
+    service.push(photo(0));
+    for (let i = 0; i < GAPS.length; i++) {
+      jest.advanceTimersByTime(GAPS[i]);
+      await Promise.resolve();
+      service.push(photo(i + 1));
+    }
+    jest.advanceTimersByTime(9000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const sizes = processCalls.map((c) => (c as { numMedia: number }).numMedia);
+    const totalPhotos = sizes.reduce((a, b) => a + b, 0);
+
+    // Every photo still accounted for, and far fewer turns than the 6 prod saw.
+    expect(totalPhotos).toBe(12);
+    expect(sizes.length).toBeLessThanOrEqual(3);
+    // The first photo still answers on the FAST window — that's the whole point
+    // of the recency escalation rather than a bigger base window.
+    expect(sizes[0]).toBe(1);
+    // No turn may exceed the cap; the cap-flush is what bounds the wait.
+    sizes.forEach((n) => expect(n).toBeLessThanOrEqual(6));
+  });
+
+  it('flushes IMMEDIATELY once the image cap is reached, without waiting out the window', async () => {
+    for (let i = 0; i < 6; i++) {
+      service.push(msg({
+        uniqueId: `c${i}`, text: '', dateSent: i,
+        mediaUrls: [`c${i}.jpg`], mediaContentTypes: ['image/jpeg'],
+      }));
+    }
+    jest.advanceTimersByTime(0);
+    await Promise.resolve();
+
+    expect(mockProcessor.process).toHaveBeenCalledTimes(1);
+    expect((processCalls[0] as { numMedia: number }).numMedia).toBe(6);
+  });
+
+  it('does NOT escalate a lone photo sent long after the previous one', async () => {
+    service.push(msg({ uniqueId: 'a', mediaUrls: ['a.jpg'], mediaContentTypes: ['image/jpeg'], text: '' }));
+    jest.advanceTimersByTime(4000);
+    await Promise.resolve();
+    expect(mockProcessor.process).toHaveBeenCalledTimes(1);
+
+    // Well past the recency window -> back to the fast single-photo window.
+    jest.advanceTimersByTime(60_000);
+    service.push(msg({ uniqueId: 'b', mediaUrls: ['b.jpg'], mediaContentTypes: ['image/jpeg'], text: '' }));
+    jest.advanceTimersByTime(4000);
+    await Promise.resolve();
+    expect(mockProcessor.process).toHaveBeenCalledTimes(2);
+  });
+
   it('starts a fresh batch after a flush has completed', async () => {
     service.push(msg({ text: 'first', uniqueId: 'a' }));
     jest.advanceTimersByTime(2000);
@@ -248,5 +310,29 @@ describe('debounceDelayFor', () => {
     expect(
       debounceDelayFor([{ mediaUrls: [] }, { mediaUrls: ['x'] }, { mediaUrls: [] }]),
     ).toBe(4000);
+  });
+
+  // Recency escalation: the burst window can only fire with TWO photos already
+  // buffered, which never happens when every gap exceeds the base window.
+  it('escalates a LONE photo when a photo turn flushed moments ago', () => {
+    expect(debounceDelayFor([{ mediaUrls: ['x'] }], 400)).toBe(8000);
+  });
+  it('does not escalate when the previous photo turn is old', () => {
+    expect(debounceDelayFor([{ mediaUrls: ['x'] }], 60_000)).toBe(4000);
+  });
+  it('does not escalate when there was no previous photo turn', () => {
+    expect(debounceDelayFor([{ mediaUrls: ['x'] }], null)).toBe(4000);
+  });
+  it('never escalates a text-only burst on recency', () => {
+    expect(debounceDelayFor([{ mediaUrls: [] }], 400)).toBe(0);
+  });
+  it('flushes immediately once the buffer reaches the image cap', () => {
+    const six = Array.from({ length: 6 }, () => ({ mediaUrls: ['x'] }));
+    expect(debounceDelayFor(six)).toBe(0);
+    expect(debounceDelayFor(six, 400)).toBe(0);
+  });
+  it('still batches below the cap', () => {
+    const five = Array.from({ length: 5 }, () => ({ mediaUrls: ['x'] }));
+    expect(debounceDelayFor(five)).toBe(8000);
   });
 });
