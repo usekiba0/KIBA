@@ -98,6 +98,13 @@ interface CoachingJob {
   // older callers/tests that don't set it still type-check; falls back to
   // turnStart, which just makes debounceMs read 0.
   receivedAt?: number;
+  // How long the PROVIDER took to hand us the first webhook of this batch, in
+  // ms (null when unknown or when the clocks disagree). `receivedAt` is where
+  // our clock starts, so everything before it — measured at p50 ~2.6s for
+  // SendBlue — used to be absent from every latency number we had. Reported on
+  // turn_latency so perceived latency is visible in our own dashboards and a
+  // provider comparison is a query rather than an investigation.
+  providerLagMs?: number | null;
 }
 
 // Context-reset intent. Anchored to the WHOLE message (optional leading filler +
@@ -366,6 +373,10 @@ export class CoachingProcessor {
     // which of the three owns it (2026-07-20).
     const receivedAt = data.receivedAt ?? turnStart;
     const debounceMs = turnStart - receivedAt;
+    const providerLagMs = data.providerLagMs ?? null;
+    // Everything the user waited for, provider hand-off included. e2eMs alone
+    // understates this by ~2.6s p50 on iMessage.
+    const perceivedMs = () => Date.now() - receivedAt + (providerLagMs ?? 0);
     this.logger.log(`[Handler] Processing message from ${from} via ${channel}`);
 
     // Carrier shortcodes (e.g. +195686 from Citi) get misrouted to our SendBlue
@@ -972,6 +983,8 @@ export class CoachingProcessor {
         sendMs: Date.now() - sendStart,
         totalMs: Date.now() - turnStart,
         e2eMs: Date.now() - receivedAt,
+        providerLagMs,
+        perceivedMs: perceivedMs(),
       });
       return;
     }
@@ -1270,6 +1283,8 @@ export class CoachingProcessor {
         sendMs: Date.now() - sendStart,
         totalMs: Date.now() - turnStart,
         e2eMs: Date.now() - receivedAt,
+        providerLagMs,
+        perceivedMs: perceivedMs(),
         tokenCount,
       });
       return;
@@ -1346,6 +1361,8 @@ export class CoachingProcessor {
       sendMs: Date.now() - sendStart,
       totalMs: Date.now() - turnStart,
       e2eMs: Date.now() - receivedAt,
+      providerLagMs,
+      perceivedMs: perceivedMs(),
       tokenCount,
     });
   }
