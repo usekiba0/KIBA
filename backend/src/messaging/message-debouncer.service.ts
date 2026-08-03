@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CoachingProcessor } from './coaching.processor';
+import { MAX_TURN_IMAGES } from './inbound-media';
 
 export interface DebouncedMessage {
   from: string;
@@ -89,6 +90,26 @@ const IMAGE_DEBOUNCE_MS = Number(process.env.MESSAGE_IMAGE_DEBOUNCE_MS ?? 4000);
 // 8000 covers the observed 5899ms worst case with margin. Env-tunable so it can
 // be dialled back without a deploy if it costs too much perceived latency.
 const IMAGE_BURST_DEBOUNCE_MS = Number(process.env.MESSAGE_IMAGE_BURST_DEBOUNCE_MS ?? 8000);
+
+// How long after a photo turn flushes we keep treating the NEXT photo from that
+// user as part of the same dump.
+//
+// The burst window above can only fire once TWO photos sit in the buffer at the
+// same time — which never happens if every gap exceeds the BASE window. Measured
+// 2026-08-03: a user sent 12 photos "together" and they arrived over 44.8s with
+// gaps of 2065-6046ms. Photos 1-5 each exceeded the 4000ms base, so each flushed
+// alone and KIBA fired five separate per-photo replies; only the tail, whose gaps
+// happened to fall under the base, merged.
+//
+// Critically, the spacing is NOT the provider's doing — span at SendBlue was
+// 44998ms vs 44773ms at our end, so Apple's sequential attachment upload is the
+// source and no provider change would help.
+//
+// Raising the base window to cover 6046ms would merge all 12 into ONE reply after
+// ~53s of silence, and would tax every single-photo turn. This is the cheaper
+// shape: the FIRST photo still answers on the fast window, and once we've just
+// answered a photo, the next one is assumed to be the dump continuing.
+const PHOTO_RECENCY_MS = Number(process.env.MESSAGE_PHOTO_RECENCY_MS ?? 15_000);
 // TEXT bursts: OFF (Karibi 2026-07-21). Was 2s, then 1.5s. In real use it never
 // merged anything — people leave 3-8s between bubbles, so almost every message
 // flushed alone and the window was pure added latency on the common case (a
@@ -112,10 +133,28 @@ const TEXT_DEBOUNCE_MS = 0;
  * plus a separate text bubble is still a single-photo turn and must not be
  * charged the burst wait.
  */
-export function debounceDelayFor(messages: { mediaUrls: string[] }[]): number {
+export function debounceDelayFor(
+  messages: { mediaUrls: string[] }[],
+  /** ms since this user's last photo turn flushed, or null if there wasn't one. */
+  msSinceLastPhotoFlush?: number | null,
+): number {
   const mediaCount = messages.reduce((n, m) => n + m.mediaUrls.length, 0);
   if (mediaCount === 0) return TEXT_DEBOUNCE_MS;
-  return mediaCount >= 2 ? IMAGE_BURST_DEBOUNCE_MS : IMAGE_DEBOUNCE_MS;
+
+  // Cap reached: waiting longer cannot show the model any more photos, so flush
+  // now. This is what bounds a long dump — without it, 12 photos arriving over
+  // 45s would hold the whole turn for ~53s before a single word came back.
+  if (mediaCount >= MAX_TURN_IMAGES) return 0;
+
+  if (mediaCount >= 2) return IMAGE_BURST_DEBOUNCE_MS;
+
+  // Exactly one photo buffered. If we answered a photo moments ago this is the
+  // same dump still uploading, so use the burst window and let the rest chain
+  // into one turn. Otherwise it's a lone photo and pays only the fast window.
+  if (msSinceLastPhotoFlush != null && msSinceLastPhotoFlush <= PHOTO_RECENCY_MS) {
+    return IMAGE_BURST_DEBOUNCE_MS;
+  }
+  return IMAGE_DEBOUNCE_MS;
 }
 
 // Keep webhook IDs around long enough to absorb Twilio/SendBlue retries even
@@ -127,6 +166,9 @@ export class MessageDebouncerService {
   private readonly logger = new Logger(MessageDebouncerService.name);
   private readonly buffers = new Map<string, BufferState>();
   private readonly recentlySeen = new Map<string, number>();
+  // Last time a batch CONTAINING MEDIA flushed, per sender. Drives the recency
+  // escalation in debounceDelayFor.
+  private readonly lastPhotoFlushAt = new Map<string, number>();
 
   constructor(private readonly coachingProcessor: CoachingProcessor) {}
 
@@ -155,7 +197,7 @@ export class MessageDebouncerService {
     }
     // Recompute the delay from the WHOLE buffer each push: a text burst that
     // later gains an image flips to the faster image window, and vice versa.
-    buf.timer = this.scheduleFlush(msg.from, debounceDelayFor(buf.messages));
+    buf.timer = this.scheduleFlush(msg.from, debounceDelayFor(buf.messages, this.msSincePhotoFlush(msg.from)));
   }
 
   private scheduleFlush(from: string, delayMs: number): NodeJS.Timeout {
@@ -171,6 +213,18 @@ export class MessageDebouncerService {
     for (const [id, ts] of this.recentlySeen) {
       if (ts < cutoff) this.recentlySeen.delete(id);
     }
+    // Same sweep for the photo-recency map so it can't grow without bound.
+    // Anything older than the recency window can no longer influence a decision.
+    const photoCutoff = Date.now() - PHOTO_RECENCY_MS;
+    for (const [from, ts] of this.lastPhotoFlushAt) {
+      if (ts < photoCutoff) this.lastPhotoFlushAt.delete(from);
+    }
+  }
+
+  /** ms since this sender's last media-bearing flush, or null if there wasn't one. */
+  private msSincePhotoFlush(from: string): number | null {
+    const last = this.lastPhotoFlushAt.get(from);
+    return last == null ? null : Date.now() - last;
   }
 
   private async flush(from: string): Promise<void> {
@@ -211,6 +265,10 @@ export class MessageDebouncerService {
       : (mediaUrls.length > 0 ? '[image]' : '');
 
     if (!body && mediaUrls.length === 0) return;
+
+    // Stamp BEFORE awaiting the processor: photos of the same dump keep arriving
+    // while this turn generates, and they must see the fresh timestamp.
+    if (mediaUrls.length > 0) this.lastPhotoFlushAt.set(from, Date.now());
 
     if (buf.messages.length > 1) {
       this.logger.log(
