@@ -64,6 +64,9 @@ export class MessagingController {
       // proxy and is usually correct for SMS (no multi-part bursts like iMessage).
       dateSent: Date.now(),
       uniqueId: body.SmsMessageSid ?? null,
+      // Twilio's inbound webhook carries no provider-side send timestamp, so
+      // there is nothing honest to measure forwarding lag against here.
+      providerUpdatedAt: null,
     });
 
     structuredLog(this.logger, 'log', {
@@ -85,6 +88,12 @@ export class MessagingController {
     const messageHandle = (body.message_handle as string) || null;
     const dateSentIso = (body.date_sent as string) || '';
     const dateSent = dateSentIso ? Date.parse(dateSentIso) || Date.now() : Date.now();
+    // SendBlue's OWN server timestamp. Paired with our receipt time this yields
+    // the provider forwarding lag — measured at p50 ~2.6s, and previously
+    // invisible because turn_latency starts counting at our webhook.
+    const providerUpdatedAt = Number.isFinite(Date.parse(body.date_updated as string))
+      ? Date.parse(body.date_updated as string)
+      : null;
 
     if (!from || (!content && !mediaUrl)) {
       this.logger.warn(`[SendBlue] Missing from or content/media — from:${from}`);
@@ -134,6 +143,7 @@ export class MessagingController {
       channel: 'imessage',
       dateSent,
       uniqueId: messageHandle,
+      providerUpdatedAt,
     });
 
     structuredLog(this.logger, 'log', {

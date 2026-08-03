@@ -10,6 +10,15 @@ export interface DebouncedMessage {
   channel: 'sms' | 'imessage';
   dateSent: number;
   uniqueId: string | null;
+  /**
+   * The PROVIDER's own server timestamp for this message (SendBlue's
+   * `date_updated`), in epoch ms. Distinct from `dateSent`, which is the
+   * sender's device clock and is skewed on iMessage — this one is a server
+   * clock, so subtracting it from our receipt time gives an honest measure of
+   * how long the provider took to hand the message over. Null on channels that
+   * expose no such field (Twilio SMS). See providerLagMs below.
+   */
+  providerUpdatedAt: number | null;
 }
 
 interface BufferState {
@@ -20,6 +29,30 @@ interface BufferState {
   // iMessage) and `turnStart` inside the processor is already past the debounce
   // window, so neither shows the user-perceived wait.
   firstPushAt: number;
+  // Provider timestamp of the FIRST webhook in this batch, pairing with
+  // firstPushAt to give the provider-side lag the user actually felt.
+  firstProviderUpdatedAt: number | null;
+}
+
+/**
+ * Provider forwarding lag, or null when it can't be trusted.
+ *
+ * Our turn_latency has always started at OUR webhook receipt, which silently
+ * excluded everything the provider spent getting the message to us. Measured
+ * 2026-08-03 over 104 inbound messages, that gap is p50 2601ms / p90 4738ms —
+ * roughly half the perceived latency of a fast text reply, and completely
+ * invisible in our own numbers.
+ *
+ * Bounds guard against cross-server clock skew: a negative value or anything
+ * beyond a couple of minutes says the two clocks disagree (or the message was
+ * replayed), and a wrong number here is worse than no number, because this one
+ * is meant to inform a provider-migration decision.
+ */
+export function providerLagMs(receivedAt: number, providerUpdatedAt: number | null): number | null {
+  if (providerUpdatedAt == null || !Number.isFinite(providerUpdatedAt)) return null;
+  const lag = receivedAt - providerUpdatedAt;
+  if (lag < 0 || lag > 120_000) return null;
+  return lag;
 }
 
 // IMAGE bursts: 3s by default. People who send photos usually send SEVERAL (a
@@ -116,6 +149,7 @@ export class MessageDebouncerService {
         messages: [msg],
         timer: undefined as unknown as NodeJS.Timeout,
         firstPushAt: Date.now(),
+        firstProviderUpdatedAt: msg.providerUpdatedAt,
       };
       this.buffers.set(msg.from, buf);
     }
@@ -194,6 +228,7 @@ export class MessageDebouncerService {
       channel,
       messageHandle,
       receivedAt: buf.firstPushAt,
+      providerLagMs: providerLagMs(buf.firstPushAt, buf.firstProviderUpdatedAt),
     });
   }
 }

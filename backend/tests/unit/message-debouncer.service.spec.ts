@@ -1,4 +1,9 @@
-import { MessageDebouncerService, DebouncedMessage, debounceDelayFor } from '../../src/messaging/message-debouncer.service';
+import {
+  MessageDebouncerService,
+  DebouncedMessage,
+  debounceDelayFor,
+  providerLagMs,
+} from '../../src/messaging/message-debouncer.service';
 
 // Text bursts flush immediately (window turned off 2026-07-21 — it never merged
 // real bubbles and was pure latency); image bursts still batch at 3000ms.
@@ -34,6 +39,7 @@ describe('MessageDebouncerService', () => {
       channel: 'imessage',
       dateSent: 1_000_000,
       uniqueId: 'handle-1',
+      providerUpdatedAt: null,
       ...overrides,
     };
   }
@@ -166,6 +172,24 @@ describe('MessageDebouncerService', () => {
     expect((processCalls[0] as { body: string }).body).toBe('hello');
   });
 
+  it('passes the provider lag of the FIRST webhook through to the processor', async () => {
+    const now = Date.now();
+    service.push(msg({ uniqueId: 'a', providerUpdatedAt: now - 2_600 }));
+    jest.advanceTimersByTime(0);
+    await Promise.resolve();
+
+    const call = processCalls[0] as { providerLagMs: number | null };
+    expect(call.providerLagMs).toBeGreaterThanOrEqual(2_600);
+    expect(call.providerLagMs).toBeLessThan(4_000);
+  });
+
+  it('reports a null lag when the channel exposes no provider timestamp (SMS)', async () => {
+    service.push(msg({ uniqueId: 'a', channel: 'sms', providerUpdatedAt: null }));
+    jest.advanceTimersByTime(0);
+    await Promise.resolve();
+    expect((processCalls[0] as { providerLagMs: number | null }).providerLagMs).toBeNull();
+  });
+
   it('starts a fresh batch after a flush has completed', async () => {
     service.push(msg({ text: 'first', uniqueId: 'a' }));
     jest.advanceTimersByTime(2000);
@@ -178,6 +202,32 @@ describe('MessageDebouncerService', () => {
     expect(mockProcessor.process).toHaveBeenCalledTimes(2);
     expect((processCalls[0] as { body: string }).body).toBe('first');
     expect((processCalls[1] as { body: string }).body).toBe('second');
+  });
+});
+
+// Provider forwarding lag — the ~2.6s p50 that turn_latency never counted,
+// because our clock only starts at the webhook (Karibi 2026-08-03).
+describe('providerLagMs', () => {
+  it('measures receipt minus the provider server timestamp', () => {
+    expect(providerLagMs(10_000, 7_400)).toBe(2_600);
+  });
+  it('returns null when the provider gave us no timestamp', () => {
+    expect(providerLagMs(10_000, null)).toBeNull();
+  });
+  it('rejects a NEGATIVE lag rather than logging a nonsense number', () => {
+    // Provider clock ahead of ours: the value is skew, not latency.
+    expect(providerLagMs(10_000, 12_000)).toBeNull();
+  });
+  it('rejects an absurdly large lag (clock disagreement or a replay)', () => {
+    expect(providerLagMs(200_000, 1_000)).toBeNull();
+  });
+  it('accepts a zero lag and keeps the boundary usable', () => {
+    expect(providerLagMs(10_000, 10_000)).toBe(0);
+    expect(providerLagMs(130_000, 10_000)).toBe(120_000);
+    expect(providerLagMs(130_001, 10_000)).toBeNull();
+  });
+  it('ignores a non-finite timestamp', () => {
+    expect(providerLagMs(10_000, NaN)).toBeNull();
   });
 });
 
