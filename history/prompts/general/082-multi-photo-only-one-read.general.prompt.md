@@ -14,7 +14,7 @@ links:
   spec: null
   ticket: null
   adr: null
-  pr: null
+  pr: https://github.com/usekiba0/KIBA/pull/71
 files:
  - backend/src/messaging/inbound-media.ts (new)
  - backend/src/messaging/coaching.processor.ts
