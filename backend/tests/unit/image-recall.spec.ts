@@ -1,4 +1,9 @@
-import { referencesRecentPhoto, findRecentInboundImage, RecallableMessage } from '../../src/messaging/image-recall';
+import {
+  referencesRecentPhoto,
+  findRecentInboundImage,
+  findRecentInboundImages,
+  RecallableMessage,
+} from '../../src/messaging/image-recall';
 
 describe('referencesRecentPhoto', () => {
   it('matches explicit photo words', () => {
@@ -51,5 +56,119 @@ describe('findRecentInboundImage', () => {
 
   it('returns null when there are no images', () => {
     expect(findRecentInboundImage([msg({ content: 'hi' } as any)], NOW, 30 * 60_000)).toBeNull();
+  });
+});
+
+// Karibi 2026-08-03: a multi-photo send is ONE row carrying several images.
+// Recall used to hand back only media_url, so "what about the other one" was
+// answered about the wrong picture.
+describe('findRecentInboundImages (batch recall)', () => {
+  const NOW = new Date('2026-08-03T15:00:00Z').getTime();
+  const msg = (over: Partial<RecallableMessage>): RecallableMessage => ({
+    role: 'user', media_url: null, media_content_type: null, created_at: new Date(NOW), ...over,
+  });
+
+  it('returns EVERY photo of a multi-photo turn', () => {
+    const messages = [
+      msg({
+        media_url: 'https://cdn/1.jpg',
+        media_content_type: 'image/jpeg',
+        media_urls: ['https://cdn/1.jpg', 'https://cdn/2.jpg', 'https://cdn/3.jpg'],
+        media_content_types: ['image/jpeg', 'image/jpeg', 'image/heic'],
+        created_at: new Date(NOW - 2 * 60_000),
+      }),
+    ];
+    expect(findRecentInboundImages(messages, NOW, 30 * 60_000)).toEqual([
+      { url: 'https://cdn/1.jpg', contentType: 'image/jpeg' },
+      { url: 'https://cdn/2.jpg', contentType: 'image/jpeg' },
+      { url: 'https://cdn/3.jpg', contentType: 'image/heic' },
+    ]);
+  });
+
+  it('falls back to the singular columns for pre-migration rows', () => {
+    const messages = [
+      msg({ media_url: 'https://cdn/legacy.jpg', media_content_type: 'image/jpeg' }),
+    ];
+    expect(findRecentInboundImages(messages, NOW, 30 * 60_000)).toEqual([
+      { url: 'https://cdn/legacy.jpg', contentType: 'image/jpeg' },
+    ]);
+  });
+
+  it('drops GIFs from a mixed batch but keeps the real photos', () => {
+    const messages = [
+      msg({
+        media_urls: ['https://cdn/react.gif', 'https://cdn/gym.jpg'],
+        media_content_types: ['image/gif', 'image/jpeg'],
+      }),
+    ];
+    expect(findRecentInboundImages(messages, NOW, 30 * 60_000)).toEqual([
+      { url: 'https://cdn/gym.jpg', contentType: 'image/jpeg' },
+    ]);
+  });
+
+  it('picks the most recent qualifying TURN, not a mix across turns', () => {
+    const messages = [
+      msg({
+        media_urls: ['https://cdn/old-a.jpg', 'https://cdn/old-b.jpg'],
+        media_content_types: ['image/jpeg', 'image/jpeg'],
+        created_at: new Date(NOW - 20 * 60_000),
+      }),
+      msg({
+        media_urls: ['https://cdn/new.jpg'],
+        media_content_types: ['image/jpeg'],
+        created_at: new Date(NOW - 60_000),
+      }),
+    ];
+    expect(findRecentInboundImages(messages, NOW, 30 * 60_000)).toEqual([
+      { url: 'https://cdn/new.jpg', contentType: 'image/jpeg' },
+    ]);
+  });
+
+  it('does not let a newer text/GIF-only turn shadow the last real photo turn', () => {
+    const messages = [
+      msg({
+        media_urls: ['https://cdn/photo.jpg'],
+        media_content_types: ['image/jpeg'],
+        created_at: new Date(NOW - 5 * 60_000),
+      }),
+      msg({ content: 'lol' } as any),
+      msg({ media_urls: ['https://cdn/r.gif'], media_content_types: ['image/gif'] }),
+    ];
+    expect(findRecentInboundImages(messages, NOW, 30 * 60_000)).toEqual([
+      { url: 'https://cdn/photo.jpg', contentType: 'image/jpeg' },
+    ]);
+  });
+
+  it('caps the recalled batch', () => {
+    const urls = Array.from({ length: 6 }, (_, i) => `https://cdn/${i}.jpg`);
+    const messages = [msg({ media_urls: urls, media_content_types: urls.map(() => 'image/jpeg') })];
+    expect(findRecentInboundImages(messages, NOW, 30 * 60_000)).toHaveLength(4);
+  });
+
+  it('respects the window and ignores AI-sent media', () => {
+    expect(
+      findRecentInboundImages(
+        [msg({ media_urls: ['https://cdn/a.jpg'], media_content_types: ['image/jpeg'], created_at: new Date(NOW - 45 * 60_000) })],
+        NOW, 30 * 60_000,
+      ),
+    ).toEqual([]);
+    expect(
+      findRecentInboundImages(
+        [msg({ role: 'ai', media_urls: ['https://cdn/k.png'], media_content_types: ['image/png'] })],
+        NOW, 30 * 60_000,
+      ),
+    ).toEqual([]);
+  });
+
+  it('findRecentInboundImage stays the first-photo view of the same result', () => {
+    const messages = [
+      msg({
+        media_urls: ['https://cdn/1.jpg', 'https://cdn/2.jpg'],
+        media_content_types: ['image/jpeg', 'image/jpeg'],
+      }),
+    ];
+    expect(findRecentInboundImage(messages, NOW, 30 * 60_000)).toEqual({
+      url: 'https://cdn/1.jpg', contentType: 'image/jpeg',
+    });
   });
 });
