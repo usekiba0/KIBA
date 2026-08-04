@@ -39,6 +39,7 @@ import { CorrectionService } from '../data/correction.service';
 import { formatHistoryStamp, localDayOfWeek } from '../messaging/local-time';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import { MAX_TURN_IMAGES } from '../messaging/inbound-media';
+import { prepare as prepareInboundImage } from '../messaging/image-prep';
 import {
   buildDateFactsBlock,
   correctTimeClaims,
@@ -577,28 +578,24 @@ export class CoachingService {
       };
     }
 
-    try {
-      const resp = await axios.get<ArrayBuffer>(imageUrl, {
-        responseType: 'arraybuffer',
-        timeout: 15_000,
-      });
-      const jpegBytes = await heicConvert({
-        buffer: resp.data,
-        format: 'JPEG',
-        quality: 0.9,
-      });
-      const data = Buffer.from(jpegBytes).toString('base64');
-      return {
-        ok: true,
-        block: {
-          type: 'image',
-          source: { type: 'base64', media_type: 'image/jpeg', data },
-        },
-      };
-    } catch (err) {
-      this.logger.warn(`HEIC conversion failed for ${imageUrl}: ${(err as Error).message}`);
+    // Usually already done. The debouncer starts this the moment the photo's
+    // webhook lands, so by the time a turn flushes the JPEG is typically sitting
+    // in the cache and this await returns immediately. When it isn't cached this
+    // does the same fetch+convert as before, so behaviour is unchanged — only
+    // the timing moves. (Measured: 2.9-7.5s per HEIC photo, previously all of it
+    // on the critical path.)
+    const prepared = await prepareInboundImage(imageUrl);
+    if (!prepared.ok) {
+      this.logger.warn(`HEIC conversion failed for ${imageUrl}: ${prepared.reason}`);
       return { ok: false, reason: 'heic_conversion_failed' };
     }
+    return {
+      ok: true,
+      block: {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/jpeg', data: prepared.base64 },
+      },
+    };
   }
 
   /**
@@ -1107,17 +1104,26 @@ export class CoachingService {
       | string
       | Array<Anthropic.Messages.ImageBlockParam | Anthropic.Messages.TextBlockParam>;
     if (urls.length > 0) {
-      const blocks: Anthropic.Messages.ImageBlockParam[] = [];
+      // Prepared CONCURRENTLY. This used to be a serial `for` with an await, so
+      // three photos paid three fetch+transcode round trips end to end. Most are
+      // cache hits now, but on a miss the fetches overlap instead of queueing —
+      // worth ~4.5s on a 3-photo turn. Promise.all preserves order, which
+      // matters: the model should see the photos as the user sent them.
       let sawUnsupported = false;
-      for (let i = 0; i < urls.length; i++) {
-        const ct = args.imageContentTypes?.[i];
-        if (!this.isSupportedImageFormat(urls[i], ct)) {
-          sawUnsupported = true;
-          continue;
-        }
-        const prep = await this.prepareImageBlock(urls[i], ct);
-        if (prep.ok) blocks.push(prep.block);
-      }
+      const prepared = await Promise.all(
+        urls.map(async (url, i) => {
+          const ct = args.imageContentTypes?.[i];
+          if (!this.isSupportedImageFormat(url, ct)) {
+            sawUnsupported = true;
+            return null;
+          }
+          const prep = await this.prepareImageBlock(url, ct);
+          return prep.ok ? prep.block : null;
+        }),
+      );
+      const blocks: Anthropic.Messages.ImageBlockParam[] = prepared.filter(
+        (b): b is Anthropic.Messages.ImageBlockParam => b !== null,
+      );
       if (blocks.length === 0) {
         return {
           reply: sawUnsupported

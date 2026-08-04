@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CoachingProcessor } from './coaching.processor';
 import { MAX_TURN_IMAGES } from './inbound-media';
+import { warm as warmInboundImage } from './image-prep';
 
 export interface DebouncedMessage {
   from: string;
@@ -180,6 +181,15 @@ export class MessageDebouncerService {
         return;
       }
       this.recentlySeen.set(msg.uniqueId, Date.now());
+    }
+
+    // Start transcoding HEIC photos NOW, not when the turn flushes. We are about
+    // to sit on this buffer for 4-8s doing nothing while the rest of the dump
+    // uploads; converting in that window takes 2.9-7.5s per photo off the reply
+    // path. Fire-and-forget by design — a failure here just means the normal
+    // inline conversion happens later. (Karibi 2026-08-04)
+    for (let i = 0; i < msg.mediaUrls.length; i++) {
+      warmInboundImage(msg.mediaUrls[i], msg.mediaContentTypes[i]);
     }
 
     let buf = this.buffers.get(msg.from);
