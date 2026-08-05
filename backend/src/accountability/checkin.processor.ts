@@ -25,6 +25,8 @@ import { ScoreService } from './score.service';
 import { buildCheckinMessage } from '../ai/prompts/checkin.prompt';
 import { buildFaithBlock } from './faith-content';
 import { shouldNudgeIntake, buildIntakeNudge, STALL_MIN_MS, STALL_MAX_MS } from './intake-nudge';
+import { shouldSendActivationAsks, MAX_IDLE_MS } from './activation-asks';
+import { ProofService } from './proof.service';
 import { CoachingService } from '../ai/coaching.service';
 import { resolveOffsetMinutes } from '../messaging/world-time';
 import { structuredLog } from '../common/logger';
@@ -175,6 +177,7 @@ export class CheckinProcessor {
     private readonly coachingService: CoachingService,
     @InjectQueue('accountability') private readonly queue: Queue,
     private readonly recorder: OutboundRecorderService,
+    private readonly proofService: ProofService,
   ) {}
 
   @Process('send-checkin')
@@ -433,6 +436,87 @@ export class CheckinProcessor {
       structuredLog(this.logger, 'log', {
         service: 'accountability',
         operation: 'intake_stall_sweep',
+        candidates: candidates.length,
+        sent,
+      });
+    }
+  }
+
+  /**
+   * Hourly fallback for the contact-card + pin-chat asks. See activation-asks.ts
+   * for why a second trigger exists: the proof hook is correct in principle but
+   * fired ONCE across the whole user base in 14 days, so the Apple masking was
+   * effectively never reaching anyone.
+   *
+   * Hourly rather than per-user because eligibility is a wide window and the
+   * sweep re-checks quiet hours each pass — a user who becomes eligible at 3am
+   * is picked up when their morning opens, not messaged at 3am.
+   *
+   * The query is a coarse pre-filter; `shouldSendActivationAsks` is the
+   * authority. Deliberately fail-soft per user — one bad row must not abort the
+   * sweep.
+   */
+  @Process('activation-asks-sweep')
+  async handleActivationAsksSweep(): Promise<void> {
+    const now = new Date();
+    const candidates = await this.userRepo
+      .createQueryBuilder('u')
+      .where('u.onboarding_stage = :stage', { stage: OnboardingStage.COMPLETE })
+      .andWhere('u.status != :cancelled', { cancelled: UserStatus.CANCELLED })
+      .andWhere('u.opted_out_at IS NULL')
+      .andWhere('u.last_checkin_date IS NOT NULL')
+      .andWhere('u.last_active_at > :cutoff', {
+        cutoff: new Date(now.getTime() - MAX_IDLE_MS),
+      })
+      // The one-shot stamp lives inside the intake_data jsonb. Filtering it in
+      // SQL rather than in memory is load-bearing: without it the LIMIT below
+      // would keep returning the same already-asked users every hour and a
+      // newly-eligible one past the first 100 rows would never be reached.
+      .andWhere("u.intake_data->>'activation_asks_sent_at' IS NULL")
+      .limit(100)
+      .getMany();
+
+    let sent = 0;
+    for (const user of candidates) {
+      const decision = shouldSendActivationAsks(
+        {
+          onboardingStage: user.onboarding_stage,
+          status: user.status,
+          activationAsksSentAt: user.intake_data?.activation_asks_sent_at ?? null,
+          lastCheckinDate: user.last_checkin_date,
+          lastActiveAt: user.last_active_at,
+          optedOutAt: user.opted_out_at,
+          utcOffsetMinutes: user.utc_offset_minutes,
+        },
+        now,
+      );
+      if (!decision.send) continue;
+
+      try {
+        // ProofService owns the copy, the send order and the one-shot stamp, so
+        // both triggers stay byte-identical and can never double-send.
+        await this.proofService.maybeSendActivationAsks(user.id);
+        sent++;
+        structuredLog(this.logger, 'log', {
+          service: 'accountability',
+          operation: 'activation_asks_sent',
+          userId: user.id,
+          trigger: 'sweep',
+        });
+      } catch (err) {
+        structuredLog(this.logger, 'error', {
+          service: 'accountability',
+          operation: 'activation_asks_failed',
+          userId: user.id,
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    if (candidates.length) {
+      structuredLog(this.logger, 'log', {
+        service: 'accountability',
+        operation: 'activation_asks_sweep',
         candidates: candidates.length,
         sent,
       });

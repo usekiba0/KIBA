@@ -8,6 +8,7 @@ import { Message } from '../../src/data/entities/message.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
 import { SessionBoundaryService } from '../../src/data/session-boundary.service';
 import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
+import { ProofService } from '../../src/accountability/proof.service';
 import { AntiGhostService } from '../../src/accountability/anti-ghost.service';
 import { ScheduleService } from '../../src/accountability/schedule.service';
 import { CheckinService } from '../../src/accountability/checkin.service';
@@ -107,6 +108,7 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
         { provide: CoachingService, useValue: { generateWinbackNudge: jest.fn().mockResolvedValue(null) } },
         { provide: getQueueToken('accountability'), useValue: queue },
         { provide: OutboundRecorderService, useValue: { record: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ProofService, useValue: { maybeSendActivationAsks: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
