@@ -80,6 +80,17 @@ export class CheckinService implements OnApplicationBootstrap {
           error: (err as Error).message,
         });
       });
+
+      // Install the hourly activation-asks sweep — the fallback trigger for the
+      // contact card (the Apple masking) and the pin nudge. The proof hook that
+      // used to be the only trigger fired once in 14 days.
+      this.installActivationAsksCron().catch((err) => {
+        structuredLog(this.logger, 'error', {
+          service: 'accountability',
+          operation: 'activation_asks_cron_install_failed',
+          error: (err as Error).message,
+        });
+      });
     });
   }
 
@@ -141,6 +152,30 @@ export class CheckinService implements OnApplicationBootstrap {
     structuredLog(this.logger, 'log', {
       service: 'accountability',
       operation: 'intake_stall_cron_installed',
+      intervalMs: 60 * 60 * 1000,
+    });
+  }
+
+  /**
+   * Hourly rather than daily so a user who becomes eligible outside their local
+   * send window is picked up within the hour their window opens, instead of
+   * waiting a whole day. The handler re-checks quiet hours every pass, so the
+   * extra frequency costs nothing but a query.
+   */
+  private async installActivationAsksCron(): Promise<void> {
+    await this.queue.add(
+      'activation-asks-sweep',
+      {},
+      {
+        repeat: { every: 60 * 60 * 1000 },
+        jobId: 'activation-asks-sweep',
+        removeOnComplete: true,
+        removeOnFail: 5,
+      },
+    );
+    structuredLog(this.logger, 'log', {
+      service: 'accountability',
+      operation: 'activation_asks_cron_installed',
       intervalMs: 60 * 60 * 1000,
     });
   }

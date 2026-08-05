@@ -106,8 +106,16 @@ export class ProofService {
    * Asking a favour right after someone pays reads transactional. Asking it
    * right after they've DONE something reads like a friend who plans to stick
    * around. Both sends are best-effort and no-op until their URLs are set.
+   *
+   * PUBLIC because the proof hook alone was not enough. The proof pipeline
+   * records almost nothing, so over the 14 days to 2026-08-06 this fired ONCE
+   * across the whole user base — meaning virtually no user was ever asked to
+   * save the contact, which IS the Apple masking. CheckinProcessor now also
+   * drives it from an hourly sweep (see activation-asks.ts). The
+   * `activation_asks_sent_at` stamp below is what keeps the pair one-shot
+   * across BOTH callers, so this stays safe to call from anywhere.
    */
-  private async maybeSendActivationAsks(userId: string): Promise<void> {
+  async maybeSendActivationAsks(userId: string): Promise<void> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) return;
     // Already sent — this is the first-proof moment only, never a repeat.
@@ -167,9 +175,11 @@ export class ProofService {
         await this.messagingService.send(
           user.phone_number,
           // Karibi's wording (2026-07-28). Covers BOTH asks in one message — pin
-          // the chat AND save the contact — which matters because the separate
-          // .vcf send is a no-op while CONTACT_CARD_URL is unset, so this is
-          // currently the only prompt to save the number.
+          // the chat AND save the contact. It used to be the only prompt to save
+          // the number because CONTACT_CARD_URL was unset; as of 2026-08-06 that
+          // var IS set in prod (verified against the Render env), so the .vcf
+          // above really sends and this message reinforces it rather than
+          // standing in for it.
           'to make sure i\'m always in your corner, pin our chat and add me to your contacts. just long press our chat and hit pin, then tap our number up top and save it as a contact!',
           pinMediaUrl,
         );
