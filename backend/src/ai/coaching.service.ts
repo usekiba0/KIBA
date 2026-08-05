@@ -3,10 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
-import axios from 'axios';
-// heic-convert is a CommonJS module with no ESM default export — import=require is correct here.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import heicConvert = require('heic-convert');
 import { createAnthropicClient } from './anthropic.factory';
 import { noThinking } from './model-params';
 import { User, IntakeData } from '../data/entities/user.entity';
