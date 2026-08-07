@@ -121,13 +121,10 @@ export interface CoachingToolHandlers {
   saveWeeklySchedule: (input: {
     schedule: string;
   }) => Promise<{ ok: true; schedule: string } | { ok: false; error: string }>;
-  // React to the user's most recent message with an iMessage tapback. Optional:
-  // only present on iMessage conversations (the processor omits it on SMS), so
-  // the react_to_message tool is offered to the model only when a tapback can
-  // actually land.
-  reactToMessage?: (input: {
-    reaction: string;
-  }) => Promise<{ ok: true; reaction: string } | { ok: false; error: string }>;
+  // NOTE: tapbacks are deliberately NOT a tool. A tool call costs a second model
+  // round-trip before the text can be written, which made "react more" and "reply
+  // faster" opposed. They ride along in the reply as a `[react:...]` marker
+  // instead — see messaging/outbound-reaction.ts.
 }
 
 /** Intake-mode tools (pre-payment SMS onboarding). */
@@ -459,24 +456,6 @@ const SAVE_WEEKLY_SCHEDULE_TOOL: Tool = {
       },
     },
     required: ['schedule'],
-  },
-};
-
-const REACT_TO_MESSAGE_TOOL: Tool = {
-  name: 'react_to_message',
-  description:
-    "React to the user's most recent message with an iMessage tapback. Use SPARINGLY — only when a reaction genuinely fits and adds warmth, the way a real friend taps back. " +
-    'Guidance: a real win / something heartfelt → "love"; simple agreement or acknowledgement → "like"; something funny → "laugh"; a point you strongly want to stress → "emphasize"; a weak excuse you want to gently push back on → "dislike" (rare); a confusing or surprising message → "question". ' +
-    'A tapback can REPLACE a text reply when no words are needed, or sit alongside one. Do NOT react to every message — overusing tapbacks kills the effect. iMessage only (this tool is simply absent on SMS).',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      reaction: {
-        type: 'string',
-        enum: ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question'],
-      },
-    },
-    required: ['reaction'],
   },
 };
 
@@ -881,8 +860,6 @@ export class CoachingService {
           SAVE_PROFILE_FIELD_TOOL,
           SAVE_WEEKLY_SCHEDULE_TOOL,
           CALCULATE_TOOL,
-          // Only offered on iMessage — the handler is present only then.
-          ...(toolHandlers.reactToMessage ? [REACT_TO_MESSAGE_TOOL] : []),
         ]
       : undefined;
     const dispatch = toolHandlers
@@ -1852,24 +1829,6 @@ export class CoachingService {
         operation: 'tool_save_weekly_schedule',
         userId,
         ok: result.ok,
-      });
-      return result;
-    }
-    if (block.name === 'react_to_message') {
-      if (!toolHandlers.reactToMessage) {
-        return { ok: false, error: 'reactions are only available on iMessage' };
-      }
-      const input = block.input as { reaction?: unknown };
-      if (typeof input.reaction !== 'string') {
-        return { ok: false, error: 'reaction must be a string' };
-      }
-      const result = await toolHandlers.reactToMessage({ reaction: input.reaction });
-      structuredLog(this.logger, 'log', {
-        service: 'ai',
-        operation: 'tool_react_to_message',
-        userId,
-        ok: result.ok,
-        reaction: input.reaction,
       });
       return result;
     }

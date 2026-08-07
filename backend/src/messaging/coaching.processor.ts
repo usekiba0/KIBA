@@ -59,6 +59,7 @@ import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
 import { referencesRecentPhoto, findRecentInboundImages } from './image-recall';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
+import { extractReaction } from './outbound-reaction';
 import { stripIdentityReferendum } from './intake-close-guard';
 import { sniffRemoteMediaType } from './media-type';
 import { resolveMediaContentTypes, classifyInboundMedia } from './inbound-media';
@@ -105,6 +106,19 @@ interface CoachingJob {
   // turn_latency so perceived latency is visible in our own dashboards and a
   // provider comparison is a query rather than an investigation.
   providerLagMs?: number | null;
+}
+
+/**
+ * Where this turn's tapback can land, plus a once-per-turn latch.
+ *
+ * Built once per inbound turn and threaded into every saveAndSend that carries
+ * model-written text, so the two calls the text path can make (early bubble,
+ * then the final reply) share one budget of a single reaction.
+ */
+interface ReactionTarget {
+  channel: 'sms' | 'imessage';
+  messageHandle: string | null;
+  fired: boolean;
 }
 
 // Context-reset intent. Anchored to the WHOLE message (optional leading filler +
@@ -362,6 +376,10 @@ export class CoachingProcessor {
     // resetting" bug). See common/phone.ts.
     const from = normalizePhoneNumber(data.from);
     const messageHandle = data.messageHandle ?? null;
+    // One tapback budget for the whole turn, shared by every model-written send
+    // below. Tapbacks are iMessage-only and need the Apple GUID to target, so on
+    // SMS this stays inert and any [react:...] marker is simply stripped.
+    const reactTarget: ReactionTarget = { channel, messageHandle, fired: false };
     // Latency instrumentation: time from processing-start (debounce already
     // elapsed) to the reply being sent, plus the model-generation slice, so we can
     // see where the controllable latency actually goes before tuning it (2026-06-29).
@@ -1262,7 +1280,7 @@ export class CoachingProcessor {
         // none of them gets dropped downstream as an unsupported format.
         classified.imageUrls,
         classified.imageContentTypes,
-        this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
+        this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
         visionTodos.map((t) => ({ id: t.id, content: t.content, status: t.status, committed: t.committed_at != null })),
         visionPatterns,
       );
@@ -1271,7 +1289,7 @@ export class CoachingProcessor {
       // user's first bubble go out ahead of the round-trip instead of behind it.
       const tokenWrite = this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
       const sendStart = Date.now();
-      await this.saveAndSend(user, boundary.sessionId, reply);
+      await this.saveAndSend(user, boundary.sessionId, reply, reactTarget);
       await tokenWrite;
       structuredLog(this.logger, 'log', {
         service: 'coaching',
@@ -1333,7 +1351,7 @@ export class CoachingProcessor {
       latestSummary?.summary,
       recallUrls,
       recallCts,
-      this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id, channel, messageHandle),
+      this.buildToolHandlers(user, boundary.sessionId, inboundMsg.id),
       todos.map((t) => ({ id: t.id, content: t.content, status: t.status, committed: t.committed_at != null })),
       patterns,
       // Early bubble: when the model opens a tool turn with a line of its own,
@@ -1342,14 +1360,14 @@ export class CoachingProcessor {
       // reply — the thread stays a true record of what the user actually saw.
       // Wired on the TEXT path only; vision and intake keep the single-reply
       // shape until this proves itself in production.
-      (text) => this.saveAndSend(user, boundary.sessionId, text),
+      (text) => this.saveAndSend(user, boundary.sessionId, text, reactTarget),
     );
     const genMs = Date.now() - genStart;
     // See the vision path: bookkeeping write runs alongside the send, not in
     // front of it.
     const tokenWrite = this.messageRepo.update(inboundMsg.id, { token_count: tokenCount });
     const sendStart = Date.now();
-    await this.saveAndSend(user, boundary.sessionId, reply);
+    await this.saveAndSend(user, boundary.sessionId, reply, reactTarget);
     await tokenWrite;
     structuredLog(this.logger, 'log', {
       service: 'coaching',
@@ -2063,13 +2081,7 @@ export class CoachingProcessor {
    * from AccountabilityModule — the processor (which already wires both)
    * stitches them together.
    */
-  private buildToolHandlers(
-    user: User,
-    sessionId: string,
-    userMessageId: string,
-    channel: 'sms' | 'imessage' = 'sms',
-    messageHandle: string | null = null,
-  ) {
+  private buildToolHandlers(user: User, sessionId: string, userMessageId: string) {
     const userId = user.id;
     // DST-correct live offset from the IANA zone when known, else the frozen integer.
     const userOffsetMinutes = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
@@ -2218,34 +2230,40 @@ export class CoachingProcessor {
       },
     };
 
-    // Tapbacks are iMessage-only and need the message_handle to target. Attach
-    // the tool only when both hold, so the AI is never offered react_to_message
-    // on SMS (where it would degrade to a "Liked 'x'" text) or without a target.
-    if (channel === 'imessage' && messageHandle) {
-      handlers.reactToMessage = async (input: { reaction: string }) => {
-        const res = await this.messagingService.sendReaction(
-          user.phone_number,
-          messageHandle,
-          input.reaction,
-        );
-        return res.ok
-          ? { ok: true as const, reaction: input.reaction }
-          : { ok: false as const, error: res.error ?? 'reaction failed' };
-      };
-    }
-
+    // Tapbacks used to be a tool here. They're an inline `[react:...]` marker on
+    // the reply now — dispatched in saveAndSend/dispatchReaction — so reacting
+    // costs no extra model round-trip. See messaging/outbound-reaction.ts.
     return handlers;
   }
 
-  private async saveAndSend(user: User, sessionId: string, replyRaw: string) {
+  private async saveAndSend(
+    user: User,
+    sessionId: string,
+    replyRaw: string,
+    reactTarget?: ReactionTarget,
+  ) {
+    // Pull any [react:...] tapback marker out FIRST, before every other step, so
+    // it can never reach a bubble, the stored row, or next-turn context. Applied
+    // on every path (intake included) even though only coaching is taught the
+    // marker — stripping is the safety net if the model invents one.
+    const { reaction, text: replyText } = extractReaction(replyRaw);
+    // Tapback first, then the words (Karibi: "thumbs up ... and then talk").
+    // Deliberately NOT awaited here: the reaction's provider round-trip overlaps
+    // the first bubble instead of sitting in front of it, so reacting costs the
+    // user no latency. Awaited at the end of the turn so failures still log.
+    const reactionSent = this.dispatchReaction(user, reaction, reactTarget);
     // An empty reply means the turn's outbound was already sent by another path
     // (e.g. the intake close: CLOSE_LEAD_IN framing + the checkout URL). Nothing
-    // to add — don't send a blank text or persist an empty AI row.
-    if (!replyRaw || !replyRaw.trim()) return;
+    // to add — don't send a blank text or persist an empty AI row. A reaction
+    // with no words still goes out; it just has nothing to follow it.
+    if (!replyText || !replyText.trim()) {
+      await reactionSent;
+      return;
+    }
     // Deterministic voice cleanup (strip em-dashes etc.) before anything else,
     // so it applies to every AI reply — intake and coaching — regardless of how
     // the model phrased it.
-    const reply = humanizeVoice(replyRaw);
+    const reply = humanizeVoice(replyText);
     // The AI may split a reply into multiple texts with [pause] markers so it
     // lands as a natural burst (a thought, then another) instead of one block.
     const bubbles = splitBubbles(reply);
@@ -2316,6 +2334,7 @@ export class CoachingProcessor {
     }
 
     const aiMsg = await persist;
+    await reactionSent;
 
     structuredLog(this.logger, 'log', {
       service: 'coaching',
@@ -2323,6 +2342,46 @@ export class CoachingProcessor {
       userId: user.id,
       messageId: aiMsg.id,
       bubbles: toSend.length,
+      reaction: reaction ?? undefined,
     });
+  }
+
+  /**
+   * Fire the turn's tapback, at most once, and only where one can actually land.
+   *
+   * Off-iMessage there is no tapback concept — sending would degrade to an ugly
+   * `Liked "x"` text — so the marker is simply dropped. `fired` is per-TURN, not
+   * per-call: the text path can call saveAndSend twice (the early bubble while
+   * tools run, then the final reply), and two markers must not become two
+   * reactions on the same message.
+   *
+   * Never rejects: sendReaction returns a result rather than throwing, and a
+   * failed tapback must never break the turn that carries the actual reply.
+   */
+  private dispatchReaction(
+    user: User,
+    reaction: string | null,
+    target?: ReactionTarget,
+  ): Promise<void> {
+    if (!reaction || !target || target.fired) return Promise.resolve();
+    if (target.channel !== 'imessage' || !target.messageHandle) return Promise.resolve();
+    target.fired = true;
+    return this.messagingService
+      .sendReaction(user.phone_number, target.messageHandle, reaction)
+      .then((res) => {
+        structuredLog(this.logger, 'log', {
+          service: 'messaging',
+          operation: 'outbound_reaction',
+          userId: user.id,
+          reaction,
+          ok: res.ok,
+          error: res.ok ? undefined : res.error,
+        });
+      })
+      .catch((err: unknown) => {
+        this.logger.warn(
+          `[Reaction] dispatch failed for ${user.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
   }
 }
