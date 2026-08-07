@@ -29,6 +29,23 @@ describe('buildIntakeSystemPrompt', () => {
     expect(p).not.toContain('$20/month');
   });
 
+  // Tapbacks in sign-up (2026-08-07). Two things can silently break this: the
+  // marker syntax going missing (no tapback anywhere, and the failure is a reply
+  // that just reads cold), or the block colliding with the older NO-emoji rule
+  // and one of them getting deleted. Both must survive together, and `dislike`
+  // must stay out — thumbs-downing a lead mid-sign-up is not a sales move.
+  it('teaches the [react:...] tapback marker without loosening the no-emoji rule', () => {
+    const p = buildIntakeSystemPrompt(ctx());
+    for (const r of ['love', 'like', 'laugh', 'emphasize', 'question']) {
+      expect(p).toContain(`[react:${r}]`);
+    }
+    expect(p).not.toContain('[react:dislike]');
+    expect(p).toMatch(/NO emojis in the sign-up flow/);
+    expect(p).toMatch(/never replaces your words/i);
+    // Not on every turn: sign-up is a fast Q&A and a tapback per answer is noise.
+    expect(p).toMatch(/NOT on routine answers/);
+  });
+
   // Sales Psychology Guide + V2 (Karibi 2026-06-27) — train KIBA to actually close.
   it('teaches the core sales-psychology principles, applied naturally not scripted', () => {
     const p = buildIntakeSystemPrompt(ctx({ name: 'Sam', intakeData: { goal_description: 'gym' } }));

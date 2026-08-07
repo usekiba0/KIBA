@@ -318,6 +318,20 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/name the place\/brand/);
   });
 
+  // Karibi 2026-08-07: "if i say i went to the gym it can thumbs up or put !! on
+  // it and then talk." The marker is the whole mechanism — no marker in the
+  // prompt, no tapback anywhere, and the failure is silent (a reply that reads
+  // fine, just cold). Guard the syntax, the six names, and the two rules that
+  // stop it degrading back into the old sparing behaviour.
+  it('teaches the [react:...] tapback marker', () => {
+    const prompt = buildSystemPrompt(mockUser as any, mockProfile as any, 72, 0).toLowerCase();
+    for (const r of ['love', 'like', 'dislike', 'laugh', 'emphasize', 'question']) {
+      expect(prompt).toContain(`[react:${r}]`);
+    }
+    expect(prompt).toMatch(/react on most turns/);
+    expect(prompt).toMatch(/never replaces your words/);
+  });
+
   it('stays within a sane size budget (char count < 27500)', () => {
     // The prompt has grown with deliberate capability expansion (tools, examples,
     // state-aware tone, answer-anything, vision engagement, memory/contradiction)
@@ -405,10 +419,21 @@ describe('buildSystemPrompt', () => {
     // in the prompt at all: it is enforced deterministically by ack-guard.ts,
     // same reasoning as stripFalseReminderClaims above. Net +4.
     //
-    // NOTE FOR THE NEXT RAISE: ~11 chars of headroom remain — effectively none.
+    // Raised 36.4k->37.2k for the 2026-08-07 REACTIONS block (Karibi: "if i say
+    // i went to the gym it can thumbs up or put !! on it and then talk"). +752
+    // chars, and this raise is close to free in the only unit that matters —
+    // what goes over the wire per turn. It was landed together with the DELETION
+    // of the react_to_message tool (~800 chars of description + schema, sent on
+    // every coaching turn alongside this prompt), which the block replaces. The
+    // tapback is now an inline `[react:...]` marker on the reply instead of a
+    // tool call, so reacting no longer costs a second model round-trip and the
+    // old "use SPARINGLY" throttle — the thing Karibi was actually asking us to
+    // remove — could be dropped for "react on MOST turns".
+    //
+    // NOTE FOR THE NEXT RAISE: ~59 chars of headroom remain — effectively none.
     // The next rule of any size trips this. Compress something first; every
     // raise above bought a behaviour, and the next one has to as well.
-    expect(prompt.length).toBeLessThan(36400);
+    expect(prompt.length).toBeLessThan(37200);
   });
 
   describe('goal handling + conversation order (Karibi 2026-06-01)', () => {
