@@ -990,7 +990,7 @@ export class CoachingProcessor {
       );
       const genMs = Date.now() - genStart;
       const sendStart = Date.now();
-      await this.saveAndSend(user, boundary.sessionId, reply);
+      await this.saveAndSend(user, boundary.sessionId, reply, reactTarget);
       structuredLog(this.logger, 'log', {
         service: 'coaching',
         operation: 'turn_latency',
@@ -1671,13 +1671,20 @@ export class CoachingProcessor {
       });
     }
 
+    // "Did the model actually say anything?" is measured on the WORDS, with any
+    // [react:...] marker discounted. A tapback alone is a valid coaching reply
+    // but never a valid intake one — a sign-up flow that answers with a thumbs
+    // up and no words has stalled the lead, so that falls through to the
+    // re-anchor fallback below and the bare marker is discarded with it.
+    const spokenWords = extractReaction(outReply).text.trim();
+
     // If we just gave the sample-coaching reply (post-link), flip the flag so
     // the next turn falls into the PAYWALL phase.
-    if (user.payment_link_sent_at && !user.sample_coaching_given && outReply.trim().length > 0) {
+    if (user.payment_link_sent_at && !user.sample_coaching_given && spokenWords.length > 0) {
       await this.userRepo.update(user.id, { sample_coaching_given: true });
     }
 
-    if (outReply.trim().length > 0) return outReply;
+    if (spokenWords.length > 0) return outReply;
     // Non-destructive fallback for the rare empty model reply. NEVER ask them to
     // restate a goal we already have — that "tell me your goal in one sentence"
     // mid-conversation reset (it forgets everything) was the #1 flow complaint
