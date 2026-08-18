@@ -36,12 +36,19 @@ PROBE PLAN — text these from a real phone, in this order.
 Record your own stopwatch time (send → reply visible) for every single one.
 
   #   probe                          repeat  isolates                              expect
-  1   "hi"                           15x     baseline: provider + model + send     debounce ~0ms
+  1   "probe 1" .. "probe 15"        15x     baseline: provider + model + send     debounce ~0ms
   2   "what should i eat today"       5x      model time scaling with reply length  genMs grows w/ tokens
   3   one JPEG photo                  5x      image window + vision model           debounce ~4000ms
   4   the same photo as HEIC          5x      HEIC transcode on top of #3           debounce ~4000ms
   5   two HEIC photos at once         5x      burst window + timer resets           debounce >=8000ms
   6   two photos ~10s apart           3x      photo-recency escalation              2nd also burst window
+
+*** NEVER SEND THE SAME TEXT TWICE WITHIN 5 SECONDS. *** Identical inbound text
+from the same user inside the dedup window is DROPPED, and until 2026-08-18 that
+window was 30s — sending "hi" fifteen times measured one turn and silently threw
+away fourteen. Number every probe ("probe 1", "probe 2", ...) so each is unique
+and you can match a row in the table to a specific send. If a probe vanishes,
+grep the logs for inbound_deduped.
 
 WHY 15x ON PROBE 1: a single sample cannot catch an intermittent stall. The
 complaint is about the tail, not the median, so the tail is what needs samples.
