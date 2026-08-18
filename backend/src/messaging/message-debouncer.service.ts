@@ -34,6 +34,12 @@ interface BufferState {
   // Provider timestamp of the FIRST webhook in this batch, pairing with
   // firstPushAt to give the provider-side lag the user actually felt.
   firstProviderUpdatedAt: number | null;
+  // The debounce window last applied to this buffer. Rewritten on EVERY push,
+  // because every push clears and reschedules the timer — so this is the window
+  // that actually elapsed, not the first one chosen. Reported on turn_latency so
+  // `debounceMs` far exceeding it reads as "the timer was reset N times" rather
+  // than as an unexplained stall.
+  windowMs: number;
 }
 
 /**
@@ -202,12 +208,18 @@ export class MessageDebouncerService {
         timer: undefined as unknown as NodeJS.Timeout,
         firstPushAt: Date.now(),
         firstProviderUpdatedAt: msg.providerUpdatedAt,
+        windowMs: 0,
       };
       this.buffers.set(msg.from, buf);
     }
     // Recompute the delay from the WHOLE buffer each push: a text burst that
     // later gains an image flips to the faster image window, and vice versa.
-    buf.timer = this.scheduleFlush(msg.from, debounceDelayFor(buf.messages, this.msSincePhotoFlush(msg.from)));
+    // Remember the window we applied so turn_latency can report it. Every push
+    // recomputes and RESETS the timer, so the last value written here is the one
+    // that actually elapsed — that reset is why debounceMs can far exceed the
+    // window itself on a photo burst.
+    buf.windowMs = debounceDelayFor(buf.messages, this.msSincePhotoFlush(msg.from));
+    buf.timer = this.scheduleFlush(msg.from, buf.windowMs);
   }
 
   private scheduleFlush(from: string, delayMs: number): NodeJS.Timeout {
@@ -297,6 +309,9 @@ export class MessageDebouncerService {
       messageHandle,
       receivedAt: buf.firstPushAt,
       providerLagMs: providerLagMs(buf.firstPushAt, buf.firstProviderUpdatedAt),
+      webhooksMerged: buf.messages.length,
+      mediaCount: mediaUrls.length,
+      debounceWindowMs: buf.windowMs,
     });
   }
 }
