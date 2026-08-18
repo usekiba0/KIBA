@@ -2,6 +2,7 @@ import {
   shouldSendActivationAsks,
   ActivationAsksCandidate,
   MAX_IDLE_MS,
+  MIN_SETTLE_MS,
 } from '../../src/accountability/activation-asks';
 
 /**
@@ -22,7 +23,7 @@ function candidate(over: Partial<ActivationAsksCandidate> = {}): ActivationAsksC
     onboardingStage: 'complete',
     status: 'active',
     activationAsksSentAt: null,
-    lastCheckinDate: '2026-08-05',
+    activatedAt: new Date(NOW.getTime() - 3 * 60 * 60_000), // paid 3h ago
     lastActiveAt: new Date(NOW.getTime() - 2 * 60 * 60_000), // active 2h ago
     optedOutAt: null,
     utcOffsetMinutes: -300,
@@ -78,13 +79,21 @@ describe('shouldSendActivationAsks', () => {
         .toEqual({ send: false, reason: 'cancelled' });
     });
 
-    it('on payment day — before any check-in has gone out', () => {
+    it('in the first half hour after payment — the activation text must land alone', () => {
       // THE guard that stops this re-creating the three-stacked-texts-on-payment
-      // problem the proof hook was originally built to fix. A check-in is only
-      // scheduled once checkout completes, so a null here means the activation
-      // message may still be the last thing they received.
-      expect(shouldSendActivationAsks(candidate({ lastCheckinDate: null }), NOW))
-        .toEqual({ send: false, reason: 'no_checkin_yet' });
+      // problem the proof hook was originally built to fix. Payment sends exactly
+      // ONE message; the asks follow as a separate moment.
+      expect(
+        shouldSendActivationAsks(
+          candidate({ activatedAt: new Date(NOW.getTime() - 60_000) }),
+          NOW,
+        ),
+      ).toEqual({ send: false, reason: 'too_soon_after_payment' });
+    });
+
+    it('to a "complete" user with no subscription row — we will not guess when they paid', () => {
+      expect(shouldSendActivationAsks(candidate({ activatedAt: null }), NOW))
+        .toEqual({ send: false, reason: 'no_activation_timestamp' });
     });
 
     it('to a user with no activity timestamp at all', () => {
@@ -104,15 +113,27 @@ describe('shouldSendActivationAsks', () => {
     it('at 3am local, even when everything else qualifies', () => {
       // 09:00Z with a -300 offset is 4am local.
       const at4am = new Date('2026-08-06T09:00:00Z');
-      expect(shouldSendActivationAsks(candidate({ lastActiveAt: at4am }), at4am))
-        .toEqual({ send: false, reason: 'quiet_hours' });
+      expect(
+        shouldSendActivationAsks(
+          candidate({
+            lastActiveAt: at4am,
+            // Settled long ago, so quiet hours is provably the only thing left.
+            activatedAt: new Date(at4am.getTime() - 3 * 60 * 60_000),
+          }),
+          at4am,
+        ),
+      ).toEqual({ send: false, reason: 'quiet_hours' });
     });
 
     it('at 3am UTC-fallback when the timezone was never resolved', () => {
       const at3amUtcWindow = new Date('2026-08-06T09:00:00Z'); // outside 15:00-01:00Z
       expect(
         shouldSendActivationAsks(
-          candidate({ utcOffsetMinutes: null, lastActiveAt: at3amUtcWindow }),
+          candidate({
+            utcOffsetMinutes: null,
+            lastActiveAt: at3amUtcWindow,
+            activatedAt: new Date(at3amUtcWindow.getTime() - 3 * 60 * 60_000),
+          }),
           at3amUtcWindow,
         ),
       ).toEqual({ send: false, reason: 'quiet_hours' });
@@ -120,6 +141,28 @@ describe('shouldSendActivationAsks', () => {
   });
 
   describe('boundaries', () => {
+    it('sends on payment DAY once the settle window has passed — the 2026-08-18 fix', () => {
+      // The regression this exists to prevent. The old gate keyed off
+      // last_checkin_date, which is stamped only when a check-in FIRES, so a user
+      // who paid at 18:48Z with an 09:00 local check-in waited ~19h for the
+      // contact card — and the card IS the Apple masking. Same day, warm user.
+      expect(
+        shouldSendActivationAsks(
+          candidate({ activatedAt: new Date(NOW.getTime() - MIN_SETTLE_MS - 1) }),
+          NOW,
+        ),
+      ).toEqual({ send: true });
+    });
+
+    it('sends at exactly the settle boundary', () => {
+      expect(
+        shouldSendActivationAsks(
+          candidate({ activatedAt: new Date(NOW.getTime() - MIN_SETTLE_MS) }),
+          NOW,
+        ),
+      ).toEqual({ send: true });
+    });
+
     it('still sends at exactly the idle limit', () => {
       // Strictly-greater-than comparison — the boundary itself is eligible.
       expect(
@@ -138,6 +181,7 @@ describe('shouldSendActivationAsks', () => {
           candidate({
             optedOutAt: NOW,
             onboardingStage: 'intake',
+            activatedAt: null,
             lastActiveAt: null,
           }),
           NOW,

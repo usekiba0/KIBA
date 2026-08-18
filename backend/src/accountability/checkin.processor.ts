@@ -6,6 +6,7 @@ import { Repository, Not, IsNull, Between } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Job, Queue } from 'bull';
 import { User, OnboardingStage, UserStatus } from '../data/entities/user.entity';
+import { Subscription } from '../data/entities/subscription.entity';
 // DailyTask repo is no longer needed here — task lookup/creation is handled
 // by TaskService.ensureTodayTask, which encapsulates the day-index + cycling
 // logic. Keeps this processor lean.
@@ -162,6 +163,7 @@ export class CheckinProcessor {
     @InjectRepository(PsychologicalProfile)
     private readonly profileRepo: Repository<PsychologicalProfile>,
     @InjectRepository(Message) private readonly messageRepo: Repository<Message>,
+    @InjectRepository(Subscription) private readonly subRepo: Repository<Subscription>,
     private readonly messagingService: MessagingService,
     private readonly sessionBoundary: SessionBoundaryService,
     private readonly antiGhostService: AntiGhostService,
@@ -464,7 +466,6 @@ export class CheckinProcessor {
       .where('u.onboarding_stage = :stage', { stage: OnboardingStage.COMPLETE })
       .andWhere('u.status != :cancelled', { cancelled: UserStatus.CANCELLED })
       .andWhere('u.opted_out_at IS NULL')
-      .andWhere('u.last_checkin_date IS NOT NULL')
       .andWhere('u.last_active_at > :cutoff', {
         cutoff: new Date(now.getTime() - MAX_IDLE_MS),
       })
@@ -476,6 +477,21 @@ export class CheckinProcessor {
       .limit(100)
       .getMany();
 
+    // When each candidate actually paid. MIN(created_at) so a reactivation can't
+    // reset the settle clock and re-open a window that already closed. Batched
+    // into one query — this runs hourly over the whole active base.
+    const activatedAt = new Map<string, Date>();
+    if (candidates.length) {
+      const rows = await this.subRepo
+        .createQueryBuilder('s')
+        .select('s.user_id', 'user_id')
+        .addSelect('MIN(s.created_at)', 'activated_at')
+        .where('s.user_id IN (:...ids)', { ids: candidates.map((u) => u.id) })
+        .groupBy('s.user_id')
+        .getRawMany<{ user_id: string; activated_at: Date | string }>();
+      for (const r of rows) activatedAt.set(r.user_id, new Date(r.activated_at));
+    }
+
     let sent = 0;
     for (const user of candidates) {
       const decision = shouldSendActivationAsks(
@@ -483,7 +499,7 @@ export class CheckinProcessor {
           onboardingStage: user.onboarding_stage,
           status: user.status,
           activationAsksSentAt: user.intake_data?.activation_asks_sent_at ?? null,
-          lastCheckinDate: user.last_checkin_date,
+          activatedAt: activatedAt.get(user.id) ?? null,
           lastActiveAt: user.last_active_at,
           optedOutAt: user.opted_out_at,
           utcOffsetMinutes: user.utc_offset_minutes,
@@ -513,14 +529,18 @@ export class CheckinProcessor {
       }
     }
 
-    if (candidates.length) {
-      structuredLog(this.logger, 'log', {
-        service: 'accountability',
-        operation: 'activation_asks_sweep',
-        candidates: candidates.length,
-        sent,
-      });
-    }
+    // Logged EVERY run, including candidates: 0. This used to be wrapped in
+    // `if (candidates.length)`, which made a healthy sweep that found nobody
+    // indistinguishable in the logs from a sweep that never ran at all — and
+    // that ambiguity is what sent the 2026-08-18 "masking is broken"
+    // investigation down the wrong path. A quiet heartbeat is cheap; 24 lines a
+    // day buys the ability to answer "is it running?" without a DB query.
+    structuredLog(this.logger, 'log', {
+      service: 'accountability',
+      operation: 'activation_asks_sweep',
+      candidates: candidates.length,
+      sent,
+    });
   }
 
   /**

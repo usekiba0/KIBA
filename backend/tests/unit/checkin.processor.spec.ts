@@ -12,6 +12,7 @@ import {
   PressurePreference,
 } from '../../src/data/entities/psychological-profile.entity';
 import { Message } from '../../src/data/entities/message.entity';
+import { Subscription } from '../../src/data/entities/subscription.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
 import { SessionBoundaryService } from '../../src/data/session-boundary.service';
 import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
@@ -157,6 +158,21 @@ describe('CheckinProcessor', () => {
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getRepositoryToken(PsychologicalProfile), useValue: mockProfileRepo },
         { provide: getRepositoryToken(Message), useValue: mockMessageRepo },
+        // Only used by the hourly activation-asks sweep, to read when each
+        // candidate paid. Empty result = no activation timestamp, which the
+        // eligibility rule treats as "stay silent".
+        {
+          provide: getRepositoryToken(Subscription),
+          useValue: {
+            createQueryBuilder: jest.fn(() => ({
+              select: jest.fn().mockReturnThis(),
+              addSelect: jest.fn().mockReturnThis(),
+              where: jest.fn().mockReturnThis(),
+              groupBy: jest.fn().mockReturnThis(),
+              getRawMany: jest.fn().mockResolvedValue([]),
+            })),
+          },
+        },
         { provide: MessagingService, useValue: mockMessagingService },
         { provide: SessionBoundaryService, useValue: mockSessionBoundary },
         { provide: AntiGhostService, useValue: mockAntiGhostService },
