@@ -5,6 +5,7 @@ import { CheckinProcessor } from '../../src/accountability/checkin.processor';
 import { User, UserStatus, OnboardingStage } from '../../src/data/entities/user.entity';
 import { PsychologicalProfile } from '../../src/data/entities/psychological-profile.entity';
 import { Message } from '../../src/data/entities/message.entity';
+import { Subscription } from '../../src/data/entities/subscription.entity';
 import { MessagingService } from '../../src/messaging/messaging.service';
 import { SessionBoundaryService } from '../../src/data/session-boundary.service';
 import { OutboundRecorderService } from '../../src/data/outbound-recorder.service';
@@ -93,6 +94,21 @@ describe('CheckinProcessor.handleSendCheckin — resilience', () => {
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(PsychologicalProfile), useValue: profileRepo },
         { provide: getRepositoryToken(Message), useValue: messageRepo },
+        // Only used by the hourly activation-asks sweep, to read when each
+        // candidate paid. Empty result = no activation timestamp, which the
+        // eligibility rule treats as "stay silent".
+        {
+          provide: getRepositoryToken(Subscription),
+          useValue: {
+            createQueryBuilder: jest.fn(() => ({
+              select: jest.fn().mockReturnThis(),
+              addSelect: jest.fn().mockReturnThis(),
+              where: jest.fn().mockReturnThis(),
+              groupBy: jest.fn().mockReturnThis(),
+              getRawMany: jest.fn().mockResolvedValue([]),
+            })),
+          },
+        },
         { provide: MessagingService, useValue: messagingService },
         { provide: SessionBoundaryService, useValue: sessionBoundary },
         { provide: AntiGhostService, useValue: antiGhostService },
@@ -184,10 +200,14 @@ describe('CheckinProcessor.handleSafetyReschedule', () => {
     const checkinService = { scheduleAllCheckins: jest.fn().mockResolvedValue(undefined) } as unknown as CheckinService;
     const recapService = { scheduleAllRecaps: jest.fn().mockResolvedValue(undefined) };
     const weeklyReviewService = { scheduleAllReviews: jest.fn().mockResolvedValue(undefined) };
-    // Positional args mirror the constructor: …, checkinService(8), taskService(9),
-    // surpriseService(10), recapService(11), weeklyReviewService(12).
+    // Positional args mirror the constructor, so ADDING A CONSTRUCTOR PARAM
+    // BREAKS THIS TEST — that is how the subRepo added on 2026-08-18 was caught.
+    // Zero-indexed: 0 userRepo, 1 profileRepo, 2 messageRepo, 3 subRepo,
+    // 4 messagingService, 5 sessionBoundary, 6 antiGhostService,
+    // 7 scheduleService, 8 checkinService, 9 taskService, 10 surpriseService,
+    // 11 recapService, 12 weeklyReviewService.
     const processor = new (CheckinProcessor as any)(
-      {}, {}, {}, {}, {}, {}, {}, checkinService, {}, {}, recapService, weeklyReviewService,
+      {}, {}, {}, {}, {}, {}, {}, {}, checkinService, {}, {}, recapService, weeklyReviewService,
     );
     await processor.handleSafetyReschedule();
     expect(checkinService.scheduleAllCheckins).toHaveBeenCalledTimes(1);

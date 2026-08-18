@@ -36,13 +36,19 @@ export interface ActivationAsksCandidate {
   /** Set once the pair has been sent. One per user, forever. */
   activationAsksSentAt: string | null;
   /**
-   * User-local YYYY-MM-DD of the last check-in SENT (not answered). Non-null is
-   * the guard that keeps this off payment day: check-ins are only scheduled once
-   * checkout completes, so having one means the activation message has already
-   * landed and been given room to breathe. That is what stops this recreating
-   * the three-stacked-texts-on-payment problem the proof hook was built to fix.
+   * When the user actually paid — MIN(subscriptions.created_at), so a later
+   * reactivation cannot reset the clock and re-open a window that already closed.
+   *
+   * This replaced a `lastCheckinDate IS NOT NULL` gate on 2026-08-18. That gate
+   * was meant only as "let the activation message breathe", but because
+   * `last_checkin_date` is stamped when a check-in actually FIRES, it really
+   * meant "wait for the first daily check-in" — up to 24h after payment. Measured
+   * in prod: a user who paid 08-17 18:48Z at UTC-5 with a 09:00 check-in would
+   * not have been eligible for ~19h. Since the contact card IS the Apple masking,
+   * that is 19h of every new subscriber seeing a bare phone number, and it is
+   * exactly what a founder testing with a fresh signup would hit. See MIN_SETTLE_MS.
    */
-  lastCheckinDate: string | null;
+  activatedAt: Date | null;
   lastActiveAt: Date | null;
   optedOutAt: Date | null;
   /** Minutes from UTC, or null when we never resolved their timezone. */
@@ -57,6 +63,22 @@ export interface ActivationAsksCandidate {
  */
 export const MAX_IDLE_MS = 7 * 24 * 60 * 60_000;
 
+/**
+ * How long after payment the asks must wait.
+ *
+ * Payment has to send exactly ONE message — Training Doc v2 called out
+ * "message stacking on payment. Doc v1 said one message then wait. T1 stacked 3
+ * messages back-to-back post-purchase" — and that constraint is unchanged. What
+ * changed is how we enforce it: a short settle window instead of "wait for the
+ * first check-in", so the card still lands on payment DAY while the user is warm
+ * and most likely to save it, rather than up to 24h later.
+ *
+ * 30 minutes is deliberately longer than the sweep's own hourly tick is precise,
+ * so in practice the asks arrive 30-90 minutes after payment — comfortably a
+ * separate moment from the activation text, still the same session.
+ */
+export const MIN_SETTLE_MS = 30 * 60_000;
+
 export function shouldSendActivationAsks(
   c: ActivationAsksCandidate,
   now: Date,
@@ -69,8 +91,13 @@ export function shouldSendActivationAsks(
   if (c.onboardingStage !== 'complete') return { send: false, reason: 'not_activated' };
   if (c.status === 'cancelled') return { send: false, reason: 'cancelled' };
 
-  // See lastCheckinDate above — this is the payment-day guard.
-  if (!c.lastCheckinDate) return { send: false, reason: 'no_checkin_yet' };
+  // Anti-stacking guard. `complete` without a subscription row should not
+  // happen, but if it does we stay silent rather than guess when they paid —
+  // a missed one-time nudge is far cheaper than one stacked onto the tap.
+  if (!c.activatedAt) return { send: false, reason: 'no_activation_timestamp' };
+  if (now.getTime() - c.activatedAt.getTime() < MIN_SETTLE_MS) {
+    return { send: false, reason: 'too_soon_after_payment' };
+  }
 
   if (!c.lastActiveAt) return { send: false, reason: 'no_activity_timestamp' };
   if (now.getTime() - c.lastActiveAt.getTime() > MAX_IDLE_MS) {

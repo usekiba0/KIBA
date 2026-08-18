@@ -8,6 +8,7 @@ import { Strike } from '../data/entities/strike.entity';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { AntiGhostState } from '../data/entities/anti-ghost-state.entity';
 import { Goal } from '../data/entities/goal.entity';
+import { Subscription } from '../data/entities/subscription.entity';
 import { User } from '../data/entities/user.entity';
 import { PsychologicalProfile } from '../data/entities/psychological-profile.entity';
 import { ScheduledReminder } from '../data/entities/scheduled-reminder.entity';
@@ -41,7 +42,7 @@ import { AiModule } from '../ai/ai.module';
     TypeOrmModule.forFeature([
       DailyTask, DailyTodo, Proof, Strike, ExecutionScore, AntiGhostState,
       Goal, User, PsychologicalProfile, ScheduledReminder,
-      Message, ConversationSession,
+      Message, ConversationSession, Subscription,
     ]),
     BullModule.registerQueue({ name: 'accountability' }),
     forwardRef(() => MessagingModule),
