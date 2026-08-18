@@ -40,35 +40,55 @@ describe('splitBubbles', () => {
 // replies shipped as a single block while the coaching prompt said "2 bubbles is
 // the norm, 3 is the ceiling". A prompt-only rule that haiku-4-5 ignores, same as
 // the reply-length carve-out. These lock the code fallback that replaces it.
-describe('splitBubbles — deterministic split when the model omits [pause]', () => {
-  // Measured 2026-07-30: asked haiku four unrelated questions through the real
-  // coaching prompt and it separated its beats with a blank line every time. That
-  // is the model's own intent — prefer it over our sentence heuristic.
-  it('splits on the blank line the model uses to mark its own beats', () => {
+describe('splitBubbles — a marker-less reply is ONE text', () => {
+  // Reversed 2026-08-18. A blank line used to become a second bubble, on the
+  // grounds that haiku only used one where a person would send a second text. Two
+  // separate failures ended that:
+  //
+  //  1. Two bubbles are two sends ~450-540ms apart, and SendBlue does not preserve
+  //     order at that spacing. Server log vs a device screenshot of the same
+  //     moment: we sent "hey. i'm KIBA." then the follow-up 537ms later, and the
+  //     phone showed them REVERSED. Reversed, each half reads as its own answer.
+  //  2. By 08-18 the blank line was on nearly EVERY reply — KIBA's house style is
+  //     a short ack, blank line, then the question. That is one turn of speech, so
+  //     "split on a beat" had quietly become "split always" for the second time.
+  //
+  // The beat survives as a single newline inside one bubble.
+  it('keeps an ack-then-question reply as one text, beat preserved as a newline', () => {
     expect(splitBubbles("40. born in '84.\n\nwhy, what's the connection?")).toEqual([
-      "40. born in '84.",
-      "why, what's the connection?",
+      "40. born in '84.\nwhy, what's the connection?",
     ]);
   });
 
-  // Regression, 2026-07-30: shipped without this cap and haiku's 3-4 paragraph
-  // replies became 3-4 bubbles. sendMs went 399ms -> ~1,600ms median, because every
-  // bubble is its own provider round-trip plus MESSAGE_BUBBLE_DELAY_MS. A split WE
-  // decide on stops at 2; only an explicit [pause] may go to MAX_BUBBLES.
-  it('folds a 3-paragraph reply down to 2 bubbles, keeping all the text', () => {
+  it('merges a 3-paragraph reply into one text, keeping all of it in order', () => {
     const reply = 'chicken + rice + beans, ~45g protein.\n\nskip the queso if cutting.\n\nbuilding or leaning out?';
     expect(splitBubbles(reply)).toEqual([
-      'chicken + rice + beans, ~45g protein.',
-      'skip the queso if cutting. building or leaning out?',
+      'chicken + rice + beans, ~45g protein.\nskip the queso if cutting.\nbuilding or leaning out?',
     ]);
   });
 
-  it('never lets a self-decided split exceed 2 bubbles', () => {
-    expect(splitBubbles('one\n\ntwo\n\nthree\n\nfour\n\nfive')).toHaveLength(2);
+  it('never sends more than one bubble however many paragraphs the model wrote', () => {
+    expect(splitBubbles('one\n\ntwo\n\nthree\n\nfour\n\nfive')).toHaveLength(1);
   });
 
-  it('splits a short two-beat reply — a blank line beats the length floor', () => {
-    expect(splitBubbles('yo\n\nyou good?')).toEqual(['yo', 'you good?']);
+  it('keeps a short two-beat reply as one text too', () => {
+    expect(splitBubbles('yo\n\nyou good?')).toEqual(['yo\nyou good?']);
+  });
+
+  // THE ordering regression this change exists to kill — the exact pair from
+  // Karibi's 2026-08-18 screenshot, which the phone displayed upside down.
+  it('sends the reversed-on-device intake greeting as a single message', () => {
+    const reply =
+      "hey. i'm KIBA.\n\ni live in your texts. i check in daily, call out your excuses, and i don't let people stay in the same spot they've been in for months. what's your name tho?";
+    const out = splitBubbles(reply);
+    expect(out).toHaveLength(1);
+    expect(out[0].indexOf("hey. i'm KIBA.")).toBeLessThan(out[0].indexOf('i live in your texts'));
+  });
+
+  // Still deduped, but now BEFORE the join — otherwise the repeat would ship as one
+  // message saying the same thing twice instead of two bubbles we could drop.
+  it('drops a paragraph the model emitted twice instead of merging both copies', () => {
+    expect(splitBubbles('locked in.\n\nlocked in.')).toEqual(['locked in.']);
   });
 
   it('still allows 4 bubbles when the MODEL asked for them via [pause]', () => {
@@ -94,12 +114,19 @@ describe('splitBubbles — deterministic split when the model omits [pause]', ()
     expect(splitBubbles(reply)).toEqual([reply]);
   });
 
-  it('splits the same reply once the model marks the beat itself', () => {
+  it('keeps the same reply as one text even when the model breaks the paragraph', () => {
     const reply =
       "damn that's rough, sorry to hear it.\n\nyou still got the workout in tho, or we pushing it to tomorrow?";
     expect(splitBubbles(reply)).toEqual([
+      "damn that's rough, sorry to hear it.\nyou still got the workout in tho, or we pushing it to tomorrow?",
+    ]);
+  });
+
+  it('still splits when the model asks explicitly with [pause]', () => {
+    const reply = "damn that's rough, sorry to hear it. [pause] you still got the workout in tho?";
+    expect(splitBubbles(reply)).toEqual([
       "damn that's rough, sorry to hear it.",
-      'you still got the workout in tho, or we pushing it to tomorrow?',
+      'you still got the workout in tho?',
     ]);
   });
 
@@ -142,16 +169,16 @@ describe('splitBubbles — deterministic split when the model omits [pause]', ()
     expect(splitBubbles(reply)).toHaveLength(1);
   });
 
-  // The reply that started this (message row 7e1f8905). Two beats, marked by the
-  // model, and they read as one continued thought in order: the acknowledgement,
-  // then what to do about it. Splitting here is right — delivering it backwards is
-  // what made it look like two competing answers.
-  it('keeps a marked two-beat reply in the order the model wrote it', () => {
+  // The reply that started this (message row 7e1f8905). Two beats that read as one
+  // continued thought: the acknowledgement, then what to do about it. Splitting it
+  // was never the problem — delivering it backwards was, which is what made it look
+  // like two competing answers. As one message it cannot arrive out of order, and
+  // the beat is still visible as a line break.
+  it('delivers the two beats in one message, in the order the model wrote them', () => {
     const reply =
       "lol fair - your parents handle it.\n\nshow them the link, they tap it, and you're good.";
     expect(splitBubbles(reply)).toEqual([
-      'lol fair - your parents handle it.',
-      "show them the link, they tap it, and you're good.",
+      "lol fair - your parents handle it.\nshow them the link, they tap it, and you're good.",
     ]);
   });
 

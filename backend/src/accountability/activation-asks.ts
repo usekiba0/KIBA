@@ -53,6 +53,18 @@ export interface ActivationAsksCandidate {
   optedOutAt: Date | null;
   /** Minutes from UTC, or null when we never resolved their timezone. */
   utcOffsetMinutes: number | null;
+  /**
+   * The user's daily check-in time as "HH:MM" local, or null if unset.
+   *
+   * Needed because the settle window alone does NOT prevent stacking. Shipped
+   * 2026-08-18 without this and immediately caused the exact problem the settle
+   * window was supposed to avoid: the hourly sweep fired at 14:00:25Z while the
+   * user's 09:00-local check-in fired at 14:00:26Z, so Karibi got the contact
+   * card, the check-in and the pin nudge inside two seconds and reported "so many
+   * errors that just come randomly". Payment day was never the only moment worth
+   * protecting — any moment KIBA already has something to say is.
+   */
+  checkinTime: string | null;
 }
 
 /**
@@ -78,6 +90,34 @@ export const MAX_IDLE_MS = 7 * 24 * 60 * 60_000;
  * separate moment from the activation text, still the same session.
  */
 export const MIN_SETTLE_MS = 30 * 60_000;
+
+/**
+ * Keep-clear window either side of the daily check-in, in minutes.
+ *
+ * The check-in is the one message a user is guaranteed to get, so it is the most
+ * likely thing for a housekeeping ask to land on top of. 45 minutes each way is
+ * wide enough that the sweep's hourly tick cannot slip inside it.
+ */
+export const CHECKIN_KEEP_CLEAR_MIN = 45;
+
+/** "HH:MM" -> minutes past local midnight. Null on anything malformed. */
+function parseHhMm(hhmm: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/**
+ * Distance between two times of day, in minutes, the short way round the clock —
+ * so 23:50 and 00:10 are 20 minutes apart, not 1420.
+ */
+function clockDistanceMin(a: number, b: number): number {
+  const raw = Math.abs(a - b);
+  return Math.min(raw, 1440 - raw);
+}
 
 export function shouldSendActivationAsks(
   c: ActivationAsksCandidate,
@@ -106,6 +146,19 @@ export function shouldSendActivationAsks(
 
   // Shared with the intake nudge so there is one definition of quiet hours.
   if (!isSendableHour(now, c.utcOffsetMinutes)) return { send: false, reason: 'quiet_hours' };
+
+  // Don't land on top of the daily check-in. See checkinTime above — omitting this
+  // is what turned the 08-18 fix into three stacked texts.
+  if (c.checkinTime) {
+    const checkinMin = parseHhMm(c.checkinTime);
+    if (checkinMin !== null) {
+      const local = new Date(now.getTime() + (c.utcOffsetMinutes ?? 0) * 60_000);
+      const localMin = local.getUTCHours() * 60 + local.getUTCMinutes();
+      if (clockDistanceMin(localMin, checkinMin) < CHECKIN_KEEP_CLEAR_MIN) {
+        return { send: false, reason: 'too_close_to_checkin' };
+      }
+    }
+  }
 
   return { send: true };
 }
