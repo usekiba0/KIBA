@@ -3,6 +3,7 @@ import {
   ActivationAsksCandidate,
   MAX_IDLE_MS,
   MIN_SETTLE_MS,
+  CHECKIN_KEEP_CLEAR_MIN,
 } from '../../src/accountability/activation-asks';
 
 /**
@@ -18,15 +19,28 @@ import {
  */
 const NOW = new Date('2026-08-06T18:00:00Z'); // 1pm US Central — inside every window
 
-function candidate(over: Partial<ActivationAsksCandidate> = {}): ActivationAsksCandidate {
+/**
+ * `now` is a parameter, not a constant, because every time-relative default has to
+ * be derived from the instant under test. Pinning them to the module-level NOW made
+ * any test that passed an earlier `now` fail on the WRONG guard — a fixture that
+ * "paid 3h ago" relative to 18:00Z is in the FUTURE at 09:00Z, so the reply came
+ * back `too_soon_after_payment` when the test was about quiet hours.
+ */
+function candidate(
+  over: Partial<ActivationAsksCandidate> = {},
+  now: Date = NOW,
+): ActivationAsksCandidate {
   return {
     onboardingStage: 'complete',
     status: 'active',
     activationAsksSentAt: null,
-    activatedAt: new Date(NOW.getTime() - 3 * 60 * 60_000), // paid 3h ago
-    lastActiveAt: new Date(NOW.getTime() - 2 * 60 * 60_000), // active 2h ago
+    activatedAt: new Date(now.getTime() - 3 * 60 * 60_000), // paid 3h ago
+    lastActiveAt: new Date(now.getTime() - 2 * 60 * 60_000), // active 2h ago
     optedOutAt: null,
     utcOffsetMinutes: -300,
+    // 13:00 local at NOW; far from the 09:00 check-in so it never interferes
+    // unless a test says so.
+    checkinTime: '09:00',
     ...over,
   };
 }
@@ -96,6 +110,31 @@ describe('shouldSendActivationAsks', () => {
         .toEqual({ send: false, reason: 'no_activation_timestamp' });
     });
 
+    // THE regression from shipping the payment-day fix without this guard: the
+    // hourly sweep fired at 14:00:25Z while the user's 09:00-local check-in fired at
+    // 14:00:26Z, so Karibi got the contact card, the check-in and the pin nudge
+    // inside two seconds. The settle window only protected payment; the check-in is
+    // the other moment KIBA already has something to say.
+    it('within 45 minutes of the daily check-in — the 2026-08-18 stacking regression', () => {
+      // 14:00Z with a -300 offset is 09:00 local: the check-in is landing right now.
+      const atCheckin = new Date('2026-08-06T14:00:00Z');
+      expect(
+        shouldSendActivationAsks(
+          candidate({ checkinTime: '09:00' }, atCheckin),
+          atCheckin,
+        ),
+      ).toEqual({ send: false, reason: 'too_close_to_checkin' });
+    });
+
+    it('just before the check-in, not only after it', () => {
+      // NOW is 13:00 local. A 13:30 check-in is 30 minutes out — inside the window,
+      // and mid-afternoon so quiet hours provably is not what is blocking it. (An
+      // early check-in cannot be tested this way: 45 minutes before an 09:00
+      // check-in is 08:15 local, which quiet hours rejects first.)
+      expect(shouldSendActivationAsks(candidate({ checkinTime: '13:30' }), NOW))
+        .toEqual({ send: false, reason: 'too_close_to_checkin' });
+    });
+
     it('to a user with no activity timestamp at all', () => {
       expect(shouldSendActivationAsks(candidate({ lastActiveAt: null }), NOW))
         .toEqual({ send: false, reason: 'no_activity_timestamp' });
@@ -115,11 +154,7 @@ describe('shouldSendActivationAsks', () => {
       const at4am = new Date('2026-08-06T09:00:00Z');
       expect(
         shouldSendActivationAsks(
-          candidate({
-            lastActiveAt: at4am,
-            // Settled long ago, so quiet hours is provably the only thing left.
-            activatedAt: new Date(at4am.getTime() - 3 * 60 * 60_000),
-          }),
+          candidate({}, at4am),
           at4am,
         ),
       ).toEqual({ send: false, reason: 'quiet_hours' });
@@ -129,11 +164,7 @@ describe('shouldSendActivationAsks', () => {
       const at3amUtcWindow = new Date('2026-08-06T09:00:00Z'); // outside 15:00-01:00Z
       expect(
         shouldSendActivationAsks(
-          candidate({
-            utcOffsetMinutes: null,
-            lastActiveAt: at3amUtcWindow,
-            activatedAt: new Date(at3amUtcWindow.getTime() - 3 * 60 * 60_000),
-          }),
+          candidate({ utcOffsetMinutes: null }, at3amUtcWindow),
           at3amUtcWindow,
         ),
       ).toEqual({ send: false, reason: 'quiet_hours' });
@@ -161,6 +192,45 @@ describe('shouldSendActivationAsks', () => {
           NOW,
         ),
       ).toEqual({ send: true });
+    });
+
+    it('sends once clear of the check-in window', () => {
+      // 15:00Z = 10:00 local, 60min past a 09:00 check-in — outside the 45min guard.
+      const clear = new Date('2026-08-06T15:00:00Z');
+      expect(
+        shouldSendActivationAsks(
+          candidate({ checkinTime: '09:00' }, clear),
+          clear,
+        ),
+      ).toEqual({ send: true });
+    });
+
+    it('lets quiet hours win near midnight, where the clock wraparound would apply', () => {
+      // 05:10Z = 00:10 local. clockDistanceMin() would score a 23:50 check-in as 20
+      // minutes away rather than 1420, but quiet hours (09:00-20:00 local) is checked
+      // first and no check-in near midnight is ever reachable. The wraparound in
+      // clockDistanceMin is therefore defensive, not load-bearing — asserted here so
+      // nobody "fixes" a bug that the ordering already prevents.
+      const justAfterMidnight = new Date('2026-08-06T05:10:00Z');
+      expect(
+        shouldSendActivationAsks(
+          candidate({ checkinTime: '23:50' }, justAfterMidnight),
+          justAfterMidnight,
+        ),
+      ).toEqual({ send: false, reason: 'quiet_hours' });
+    });
+
+    it('ignores a malformed or missing check-in time rather than blocking forever', () => {
+      expect(shouldSendActivationAsks(candidate({ checkinTime: null }), NOW))
+        .toEqual({ send: true });
+      expect(shouldSendActivationAsks(candidate({ checkinTime: 'whenever' }), NOW))
+        .toEqual({ send: true });
+    });
+
+    it('keeps the keep-clear window wider than the sweep tick', () => {
+      // The sweep runs hourly. A window narrower than ~30min could let a tick slip
+      // inside it; 45 guarantees it cannot.
+      expect(CHECKIN_KEEP_CLEAR_MIN).toBeGreaterThanOrEqual(30);
     });
 
     it('still sends at exactly the idle limit', () => {

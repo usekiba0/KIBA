@@ -12,26 +12,6 @@
 const MAX_BUBBLES = 4;
 
 /**
- * Hard ceiling for a split WE decided on. `MAX_BUBBLES` (4) stays the limit for an
- * explicit `[pause]`, where the model asked for the break.
- *
- * Measured the hard way, 2026-07-30: shipping the blank-line split without this cap
- * let haiku's 3-4 paragraph replies through as 3-4 bubbles, and `sendMs` went from
- * 399ms to ~1,600ms median — each bubble is its own provider round-trip (~400ms)
- * plus MESSAGE_BUBBLE_DELAY_MS between them. Karibi felt it immediately. Two bubbles
- * is what the prompt calls the norm and what the latency budget actually affords;
- * beyond that the burst costs more than the human rhythm is worth.
- */
-const AUTO_SPLIT_MAX = 2;
-
-/** Fold a self-decided split down to AUTO_SPLIT_MAX, merging the tail. */
-function capAuto(parts: string[]): string[] {
-  if (parts.length <= AUTO_SPLIT_MAX) return parts;
-  const head = parts.slice(0, AUTO_SPLIT_MAX - 1);
-  return [...head, parts.slice(AUTO_SPLIT_MAX - 1).join(' ')];
-}
-
-/**
  * Collapse a reply the model emitted twice back-to-back into a single copy.
  *
  * Kept from the sentence-splitting era. The degenerate self-repeat (Karibi
@@ -53,51 +33,55 @@ function collapseSelfRepeat(text: string): string {
 }
 
 /**
- * Split a marker-less reply where the MODEL marked its own beats, and nowhere else.
+ * A marker-less reply is ONE text. Always.
  *
- * WHY THIS EXISTS: `[pause]` is a PROMPT-only instruction, and prod measured it
- * firing on 1 of 151 replies (2026-07-30) — 99.3% of replies shipped as a single
- * block while the prompt said "2 bubbles is the norm". Same failure mode as every
- * other prompt-only guard on haiku-4-5, so the behaviour lives in code and
- * `[pause]` stays as the model's explicit override.
+ * WHY (2026-08-18) — this used to split on a blank line, treating it as the model
+ * marking its own beat. Two things killed that:
  *
- * WHAT IS NOT HERE ANY MORE: a fallback that cut any reply over 80 chars at its
- * first sentence boundary. That fired on nearly every reply — almost nothing KIBA
- * says is under 80 chars — so "2 bubbles when there are 2 beats" became "2 bubbles
- * always", including on replies that are one continuous thought. Cutting continuous
- * prose in half produces two texts that do not follow from each other, and the
- * client reported exactly that: bubbles that "feel like two different AI responses
- * to the same prompt" (KIBA_Message_Feedback_Developer_Detailed.pdf, 2026-07-31).
- * We were guessing where a beat was. A blank line is not a guess — it is the model
- * telling us — so that is the only automatic split left. No beat marked, one text.
+ * 1. ORDERING. Two bubbles means two provider round-trips ~450-540ms apart, and
+ *    SendBlue does not guarantee order at that spacing. Proven with a server log
+ *    against a device screenshot of the same moment: we sent "hey. i'm KIBA." at
+ *    15:50:09 and the follow-up at 15:50:10, and the phone displayed them
+ *    REVERSED. Removing the concurrent-send path on 07-31 reduced this but never
+ *    fixed it — the race is the gap itself, not the concurrency. Reversed, each
+ *    half reads as its own answer and the two contradict; the founder's words were
+ *    "this entire thing is just upside down it doesn't even make sense."
  *
- * Capped at TWO bubbles: each extra bubble is another send round-trip plus
- * MESSAGE_BUBBLE_DELAY_MS before the reply finishes landing (#62 — 3-4 paragraph
- * replies took sendMs from 399ms to ~1,600ms median). The first bubble still goes
- * out at the same moment it would have as a single message, so nothing is slower
- * to START.
+ * 2. IT STOPPED DISCRIMINATING. The blank line was adopted because haiku used it
+ *    only where a person would send a second text. By 08-18 it was on nearly every
+ *    reply — KIBA's house style is a short acknowledgement, blank line, then the
+ *    question ("5000 subs. that's real." / "so what's the actual problem then...").
+ *    That is one turn of speech, not two texts, and it reads perfectly as one
+ *    message. So "split on a beat" had quietly become "split always" for the
+ *    second time, the same way the 80-char sentence rule did before it.
+ *
+ * The rhythm is NOT lost: paragraphs are joined with a single newline, so the beat
+ * is still visible as a line break inside one bubble — exactly how replies that
+ * already used a single newline have always rendered. One send, no race, and ~500ms
+ * off every multi-paragraph reply.
+ *
+ * `[pause]` remains the model's explicit override and still splits (up to
+ * MAX_BUBBLES). It measured 1 in 151 replies, so the ordering risk it carries is
+ * rare enough to price in — and MESSAGE_BUBBLE_DELAY_MS is the lever for it.
  */
 function autoSplit(text: string): string[] {
   // Checkout/payment links stay whole on EVERY path. A link that lands as its own
   // bubble can fail independently of the sentence that sets it up, and that costs a
-  // conversion — so this guard runs before the blank-line split, not after it.
+  // conversion.
   if (/https?:\/\//i.test(text)) return [text];
 
-  // The model's OWN beat marker. Measured 2026-07-30: asked haiku four unrelated
-  // questions through the real coaching prompt and it separated its beats with a
-  // blank line every single time — in exactly the places a person would send a
-  // second text:
-  //     "40. born in '84."  ⏎⏎  "why, what's the connection?"
-  // Two paragraphs it wrote as two thoughts survive being sent as two texts. Half a
-  // paragraph does not.
-  const paragraphs = text
-    .split(/\n[ \t]*\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (paragraphs.length > 1) return capAuto(paragraphs);
+  // Dedupe BEFORE joining. The degenerate self-repeat (Karibi 2026-07-08) emits the
+  // same paragraph twice; that used to be caught for free because the two became
+  // two bubbles and `dedupeBubbles` dropped one. Now that they merge into a single
+  // message, an un-deduped repeat would ship as one text saying it twice.
+  const paragraphs = dedupeBubbles(
+    text
+      .split(/\n[ \t]*\n/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 
-  // One paragraph is one text.
-  return [collapseSelfRepeat(text)];
+  return [collapseSelfRepeat(paragraphs.join('\n')) || text];
 }
 
 /** Enforce MAX_BUBBLES, folding overflow into the last so nothing is dropped. */
@@ -113,8 +97,10 @@ function capBubbles(parts: string[]): string[] {
 /**
  * Split a reply into ordered text bubbles.
  * - `[pause]` markers win when the model emits them (up to MAX_BUBBLES).
- * - With NO marker, splits on a blank line only — the model's own beat break,
- *   max 2. Anything the model wrote as one paragraph stays one text.
+ * - With NO marker the reply is ONE bubble. Paragraph breaks are preserved as
+ *   single newlines inside it rather than becoming separate messages — see
+ *   autoSplit for why (delivery order, and the blank line no longer marking a
+ *   genuine beat).
  * - Trims each bubble and drops empties.
  * - Returns `[]` only for empty/whitespace input (caller should send nothing).
  * - Caps at MAX_BUBBLES, folding any overflow into the final bubble so nothing

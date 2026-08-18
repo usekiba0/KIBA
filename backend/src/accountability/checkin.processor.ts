@@ -503,6 +503,7 @@ export class CheckinProcessor {
           lastActiveAt: user.last_active_at,
           optedOutAt: user.opted_out_at,
           utcOffsetMinutes: user.utc_offset_minutes,
+          checkinTime: user.checkin_time ?? null,
         },
         now,
       );
