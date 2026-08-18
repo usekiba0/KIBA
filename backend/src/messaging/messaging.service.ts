@@ -381,7 +381,11 @@ export class MessagingService implements OnModuleInit {
    * never blocks a turn. A missing typing bubble is a UX downgrade, not a
    * correctness bug. Call it fire-and-forget from the webhook handler.
    */
-  async sendTypingIndicator(to: string, maxDurationMs = 30_000): Promise<void> {
+  async sendTypingIndicator(
+    to: string,
+    maxDurationMs = 30_000,
+    state: 'start' | 'stop' = 'start',
+  ): Promise<void> {
     if (!this.sendBlueReady) return;
     const keyId = this.config.get<string>('SENDBLUE_API_KEY_ID');
     const secret = this.config.get<string>('SENDBLUE_API_SECRET_KEY');
@@ -395,7 +399,7 @@ export class MessagingService implements OnModuleInit {
     try {
       const response = await axios.post(
         'https://api.sendblue.co/api/send-typing-indicator',
-        { number: to, from_number: fromNumber, state: 'start', max_duration_ms: maxDurationMs },
+        { number: to, from_number: fromNumber, state, max_duration_ms: maxDurationMs },
         {
           headers: {
             'sb-api-key-id': keyId,
@@ -410,6 +414,7 @@ export class MessagingService implements OnModuleInit {
         service: 'messaging',
         operation: 'send_typing_indicator',
         to,
+        state,
         status: response.data?.status ?? 'ok',
       });
     } catch (err) {
@@ -423,6 +428,23 @@ export class MessagingService implements OnModuleInit {
     }
   }
 
+
+  /**
+   * Clear a typing bubble we already started.
+   *
+   * Needed because the indicator is fired from the webhook handler, before we know
+   * whether the turn will actually produce a reply. When a turn is dropped — the
+   * inbound dedup being the case that bit us on 2026-08-18 — the bubble otherwise
+   * runs for its full `max_duration_ms` and then vanishes with nothing behind it.
+   * The user reads that as the product hanging, not as a message being ignored.
+   *
+   * `max_duration_ms` still has to satisfy the API's 1-300000 range even on a stop,
+   * so pass the minimum rather than 0. Best-effort like the start call: a failed
+   * stop just means the bubble times out on its own.
+   */
+  async stopTypingIndicator(to: string): Promise<void> {
+    return this.sendTypingIndicator(to, 1, 'stop');
+  }
   /**
    * Send an iMessage tapback (heart / thumbs / laugh / etc.) onto a message the
    * user sent us. iMessage-only — SMS/RCS have no tapback concept, so this no-ops

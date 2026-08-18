@@ -473,8 +473,24 @@ export class CoachingProcessor {
     // the wrong instinct here.
     if (await this.handleComplianceKeyword(user, body, from)) return;
 
-    // Cross-channel dedup — catches same message arriving via both SMS and iMessage webhooks
-    const cutoff = new Date(Date.now() - 30_000);
+    // Cross-channel dedup — catches the same message arriving via BOTH the SMS and
+    // iMessage webhooks, where the two carry different provider ids so the
+    // debouncer's `uniqueId` check cannot see they are the same text.
+    //
+    // WINDOW NARROWED 30s -> 5s (2026-08-18). At 30s this dropped genuine repeat
+    // messages from a human, and "hi" then "hi" 28s later is completely normal
+    // texting. Worse, the typing indicator fires from the webhook handler BEFORE
+    // this check, so a dropped turn showed the user "typing..." for its full 30s
+    // duration and then nothing at all — a false promise is worse than silence.
+    // Caught by the founder mid-probe: "second stopped un typing".
+    //
+    // 5s still covers the case this exists for: a genuine double-delivery arrives
+    // near-simultaneously (both webhooks are the provider fanning out one send),
+    // not half a minute apart. Retries are already handled upstream — the
+    // debouncer holds `uniqueId` for 5 MINUTES, so provider retries never reach
+    // here regardless of this window.
+    const DEDUP_WINDOW_MS = 5_000;
+    const cutoff = new Date(Date.now() - DEDUP_WINDOW_MS);
     const qb = this.messageRepo
       .createQueryBuilder('m')
       .where('m.user_id = :uid', { uid: user.id })
@@ -487,7 +503,21 @@ export class CoachingProcessor {
     }
     const dup = await qb.getOne();
     if (dup) {
-      this.logger.log(`[Dedup] Skipping duplicate from ${from} (channel: ${channel})`);
+      // Clear the typing bubble the webhook handler already started. Without this
+      // the user watches "typing..." run for its full duration and then get
+      // nothing, which reads as the product breaking rather than as a duplicate
+      // being ignored. Fire-and-forget: never let it hold up the return.
+      this.messagingService.stopTypingIndicator(from).catch(() => undefined);
+      structuredLog(this.logger, 'log', {
+        service: 'messaging',
+        operation: 'inbound_deduped',
+        from,
+        channel,
+        // Age of the message we matched. If these cluster near the window edge the
+        // window is too wide and is eating real messages again.
+        dupAgeMs: Date.now() - new Date(dup.created_at).getTime(),
+        windowMs: DEDUP_WINDOW_MS,
+      });
       return;
     }
 
