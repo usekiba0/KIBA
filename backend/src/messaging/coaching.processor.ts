@@ -106,6 +106,16 @@ interface CoachingJob {
   // turn_latency so perceived latency is visible in our own dashboards and a
   // provider comparison is a query rather than an investigation.
   providerLagMs?: number | null;
+  // How many inbound webhooks the debouncer merged into this turn, and which
+  // window it applied. Added 2026-08-18 after a 24.9s reply took six log queries
+  // to explain: `debounceMs` read 16015 on a turn whose configured window was
+  // 8000, because 2+ media selects the burst window AND every new webhook resets
+  // the timer. The number alone looked like a stall; with these two fields it
+  // reads as "3 webhooks, 8s burst window, reset twice" and needs no archaeology.
+  webhooksMerged?: number;
+  mediaCount?: number;
+  /** The debounce window that applied, per debounceDelayFor. */
+  debounceWindowMs?: number;
 }
 
 /**
@@ -1003,6 +1013,9 @@ export class CoachingProcessor {
         e2eMs: Date.now() - receivedAt,
         providerLagMs,
         perceivedMs: perceivedMs(),
+        webhooksMerged: data.webhooksMerged ?? 1,
+        mediaCount: data.mediaCount ?? 0,
+        debounceWindowMs: data.debounceWindowMs ?? 0,
       });
       return;
     }
@@ -1303,6 +1316,9 @@ export class CoachingProcessor {
         e2eMs: Date.now() - receivedAt,
         providerLagMs,
         perceivedMs: perceivedMs(),
+        webhooksMerged: data.webhooksMerged ?? 1,
+        mediaCount: data.mediaCount ?? 0,
+        debounceWindowMs: data.debounceWindowMs ?? 0,
         tokenCount,
       });
       return;
@@ -1381,6 +1397,9 @@ export class CoachingProcessor {
       e2eMs: Date.now() - receivedAt,
       providerLagMs,
       perceivedMs: perceivedMs(),
+      webhooksMerged: data.webhooksMerged ?? 1,
+      mediaCount: data.mediaCount ?? 0,
+      debounceWindowMs: data.debounceWindowMs ?? 0,
       tokenCount,
     });
   }
