@@ -1,4 +1,5 @@
 import { Controller, Post, Body, UseGuards, Res, Logger, HttpCode, UsePipes, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -13,6 +14,21 @@ import { ConversationSession } from '../data/entities/conversation-session.entit
 import { User } from '../data/entities/user.entity';
 import { structuredLog } from '../common/logger';
 
+/**
+ * Is this number opted in to the latency echo? Pure so the fail-closed default is
+ * provable rather than asserted: an unset, empty or whitespace-only list means NO
+ * number echoes, which is what keeps a debugging tool from ever reaching a paying
+ * user. See MessagingController.isEchoNumber for why the echo exists.
+ */
+export function isLatencyEchoNumber(raw: string | undefined | null, from: string): boolean {
+  if (!raw || !raw.trim() || !from) return false;
+  return raw
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .includes(from);
+}
+
 @Controller('webhooks')
 export class MessagingController {
   private readonly logger = new Logger(MessagingController.name);
@@ -24,7 +40,28 @@ export class MessagingController {
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly debouncer: MessageDebouncerService,
     private readonly messagingService: MessagingService,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Latency floor test. Bounces a fixed reply straight back from the webhook,
+   * skipping the debouncer, the model, every guard, and even the read receipt and
+   * typing indicator.
+   *
+   * WHY: our own server-side slice is ~2.5s of a 7-11s round trip, and the rest sits
+   * in the provider on both legs where we cannot instrument it. An echo turns that
+   * invisible remainder into a number anyone can read off a stopwatch: whatever this
+   * takes is the floor NO amount of work on our side can beat. If an echo still takes
+   * six seconds, the conversation is with Sendblue, not with the code.
+   *
+   * SAFETY: opt-in per phone number via LATENCY_ECHO_NUMBERS (comma-separated E.164).
+   * Unset or empty means every user takes the normal path, so this cannot leak into
+   * production behaviour by accident. Never put a real user's number in it — they
+   * would get "echo" instead of coaching.
+   */
+  private isEchoNumber(from: string): boolean {
+    return isLatencyEchoNumber(this.config.get<string>('LATENCY_ECHO_NUMBERS'), from);
+  }
 
   @Post('sms')
   @UseGuards(TwilioWebhookGuard)
@@ -97,6 +134,32 @@ export class MessagingController {
 
     if (!from || (!content && !mediaUrl)) {
       this.logger.warn(`[SendBlue] Missing from or content/media — from:${from}`);
+      return { received: true };
+    }
+
+    // Latency floor test — see isEchoNumber. Deliberately BEFORE the read receipt
+    // and typing indicator so the measurement is the bare minimum path: webhook in,
+    // one send out, nothing else. Returns immediately; the send is not awaited so
+    // the 200 goes back to the provider as fast as on the normal path.
+    if (this.isEchoNumber(from)) {
+      const receivedAt = Date.now();
+      const lag = providerUpdatedAt == null ? null : receivedAt - providerUpdatedAt;
+      void this.messagingService
+        .send(from, 'echo')
+        .then(() => {
+          structuredLog(this.logger, 'log', {
+            service: 'messaging',
+            operation: 'latency_echo',
+            from,
+            // Provider -> us, from Sendblue's own date_updated.
+            providerLagMs: lag,
+            // Everything we spent. On this path it is one provider POST.
+            serverMs: Date.now() - receivedAt,
+          });
+        })
+        .catch((err: unknown) => {
+          this.logger.warn(`[Echo] send failed for ${from}: ${(err as Error).message}`);
+        });
       return { received: true };
     }
 
