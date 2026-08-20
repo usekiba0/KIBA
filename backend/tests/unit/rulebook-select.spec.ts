@@ -1,5 +1,5 @@
 import { classifyTopic } from '../../src/ai/rulebook/topic';
-import { selectRulebook, isV2EnabledFor } from '../../src/ai/rulebook/select';
+import { selectRulebook, isV2EnabledFor, intakeRulesPrefix } from '../../src/ai/rulebook/select';
 import { buildCachePrefix } from '../../src/ai/rulebook/compile';
 import { COACHING_STATIC_RULES } from '../../src/ai/prompts/coaching.prompt';
 
@@ -109,6 +109,37 @@ describe('rulebook selection', () => {
 
   it('sends no playbook for an ordinary message', () => {
     expect(selectRulebook({ incomingText: 'what is 18% of 2500', useV2: true }).playbook).toBe('');
+  });
+});
+
+describe('intake prefix', () => {
+  // Intake is where the founder tests, and where V1's tapbacks went missing for weeks because
+  // only the coaching prompt was being checked. A voice change that lands in coaching but not
+  // here reads to him as "you didn't fix it".
+  it('adds nothing when V2 is off', () => {
+    expect(intakeRulesPrefix(false)).toBe('');
+  });
+
+  it('carries the same identity and behaviour rules as coaching', () => {
+    const prefix = intakeRulesPrefix(true);
+    expect(prefix).toContain(buildCachePrefix());
+    expect(prefix).toContain('friend first and a coach second');
+    expect(prefix).toContain('a single word is often the whole correct reply');
+    expect(prefix).toContain('default to one bubble');
+  });
+
+  it('sends no domain playbook into intake', () => {
+    // Intake is a fixed sequence with its own phase logic. A fitness pack arriving mid-close
+    // would compete with it rather than help.
+    const prefix = intakeRulesPrefix(true);
+    expect(prefix).not.toContain('coach consistency over perfection');
+    expect(prefix).not.toContain('with founders, execution beats theory');
+  });
+
+  it('ends with a separator so the intake prompt keeps the last word', () => {
+    // Order matters: the specific intake sequence must read as applying on top of the general
+    // rules, not the other way round.
+    expect(intakeRulesPrefix(true).endsWith('\n\n')).toBe(true);
   });
 });
 

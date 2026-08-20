@@ -27,7 +27,7 @@ import {
   buildCoachingDynamicContext,
   PatternSignals,
 } from './prompts/coaching.prompt';
-import { selectRulebook, isV2EnabledFor } from './rulebook/select';
+import { selectRulebook, isV2EnabledFor, intakeRulesPrefix } from './rulebook/select';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
@@ -929,7 +929,24 @@ export class CoachingService {
     imageUrls?: string[],
     imageContentTypes?: string[],
   ): Promise<{ reply: string; tokenCount: number }> {
-    const systemPrompt = buildIntakeSystemPrompt(ctx);
+    const intakePrompt = buildIntakeSystemPrompt(ctx);
+
+    // Intake gets the V2 voice too, and it is the path that matters most for it: this is where
+    // the founder tests, and it is where V1's tapbacks were missing for weeks without anyone
+    // noticing, because the coaching prompt was the only one anybody checked.
+    //
+    // Only the identity and behaviour layers are prepended. No domain playbook: intake is a
+    // fixed sequence with its own phase logic, and a fitness pack arriving mid-close would
+    // compete with it rather than help. The intake prompt keeps the last word by sitting after
+    // the general rules.
+    const v2Rules = intakeRulesPrefix(
+      isV2EnabledFor(user.phone_number, {
+        TRAINING_V2_ENABLED: this.config.get<string>('TRAINING_V2_ENABLED'),
+        TRAINING_V2_NUMBERS: this.config.get<string>('TRAINING_V2_NUMBERS'),
+      }),
+    );
+    const systemPrompt = `${v2Rules}${intakePrompt}`;
+
     const intakeOffset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
     // Prevention: hand the model the exact gap to any date the user named (e.g.
     // "before May 29") so it never computes it wrong (Karibi 2026-07-08).

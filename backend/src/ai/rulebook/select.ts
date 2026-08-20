@@ -69,6 +69,21 @@ export function selectRulebook(args: SelectRulebookArgs): RulebookSelection {
 }
 
 /**
+ * The V2 rules to prepend to the intake prompt, or '' when V2 is off.
+ *
+ * Intake matters more than it looks. It is where the founder tests, and it is where V1's
+ * tapbacks were missing for weeks without anyone noticing, because the coaching prompt was the
+ * only one being checked. Any voice change that lands in coaching and not here will read as
+ * "you didn't fix it".
+ *
+ * Identity and behaviour only, no domain playbook: intake is a fixed sequence with its own
+ * phase logic, and a fitness pack arriving mid-close would compete with it rather than help.
+ */
+export function intakeRulesPrefix(useV2: boolean): string {
+  return useV2 ? `${buildCachePrefix()}\n\n` : '';
+}
+
+/**
  * Is V2 on for this user?
  *
  * Two switches, deliberately. `TRAINING_V2_ENABLED` is the global rollout. `TRAINING_V2_NUMBERS`
