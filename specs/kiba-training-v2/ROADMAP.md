@@ -77,7 +77,7 @@ a build step emits `KIBA_L0_IDENTITY` and `KIBA_L1_BEHAVIOUR`.
 - [x] Topic classifier → `topic.ts` (deterministic keyword scoring, no extra model call)
 - [x] Selector → `select.ts` (V1/V2 switch + `TRAINING_V2_ENABLED` / `TRAINING_V2_NUMBERS`)
 - [x] Wired into `coaching.service.ts`; env vars declared and validated in `app.module.ts`
-- [ ] Port to `intake.prompt.ts` — **still outstanding, and it is where Karibi tests**
+- [x] Ported to the intake path via `intakeRulesPrefix()` — the path Karibi actually tests
 
 **Directly answers constraint 1.** The architecture is the tiering, and it's testable.
 
@@ -121,8 +121,9 @@ Karibi tests, and V1's tapbacks never reached it.
 Ships behind `TRAINING_V2_ENABLED`, defaulting off, plus a `TRAINING_V2_NUMBERS` allowlist so
 it can be flipped for one number without touching the five live users.
 
-**Status 21 Aug:** coaching path wired and green (115 suites / 1763 tests). Remaining for M3:
-port to intake, then the behaviour fixtures (BEH-01…BEH-34).
+**Status 21 Aug:** coaching AND intake paths both wired, 115 suites / 1767 tests green, four
+commits on `feat/training-v2-rebuild`. Remaining for M3: the BEH-01…BEH-34 behaviour fixtures,
+which need live model calls and so land with the M6 harness.
 
 ⚠️ **Design note that shaped the wiring.** The domain playbook goes in the DYNAMIC block, not
 the cached one. Appending it to the cached block would give a different prefix per topic,
