@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ExecutionScore } from '../data/entities/execution-score.entity';
 import { DailyTask, TaskStatus } from '../data/entities/daily-task.entity';
 import { Proof, ProofValidationStatus } from '../data/entities/proof.entity';
+import { DailyTodo, DailyTodoStatus } from '../data/entities/daily-todo.entity';
 import { structuredLog } from '../common/logger';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class ScoreService {
     @InjectRepository(ExecutionScore) private readonly scoreRepo: Repository<ExecutionScore>,
     @InjectRepository(DailyTask) private readonly taskRepo: Repository<DailyTask>,
     @InjectRepository(Proof) private readonly proofRepo: Repository<Proof>,
+    @InjectRepository(DailyTodo) private readonly todoRepo: Repository<DailyTodo>,
   ) {}
 
   calculateScore(tasks: DailyTask[], proofs: Proof[]): number {
@@ -38,24 +40,81 @@ export class ScoreService {
     return Math.min(100, Math.max(0, raw));
   }
 
+  /**
+   * Resolved commitments in the window, from BOTH systems.
+   *
+   * The score used to read daily_tasks and proofs alone. Those only exist when a goal has a
+   * generated action_plan, and KIBA's live tools write daily_todos instead — so for anyone
+   * onboarded over SMS the score was computed from tables nothing populates and read 0
+   * forever, which is why every user's dashboard number was zero.
+   *
+   * Only RESOLVED commitments count. A task still PENDING and a to-do still OPEN are excluded
+   * from both sides of the ratio rather than counted as failures: not having done something
+   * yet is not the same as having missed it, and the client's own spec is explicit that
+   * silence must never read as failure. TaskStatus.MISSED is safe to count as a loss because
+   * it is only ever written by StrikeService after a real, escalated miss.
+   *
+   * RECOVERY tasks and SKIPPED to-dos are excluded too: RECOVERY is a second chance in flight,
+   * and SKIPPED is written nowhere in the live code.
+   */
+  private async resolvedCommitments(
+    userId: string,
+    since: Date,
+  ): Promise<{ wins: number; losses: number; tasks: DailyTask[] }> {
+    const [tasks, todos] = await Promise.all([
+      this.taskRepo.find({ where: { user_id: userId } }),
+      this.todoRepo.find({ where: { user_id: userId } }),
+    ]);
+
+    const recentTasks = tasks.filter((t) => new Date(t.scheduled_date) >= since);
+
+    // A to-do is dated by when it was actually resolved where we know that, and by when it was
+    // created otherwise. Using created_at alone would drop a commitment made before the window
+    // and completed inside it.
+    const recentTodos = todos.filter((t) => {
+      const when = t.completed_at ?? t.created_at;
+      return when != null && new Date(when) >= since;
+    });
+
+    const wins =
+      recentTasks.filter((t) => t.status === TaskStatus.COMPLETED).length +
+      recentTodos.filter((t) => t.status === DailyTodoStatus.DONE).length;
+
+    const losses = recentTasks.filter((t) => t.status === TaskStatus.MISSED).length;
+
+    return { wins, losses, tasks: recentTasks };
+  }
+
   async updateScore(userId: string): Promise<ExecutionScore> {
     const since = new Date();
     since.setDate(since.getDate() - 14);
 
-    const [tasks, proofs] = await Promise.all([
-      this.taskRepo.find({ where: { user_id: userId } }),
+    const [{ wins, losses, tasks: recentTasks }, proofs] = await Promise.all([
+      this.resolvedCommitments(userId, since),
       this.proofRepo.find({ where: { user_id: userId, validation_status: ProofValidationStatus.ACCEPTED } }),
     ]);
 
-    const recentTasks = tasks.filter(t => new Date(t.scheduled_date) >= since);
+    const resolved = wins + losses;
+    const completionRate = resolved > 0 ? wins / resolved : 0;
 
-    const completed = recentTasks.filter(t => t.status === TaskStatus.COMPLETED);
-    const completionRate = recentTasks.length > 0 ? completed.length / recentTasks.length : 0;
-    const completedWithProof = completed.filter(t => t.proof_id);
-    const proofRate = completed.length > 0 ? completedWithProof.length / completed.length : 0;
+    // Proof rate spans both systems: to-dos carry no proof_id, so measure accepted proofs in
+    // the window against everything actually completed, capped at 1. Counting only tasks with
+    // a proof_id would score a to-do-driven user at zero proof forever.
+    const recentProofs = proofs.filter((p) => new Date(p.created_at) >= since);
+    const proofRate = wins > 0 ? Math.min(1, recentProofs.length / wins) : 0;
+
     const responseTimeScore = this.calcResponseTimeScore(recentTasks, proofs);
     const streakBonus = this.calcStreakBonus(recentTasks);
-    const currentScore = this.calculateScore(recentTasks, proofs);
+
+    const currentScore = Math.min(
+      100,
+      Math.max(
+        0,
+        Math.round(
+          completionRate * 40 + proofRate * 30 + responseTimeScore * 20 + streakBonus * 10,
+        ),
+      ),
+    );
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -95,9 +154,10 @@ export class ScoreService {
     since.setDate(since.getDate() - sinceDays);
     since.setHours(0, 0, 0, 0);
 
-    const [tasks, proofs] = await Promise.all([
+    const [tasks, proofs, todos] = await Promise.all([
       this.taskRepo.find({ where: { user_id: userId } }),
       this.proofRepo.find({ where: { user_id: userId, validation_status: ProofValidationStatus.ACCEPTED } }),
+      this.todoRepo.find({ where: { user_id: userId } }),
     ]);
 
     const dayKey = (d: Date | string): string => new Date(d).toISOString().slice(0, 10);
@@ -109,6 +169,14 @@ export class ScoreService {
     }
     for (const p of proofs) {
       if (new Date(p.created_at) >= since) days.add(dayKey(p.created_at));
+    }
+    // A finished to-do is showing up too. Without this a user who does everything through
+    // KIBA's to-do list reads as zero execution days, and the praise copy this gates would
+    // under-credit them just as badly as it once over-credited a ghost.
+    for (const t of todos) {
+      if (t.status === DailyTodoStatus.DONE && t.completed_at && new Date(t.completed_at) >= since) {
+        days.add(dayKey(t.completed_at));
+      }
     }
     return days.size;
   }
