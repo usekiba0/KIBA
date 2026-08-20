@@ -1,0 +1,1912 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, MoreThanOrEqual } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from './anthropic.factory';
+import { noThinking } from './model-params';
+import { User, IntakeData } from '../data/entities/user.entity';
+import { Message } from '../data/entities/message.entity';
+import {
+  PsychologicalProfile,
+  PressurePreference,
+} from '../data/entities/psychological-profile.entity';
+import { ExecutionScore } from '../data/entities/execution-score.entity';
+import { Strike } from '../data/entities/strike.entity';
+import { DailyTask } from '../data/entities/daily-task.entity';
+import { Subscription } from '../data/entities/subscription.entity';
+import { currentStreakFromTasks } from '../accountability/score.service';
+import { validateRecurringMessage } from '../accountability/reminder-content';
+import { stripFalseReminderClaims } from './reminder-claim-guard';
+import { isInertAcknowledgmentTurn, ACK_WRITE_SUPPRESSED_NOTE } from './ack-guard';
+import { declaredMinorAgeInThread, ageBlockedNote } from './age-guard';
+import { stripPriceAtCheckout, userAskedAboutPrice } from './price-guard';
+import { evaluate } from './calc';
+import { correctArithmeticClaims } from './math-claim-guard';
+import {
+  buildCoachingDynamicContext,
+  COACHING_STATIC_RULES,
+  PatternSignals,
+} from './prompts/coaching.prompt';
+import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
+import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
+import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
+import { CorrectionService } from '../data/correction.service';
+import { formatHistoryStamp, localDayOfWeek } from '../messaging/local-time';
+import { resolveOffsetMinutes } from '../messaging/world-time';
+import { MAX_TURN_IMAGES } from '../messaging/inbound-media';
+import { prepare as prepareInboundImage } from '../messaging/image-prep';
+import {
+  buildDateFactsBlock,
+  correctTimeClaims,
+  correctEventTimingClaims,
+  correctWeekdayClaims,
+  describeActivationDay,
+} from './time-claim-guard';
+import { capBoardDump } from './board-dump-guard';
+import { extractWeighIns, correctWeightClaims } from './weight-claim-guard';
+import { detectCancellationIntent, enforceCancellationPath } from './cancellation-guard';
+import { structuredLog, warnTokenBudget } from '../common/logger';
+
+/** Coaching-mode tools (post-payment). */
+export interface CoachingToolHandlers {
+  scheduleReminder: (input: {
+    // The server resolves the fire time from whichever of these the model sends
+    // (it no longer does timezone/relative-time math itself).
+    delay_minutes?: number;
+    local_clock?: string;
+    fire_at_iso?: string;
+    message: string;
+    /** Optional "daily at HH:MM" recurrence. Local time + offset snapshotted at create time. */
+    recurrence?: { rule: 'daily'; local_time: string } | null;
+  }) => Promise<
+    | { ok: true; reminder_id: string; fire_at_iso: string; fires_in: string }
+    | { ok: false; error: string }
+  >;
+  cancelReminder: (input: {
+    reminder_id: string;
+  }) => Promise<{ ok: true; cancelled: number } | { ok: false; error: string }>;
+  listMyReminders: () => Promise<{
+    ok: true;
+    reminders: Array<{
+      reminder_id: string;
+      fire_at_iso: string;
+      fires_in: string;
+      message: string;
+      recurrence: string | null;
+    }>;
+  }>;
+  addTodo: (input: {
+    content: string;
+  }) => Promise<{ ok: true; todo_id: string; content: string } | { ok: false; error: string }>;
+  listTodayTodos: () => Promise<{
+    ok: true;
+    todos: Array<{ todo_id: string; content: string; status: string }>;
+  }>;
+  markTodoDone: (input: {
+    todo_id: string;
+  }) => Promise<{ ok: true; todo_id: string; status: string } | { ok: false; error: string }>;
+  // The ledger-correction path (Retraining doc #49/#127): when KIBA concedes a
+  // wrong miss/strike/score, this makes the concession real — task back to
+  // completed, strike deleted, dow miss un-counted, score recomputed.
+  correctMissedTask: (input: { day: 'today' | 'yesterday' }) => Promise<
+    | {
+        ok: true;
+        corrected: number;
+        tasks: string[];
+        strikes_removed: number;
+        new_score: number | null;
+      }
+    | { ok: false; error: string }
+  >;
+  removeTodo: (input: {
+    todo_id: string;
+  }) => Promise<{ ok: true; removed: true } | { ok: false; error: string }>;
+  // Re-subscribe / late-signup link send. Coaching exposes this so a user whose
+  // subscription lapsed (or who was backfilled to 'complete' without ever paying)
+  // can get a fresh Stripe checkout URL by just asking in chat.
+  sendPaymentLink: () => Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
+  // Lets the coaching AI fill missing psychological-profile fields elicited mid-
+  // conversation (e.g. user reveals their mentor in turn 4). Mirrors the value
+  // into both intake_data JSONB and the PsychologicalProfile row.
+  saveProfileField: (input: {
+    field: string;
+    value: string | boolean;
+  }) => Promise<{ ok: true; field: string } | { ok: false; error: string }>;
+  // The user's standing weekly commitment (training split, work blocks, class
+  // times). Separate from saveProfileField because that tool's enum is closed to
+  // psychological facts and there was previously nowhere at all to put this —
+  // which is why the morning check-in kept re-asking for a split the user had
+  // already given (Karibi 2026-07-21).
+  saveWeeklySchedule: (input: {
+    schedule: string;
+  }) => Promise<{ ok: true; schedule: string } | { ok: false; error: string }>;
+  // NOTE: tapbacks are deliberately NOT a tool. A tool call costs a second model
+  // round-trip before the text can be written, which made "react more" and "reply
+  // faster" opposed. They ride along in the reply as a `[react:...]` marker
+  // instead — see messaging/outbound-reaction.ts.
+}
+
+/** Intake-mode tools (pre-payment SMS onboarding). */
+export interface IntakeToolHandlers {
+  saveIntakeField: (input: {
+    field: string;
+    value: string | number | boolean | string[];
+  }) => Promise<{ ok: true; field: string } | { ok: false; error: string }>;
+  sendPaymentLink: () => Promise<{ ok: true; checkout_url: string } | { ok: false; error: string }>;
+  // Trial users can set reminders too (Tomo/Poke set them up freely pre-pay).
+  // Server resolves the fire time from delay_minutes / local_clock / fire_at_iso.
+  scheduleReminder: (input: {
+    delay_minutes?: number;
+    local_clock?: string;
+    fire_at_iso?: string;
+    message: string;
+    recurrence?: { rule: 'daily'; local_time: string } | null;
+  }) => Promise<
+    | { ok: true; reminder_id: string; fire_at_iso: string; fires_in: string }
+    | { ok: false; error: string }
+  >;
+}
+
+type Tool = Anthropic.Messages.Tool;
+
+const SCHEDULE_REMINDER_TOOL: Tool = {
+  name: 'schedule_reminder',
+  description:
+    'Schedule a text to fire later. Use whenever the user asks to be reminded, nudged, pinged, texted, or ' +
+    'messaged later. DO NOT DO TIMEZONE OR CLOCK MATH YOURSELF — the system computes the exact time. Just pass ' +
+    'ONE of these:\n' +
+    '- delay_minutes: for RELATIVE requests ("in 30 min" -> 30, "in 2 hours" -> 120, "in 5 hours" -> 300). ' +
+    'Convert hours to minutes only; nothing else.\n' +
+    '- local_clock: for a SPECIFIC clock time ("at 9am" -> "09:00", "tonight at 9" -> "21:00", "5:02pm" -> ' +
+    '"17:02"). Pass the user\'s local wall-clock as "HH:MM" 24h; the system converts to UTC and picks today if ' +
+    "it hasn't passed, else tomorrow.\n" +
+    'Only fall back to fire_at_iso if neither fits. ' +
+    'MINIMUM DELAY: 2 minutes — but this ONLY matters when they ask for UNDER 2 minutes ("in 1 min", "in 30 sec"): ' +
+    'then DO NOT call the tool and tell them 2 minutes is the floor. For ANY request of 2 minutes or more ' +
+    '(3 min, 5 min, an hour, tomorrow), JUST SCHEDULE IT and confirm — NEVER volunteer or mention the 2-minute ' +
+    "minimum, it only confuses them. For local_clock requests the user's timezone must be known; if it " +
+    'is not, ask first — never guess. ' +
+    'RECURRENCE: for a DAILY repeating reminder ("every day at 8am", "every morning", "daily wake-up"), pass ' +
+    'local_clock for the first fire AND the `recurrence` object with rule="daily" and the same local_time. The ' +
+    'system re-fires every 24h automatically — DO NOT schedule multiple one-offs. ' +
+    'The tool result includes "fires_in" — echo THAT in your confirmation, never your own time estimate. ' +
+    'Write ONE short confirmation line.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      delay_minutes: {
+        type: 'integer',
+        description:
+          'For relative requests: total minutes from now (e.g. "in 5 hours" -> 300). Server fires at now + this. Omit if using local_clock.',
+      },
+      local_clock: {
+        type: 'string',
+        description:
+          'For a specific clock time: the user\'s local wall-clock as "HH:MM" 24h (e.g. "09:00", "17:02"). Server converts to UTC. Omit if using delay_minutes.',
+      },
+      fire_at_iso: {
+        type: 'string',
+        description:
+          'LAST RESORT only (use delay_minutes or local_clock instead). Absolute UTC ISO-8601 with Z suffix.',
+      },
+      message: {
+        type: 'string',
+        description: 'The exact text to send when the reminder fires. Speak directly to the user.',
+      },
+      recurrence: {
+        type: 'object',
+        description:
+          'Optional. Set ONLY when the user explicitly asks for a daily-repeating reminder. Leave unset for one-off reminders.',
+        properties: {
+          rule: {
+            type: 'string',
+            enum: ['daily'],
+            description: 'Currently only "daily" is supported.',
+          },
+          local_time: {
+            type: 'string',
+            description:
+              'The user\'s local clock time to fire every day, "HH:MM" 24h (e.g. "08:00", "22:30"). Should match local_clock.',
+          },
+        },
+        required: ['rule', 'local_time'],
+      },
+    },
+    required: ['message'],
+  },
+};
+
+const LIST_MY_REMINDERS_TOOL: Tool = {
+  name: 'list_my_reminders',
+  description:
+    "Return the user's currently-pending scheduled reminders (id, fire_at_iso UTC, message, recurrence). " +
+    'Call this whenever the user asks about a reminder you already set — "how long until that", ' +
+    '"what reminders do i have", "did you set the reminder", "what time was it for", "what daily reminders ' +
+    'do i have", "stop the morning reminder". ' +
+    'NEVER answer those from memory or guess time deltas — always call this first, then translate ' +
+    'fire_at_iso into the user\'s local clock before replying. The `recurrence` field is "daily" for ' +
+    'repeating reminders or null for one-off.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {},
+    required: [],
+  },
+};
+
+const ADD_TODO_TOOL: Tool = {
+  name: 'add_todo',
+  description:
+    "Add an item to the user's to-do list for TODAY. Use whenever the user names something they want to " +
+    'get done today ("add gym to my list", "remind me to email steve", "throw clean my room on there"), ' +
+    'OR when YOU recommend a concrete task they agree to ("aight do the leg workout" → add it). ' +
+    "Don't use for one-off coaching observations or motivation. The list is already in the system prompt — " +
+    "don't add a duplicate of something already there.",
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      content: {
+        type: 'string',
+        description:
+          'Short imperative description of the task (e.g. "leg workout — 15 min squats/lunges/calves", "4 hours focused business work"). Keep under 200 chars.',
+      },
+    },
+    required: ['content'],
+  },
+};
+
+const LIST_TODAY_TODOS_TOOL: Tool = {
+  name: 'list_today_todos',
+  description:
+    "Return today's to-do list (id, content, status). The list is also embedded in the system prompt at " +
+    'turn start — only call this if the user just added something via add_todo / marked something done and ' +
+    'you need the fresh ids, or if the user asks "what\'s left" / "what\'s on my list".',
+  input_schema: { type: 'object' as const, properties: {}, required: [] },
+};
+
+const MARK_TODO_DONE_TOOL: Tool = {
+  name: 'mark_todo_done',
+  description:
+    'Mark a todo item complete. Use when the user reports finishing something on the list ("done with the ' +
+    'workout", "knocked out the business work", "✓"). Pair with the strike/score system as usual — this just ' +
+    'closes the line item. Get todo_id from the system-prompt list or list_today_todos.',
+  input_schema: {
+    type: 'object' as const,
+    properties: { todo_id: { type: 'string', description: 'The todo id from the list.' } },
+    required: ['todo_id'],
+  },
+};
+
+const CORRECT_MISSED_TASK_TOOL: Tool = {
+  name: 'correct_missed_task',
+  description:
+    'Fix the ledger when a task was WRONGLY marked missed. Use ONLY when the user disputes a miss/strike/' +
+    'score AND the conversation above verifies they actually did it (they reported it, sent proof, or you ' +
+    'confirmed it earlier). Marks the task completed, deletes the strike, un-counts the miss, recomputes the ' +
+    'score. You MUST call this in the same turn as any "you\'re right, my bad — score\'s fixed" concession; ' +
+    'conceding without calling it leaves the false miss in the books. NOT for excusing a real miss the user ' +
+    'simply regrets — that stays a miss.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      day: {
+        type: 'string',
+        enum: ['today', 'yesterday'],
+        description: 'Which day the wrongly-missed task was scheduled for.',
+      },
+    },
+    required: ['day'],
+  },
+};
+
+const REMOVE_TODO_TOOL: Tool = {
+  name: 'remove_todo',
+  description:
+    'Delete a todo item the user wants off the list ("take swimming off", "i\'m not doing the email today, ' +
+    'remove it"). Different from mark_todo_done — removed items aren\'t counted as completed. Get todo_id ' +
+    'from the system-prompt list.',
+  input_schema: {
+    type: 'object' as const,
+    properties: { todo_id: { type: 'string', description: 'The todo id to delete.' } },
+    required: ['todo_id'],
+  },
+};
+
+const CANCEL_REMINDER_TOOL: Tool = {
+  name: 'cancel_reminder',
+  description:
+    'Cancel a pending reminder by id. Use when the user asks to stop, cancel, remove, kill, or turn off a ' +
+    'reminder ("stop the daily morning text", "cancel that 8am thing", "turn off the workout reminder"). ' +
+    'For a DAILY recurring reminder, cancelling cancels the whole series (every future occurrence in the chain). ' +
+    'Always call list_my_reminders FIRST to get the id — never guess. ' +
+    'After a successful call, confirm in one short line.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      reminder_id: {
+        type: 'string',
+        description:
+          'The reminder id from list_my_reminders. For a recurring series this can be any occurrence id — the whole chain cancels together.',
+      },
+    },
+    required: ['reminder_id'],
+  },
+};
+
+const SAVE_INTAKE_FIELD_TOOL: Tool = {
+  name: 'save_intake_field',
+  description:
+    'Persist a single fact about the user that they just shared. Call this every time the user gives you a new fact, ' +
+    'even mid-sentence. Field MUST be one of: name, goal_description, goals, goal_timeline, current_status, why_it_matters, ' +
+    'fears, avoidance_patterns, comparison_figure, public_failure_scenario, typical_failure_moment, pressure_preference, ' +
+    'cussing_ok, city, utc_offset_minutes, checkin_time. city = the user\'s home city as a plain string (e.g. "Houston"); ' +
+    'save it whenever they name where they live, alongside utc_offset_minutes. For utc_offset_minutes pass an integer (minutes ahead/behind UTC, ' +
+    'e.g. 300 for PKT). For pressure_preference pass "pressure" or "encouragement". For checkin_time pass HH:MM 24h. ' +
+    'For cussing_ok pass a boolean (true if the user explicitly said cussing is fine, false if they said keep it pg). ' +
+    "goals = an ARRAY of strings, the user's full list when they name more than one goal — save all of them, never drop any. " +
+    'goal_description = the single daily ANCHOR goal (one string). When the user has several goals, save the whole list to ' +
+    'goals AND their chosen anchor to goal_description. When they have just one, save it to goal_description. ' +
+    'why_it_matters = why their main goal actually matters to them (the emotional reason). ' +
+    'avoidance_patterns = what makes them fold / the pattern that shows up when they try. ' +
+    'Everything else is free text.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      field: {
+        type: 'string',
+        enum: [
+          'name',
+          'goal_description',
+          'goals',
+          'goal_timeline',
+          'current_status',
+          'why_it_matters',
+          'fears',
+          'avoidance_patterns',
+          'comparison_figure',
+          'public_failure_scenario',
+          'typical_failure_moment',
+          'pressure_preference',
+          'cussing_ok',
+          'utc_offset_minutes',
+          'checkin_time',
+        ],
+        description: 'Which structured field to save.',
+      },
+      value: {
+        description:
+          'The value. String for text fields, an array of strings for goals, integer for utc_offset_minutes, HH:MM for checkin_time, boolean for cussing_ok.',
+      },
+    },
+    required: ['field', 'value'],
+  },
+};
+
+const SAVE_PROFILE_FIELD_TOOL: Tool = {
+  name: 'save_profile_field',
+  description:
+    'Persist a psychological-profile fact the user just revealed mid-coaching. ' +
+    'Use whenever the user names a comparison figure / mentor, a fear, an avoidance pattern, ' +
+    'a public failure scenario, a typical failure moment, or an embarrassment (the private outcome ' +
+    "they'd be ashamed for people to see if they keep failing) — even casually, even mid-sentence. " +
+    'Also use when the user explicitly grants or revokes cursing consent ("you can cuss", "keep it clean from now on"). ' +
+    'Field MUST be one of: fears, avoidance_patterns, comparison_figure, public_failure_scenario, ' +
+    'typical_failure_moment, embarrassment, pressure_preference, cussing_ok. ' +
+    'For pressure_preference pass "pressure" or "encouragement". For cussing_ok pass a boolean. ' +
+    'Everything else is free text — paraphrase tightly (3–10 words is ideal, the model reads it back later).',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      field: {
+        type: 'string',
+        enum: [
+          'fears',
+          'avoidance_patterns',
+          'comparison_figure',
+          'public_failure_scenario',
+          'typical_failure_moment',
+          'embarrassment',
+          'pressure_preference',
+          'cussing_ok',
+        ],
+      },
+      value: { description: 'String for free-text fields, boolean for cussing_ok.' },
+    },
+    required: ['field', 'value'],
+  },
+};
+
+const CALCULATE_TOOL: Tool = {
+  name: 'calculate',
+  description:
+    'Do arithmetic EXACTLY. Call this for ANY number you derive rather than were told — meal/macro totals, ' +
+    'savings plans, per-week splits, "that adds up to", price comparisons. Founder rule: arithmetic is never ' +
+    'estimated in prose; a coach whose numbers are plausibly wrong is worse than one with no numbers. ' +
+    'Pass a plain expression using only digits and + - * / % ( ) — no units, no $ signs, no commas ' +
+    '(e.g. "500*6" or "(350+450+120)*7"). Use the exact result in your reply.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      expression: {
+        type: 'string',
+        description: 'Arithmetic expression: digits and + - * / % ( ) only.',
+      },
+    },
+    required: ['expression'],
+  },
+};
+
+const SAVE_WEEKLY_SCHEDULE_TOOL: Tool = {
+  name: 'save_weekly_schedule',
+  description:
+    "Persist the user's STANDING weekly schedule the moment they give it — which days and times they train " +
+    '(their split), work blocks, class times, anything recurring. Call this for "8am Mon-Fri", ' +
+    '"push Monday, pull Wednesday, legs Friday", "leg day is Thursday because I have PT booked". ' +
+    'Call it AGAIN with the full updated schedule whenever any part of it changes — it overwrites, so always ' +
+    'pass the COMPLETE schedule, not just the changed day. ' +
+    'This is what stops you asking for a schedule the user already gave you. ' +
+    'Keep it short and readable, in their words (e.g. "gym 8am Mon-Fri, legs Thu (PT booked), rest Sun").',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      schedule: {
+        type: 'string',
+        description:
+          'The complete standing weekly schedule, one short line. Overwrites whatever was stored.',
+      },
+    },
+    required: ['schedule'],
+  },
+};
+
+const SEND_PAYMENT_LINK_TOOL: Tool = {
+  name: 'send_payment_link',
+  description:
+    'Create a Stripe checkout session and SMS the URL to the user. ' +
+    'In INTAKE mode: use ONLY at the payment close — after you have name, goal_description, and utc_offset_minutes ' +
+    'saved AND you have walked them through the build (why it matters, their obstacle, the "i see you" moment, value) ' +
+    'AND they gave you a clear yes to the micro-commitment ("are you actually ready"). Do NOT send it the moment the ' +
+    'three fields exist — the emotional yes comes before the link. ' +
+    'In COACHING mode: call this whenever the user asks to pay, subscribe, get the link, sign up, ' +
+    'check out, upgrade, or otherwise wants to start/restart their subscription — even mid-coaching. ' +
+    'The system SMSes the URL on its own line automatically; your text reply should be a SHORT confirmation only ' +
+    '("here you go — pay through this and we\\\'re live"). If the tool returns ok:false with reason ' +
+    '"user already has active subscription", apologise briefly and offer to escalate to support. ' +
+    'NEVER tell the user you are not a subscription service or that they should ask someone else about payment.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {},
+    required: [],
+  },
+};
+
+const MAX_TOOL_ITERATIONS = 3;
+
+@Injectable()
+export class CoachingService {
+  private readonly logger = new Logger(CoachingService.name);
+  private readonly client: Anthropic;
+
+  constructor(
+    private readonly config: ConfigService,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    @InjectRepository(PsychologicalProfile)
+    private readonly profileRepo: Repository<PsychologicalProfile>,
+    @InjectRepository(ExecutionScore)
+    private readonly scoreRepo: Repository<ExecutionScore>,
+    @InjectRepository(Strike)
+    private readonly strikeRepo: Repository<Strike>,
+    @InjectRepository(DailyTask)
+    private readonly taskRepo: Repository<DailyTask>,
+    private readonly correctionService: CorrectionService,
+  ) {
+    this.client = createAnthropicClient(config);
+  }
+
+  private isSupportedImageFormat(url: string, contentType?: string): boolean {
+    if (contentType) {
+      const ct = contentType.toLowerCase().split(';')[0].trim();
+      return [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'image/heic',
+        'image/heif',
+      ].includes(ct);
+    }
+    const lower = url.toLowerCase().split('?')[0];
+    return (
+      lower.endsWith('.jpg') ||
+      lower.endsWith('.jpeg') ||
+      lower.endsWith('.png') ||
+      lower.endsWith('.gif') ||
+      lower.endsWith('.webp') ||
+      lower.endsWith('.heic') ||
+      lower.endsWith('.heif')
+    );
+  }
+
+  // Anthropic's vision API rejects HEIC, but iPhone iMessage uploads land as
+  // .heic via SendBlue's CDN. Fetch + transcode to JPEG before sending so we
+  // don't have to tell users to screenshot every photo.
+  private async prepareImageBlock(
+    imageUrl: string,
+    imageContentType?: string,
+  ): Promise<
+    { ok: true; block: Anthropic.Messages.ImageBlockParam } | { ok: false; reason: string }
+  > {
+    const ct = (imageContentType ?? '').toLowerCase().split(';')[0].trim();
+    const urlLower = imageUrl.toLowerCase().split('?')[0];
+    const isHeic =
+      ct === 'image/heic' ||
+      ct === 'image/heif' ||
+      urlLower.endsWith('.heic') ||
+      urlLower.endsWith('.heif');
+
+    if (!isHeic) {
+      return {
+        ok: true,
+        block: { type: 'image', source: { type: 'url', url: imageUrl } },
+      };
+    }
+
+    // Usually already done. The debouncer starts this the moment the photo's
+    // webhook lands, so by the time a turn flushes the JPEG is typically sitting
+    // in the cache and this await returns immediately. When it isn't cached this
+    // does the same fetch+convert as before, so behaviour is unchanged — only
+    // the timing moves. (Measured: 2.9-7.5s per HEIC photo, previously all of it
+    // on the critical path.)
+    const prepared = await prepareInboundImage(imageUrl);
+    if (!prepared.ok) {
+      this.logger.warn(`HEIC conversion failed for ${imageUrl}: ${prepared.reason}`);
+      return { ok: false, reason: 'heic_conversion_failed' };
+    }
+    return {
+      ok: true,
+      block: {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/jpeg', data: prepared.base64 },
+      },
+    };
+  }
+
+  /**
+   * Return the user's PsychologicalProfile, creating one from intake_data if
+   * it doesn't exist yet. Bridges the SMS-first onboarding (which writes only
+   * intake_data JSONB) to the coaching prompt (which reads PsychologicalProfile).
+   */
+  async ensureProfile(
+    userId: string,
+    intakeData: IntakeData | null,
+  ): Promise<PsychologicalProfile> {
+    const existing = await this.profileRepo.findOne({ where: { user_id: userId } });
+    if (existing) return existing;
+
+    const created = this.profileRepo.create({
+      user_id: userId,
+      fears: intakeData?.fears ?? '',
+      avoidance_patterns: intakeData?.avoidance_patterns ?? '',
+      comparison_figure: intakeData?.comparison_figure ?? '',
+      public_failure_scenario: intakeData?.public_failure_scenario ?? '',
+      typical_failure_moment: intakeData?.typical_failure_moment ?? '',
+      pressure_preference:
+        intakeData?.pressure_preference === 'encouragement'
+          ? PressurePreference.ENCOURAGEMENT
+          : PressurePreference.PRESSURE,
+      cussing_ok: intakeData?.cussing_ok === true,
+    });
+    await this.profileRepo.save(created);
+    return created;
+  }
+
+  /**
+   * Persist a single psychological-profile field elicited mid-coaching. Mirrors
+   * into both intake_data JSONB (source of truth for replay/backfill) and the
+   * PsychologicalProfile row (what the coaching prompt reads on the next turn).
+   */
+  async saveProfileField(
+    userId: string,
+    field: string,
+    value: string | boolean,
+  ): Promise<{ ok: true; field: string } | { ok: false; error: string }> {
+    const allowed = [
+      'fears',
+      'avoidance_patterns',
+      'comparison_figure',
+      'public_failure_scenario',
+      'typical_failure_moment',
+      'embarrassment',
+      'pressure_preference',
+      'cussing_ok',
+      'weigh_in_schedule',
+    ];
+    if (!allowed.includes(field)) return { ok: false, error: `unknown field: ${field}` };
+
+    // cussing_ok takes a boolean; everything else takes a non-empty string.
+    if (field === 'cussing_ok') {
+      if (typeof value !== 'boolean') {
+        return { ok: false, error: 'cussing_ok must be a boolean' };
+      }
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (!user) return { ok: false, error: 'user not found' };
+
+      const intake: IntakeData = { ...(user.intake_data ?? {}), cussing_ok: value };
+      await this.userRepo.update(userId, { intake_data: intake });
+
+      const profile = await this.ensureProfile(userId, intake);
+      profile.cussing_ok = value;
+      await this.profileRepo.save(profile);
+
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'save_profile_field',
+        userId,
+        field,
+        value,
+      });
+      return { ok: true, field };
+    }
+
+    if (typeof value !== 'string') {
+      return { ok: false, error: `${field} must be a string` };
+    }
+    let trimmed = value.trim().slice(0, 2000);
+    if (!trimmed) return { ok: false, error: 'value must not be empty' };
+
+    if (field === 'pressure_preference') {
+      const lower = trimmed.toLowerCase();
+      if (lower !== 'pressure' && lower !== 'encouragement') {
+        return { ok: false, error: 'pressure_preference must be "pressure" or "encouragement"' };
+      }
+      trimmed = lower;
+    }
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) return { ok: false, error: 'user not found' };
+
+    const intake: IntakeData = { ...(user.intake_data ?? {}) };
+    (intake as Record<string, unknown>)[field] = trimmed;
+    await this.userRepo.update(userId, { intake_data: intake });
+
+    const profile = await this.ensureProfile(userId, intake);
+    if (field === 'pressure_preference') {
+      profile.pressure_preference =
+        trimmed === 'encouragement'
+          ? PressurePreference.ENCOURAGEMENT
+          : PressurePreference.PRESSURE;
+    } else {
+      (profile as unknown as Record<string, string>)[field] = trimmed;
+    }
+    await this.profileRepo.save(profile);
+
+    structuredLog(this.logger, 'log', {
+      service: 'ai',
+      operation: 'save_profile_field',
+      userId,
+      field,
+    });
+    return { ok: true, field };
+  }
+
+  /**
+   * Post-payment coaching reply. Uses the full coaching prompt + curated knowledge
+   * and exposes the schedule_reminder tool.
+   */
+  async generateReply(
+    user: User,
+    recentMessages: Message[],
+    incomingText: string,
+    sessionSummary?: string,
+    imageUrls?: string[],
+    imageContentTypes?: string[],
+    toolHandlers?: CoachingToolHandlers,
+    todos?: Array<{ id: string; content: string; status: string }>,
+    patterns?: {
+      weakestDow: number | null;
+      weakestDowMisses: number;
+      recurringExcuse: string | null;
+      recurringExcuseCount: number;
+      lastMilestoneHit: number;
+      loopingOnQuestion?: boolean;
+    },
+    /** Send the model's pre-tool line straight away instead of making the user
+     * wait out the tool round-trip. See RunChatArgs.onInterimText. */
+    onInterimText?: (text: string) => Promise<void>,
+  ): Promise<{ reply: string; tokenCount: number }> {
+    const [profile, latestScore, strikeCount, knowledge, recentTasks] = await Promise.all([
+      // SMS-first onboarding never created a profile row — lazy-create from
+      // intake_data so the coaching prompt always has structured psych context
+      // (and the AI never falls back to the no-profile generic prompt).
+      this.ensureProfile(user.id, user.intake_data ?? null),
+      this.scoreRepo.findOne({
+        where: { user_id: user.id },
+        order: { snapshot_date: 'DESC' },
+      }),
+      this.strikeRepo.count({
+        where: {
+          user_id: user.id,
+          created_at: MoreThanOrEqual(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+        },
+      }),
+      this.correctionService.getActiveKnowledge(),
+      // Last 60 days of tasks → the REAL current streak, injected as ground truth
+      // so the model never fabricates "X days straight" (Karibi 2026-07-07).
+      this.taskRepo.find({
+        where: { user_id: user.id },
+        order: { scheduled_date: 'DESC' },
+        take: 60,
+      }),
+    ]);
+    const currentStreak = currentStreakFromTasks(recentTasks);
+
+    const knowledgeTexts = knowledge.map((k) => k.content);
+    // Prefer the DST-correct live offset from the user's IANA zone; fall back to
+    // the frozen integer. Computed once and reused for the clock + history stamps.
+    const nowUtc = new Date();
+    const liveOffset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes, nowUtc);
+    const timeContext = {
+      nowUtc,
+      userOffsetMinutes: liveOffset,
+    };
+    const userName = user.name ?? 'friend';
+    // Whole weeks since signup — gates the week-2 embarrassment elicitation.
+    const weeksIn = Math.floor(
+      (Date.now() - new Date(user.registered_at).getTime()) / (7 * 24 * 60 * 60 * 1000),
+    );
+    // Core facts from intake so the coaching prompt can use memory actively and
+    // catch contradictions. Goals: full list if present, else the anchor.
+    const intake = user.intake_data ?? {};
+    const goalsText =
+      intake.goals && intake.goals.length
+        ? intake.goals.join(', ')
+        : (intake.goal_description ?? null);
+    const knownFacts = {
+      goals: goalsText,
+      city: intake.city ?? null,
+      why: intake.why_it_matters ?? null,
+      weighInSchedule: intake.weigh_in_schedule ?? null,
+      weeklySchedule: user.weekly_schedule ?? null,
+      // Layer 3 — durable "never forget" facts (append-only anchor list).
+      facts: intake.notes && intake.notes.length ? intake.notes : null,
+    };
+    // Ground truth for WHEN they paid/locked in. The model kept inventing a day
+    // ("the link went through yesterday" to a user who'd just checked out), so we
+    // hand it the real activation day AND deterministically correct the outbound
+    // reply below. Subscription.created_at is the checkout-completion instant.
+    // Uses the entity manager so we don't have to wire a new repo into the module.
+    // (Karibi 2026-07-09)
+    let activatedAtUtc: Date | null = null;
+    try {
+      const subscription = await this.userRepo.manager.findOne(Subscription, {
+        where: { user_id: user.id },
+        order: { created_at: 'DESC' },
+      });
+      activatedAtUtc = subscription?.created_at ?? null;
+    } catch (err) {
+      // The activation fact is an enhancement, not load-bearing. A lookup failure
+      // must never block the coaching reply — degrade to "unknown" and move on.
+      this.logger.warn(`activation lookup failed for ${user.id}: ${(err as Error).message}`);
+    }
+    const activatedDayLabel = activatedAtUtc
+      ? describeActivationDay(activatedAtUtc, nowUtc, liveOffset)
+      : null;
+    // Fold the REAL streak into the pattern signals so it always reaches the
+    // prompt as ground truth, even if the caller passed no other signals.
+    const patternsWithStreak: PatternSignals = {
+      weakestDow: patterns?.weakestDow ?? null,
+      weakestDowMisses: patterns?.weakestDowMisses ?? 0,
+      recurringExcuse: patterns?.recurringExcuse ?? null,
+      recurringExcuseCount: patterns?.recurringExcuseCount ?? 0,
+      lastMilestoneHit: patterns?.lastMilestoneHit ?? 0,
+      loopingOnQuestion: patterns?.loopingOnQuestion,
+      currentStreak,
+      activatedDayLabel,
+      // Decide today-vs-weakest-day HERE, in code. The prompt used to make the
+      // model figure it out and it told a Monday user "today's thursday
+      // equivalent" (Bianca 2026-07-20). null offset = we genuinely don't know
+      // their local day, and the prompt falls back to "don't raise it".
+      todayDow: liveOffset === null ? null : localDayOfWeek(nowUtc, liveOffset),
+    };
+    const systemPrompt = buildCoachingDynamicContext(
+      { id: user.id, name: userName, phone_number: user.phone_number },
+      profile,
+      latestScore?.current_score ?? 0,
+      strikeCount,
+      sessionSummary,
+      knowledgeTexts,
+      timeContext,
+      todos,
+      patternsWithStreak,
+      weeksIn,
+      knownFacts,
+      user.relationship_memory ?? null,
+    );
+
+    // Prevention: pre-compute the gap to any date the user named so the model
+    // reads the answer instead of doing (wrong) date math (Karibi 2026-07-08).
+    const dateFacts = buildDateFactsBlock(incomingText, nowUtc, liveOffset);
+    const dynamicContext = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
+
+    // Two system blocks, not one string. The first is the rulebook — byte-identical
+    // for every user on every turn — so marking it `ephemeral` lets Anthropic serve
+    // it from cache instead of re-reading ~14k tokens each message. Because it
+    // carries nothing user-specific, the cache is shared across ALL users: one
+    // person's turn keeps it warm for everyone else. The volatile per-person
+    // context goes in the SECOND block, after the breakpoint, where it can change
+    // freely without ever invalidating the cached prefix.
+    const finalSystemPrompt: Anthropic.Messages.TextBlockParam[] = [
+      {
+        type: 'text',
+        text: COACHING_STATIC_RULES,
+        cache_control: { type: 'ephemeral' },
+      },
+      { type: 'text', text: dynamicContext },
+    ];
+
+    const tools = toolHandlers
+      ? [
+          SCHEDULE_REMINDER_TOOL,
+          LIST_MY_REMINDERS_TOOL,
+          CANCEL_REMINDER_TOOL,
+          ADD_TODO_TOOL,
+          LIST_TODAY_TODOS_TOOL,
+          MARK_TODO_DONE_TOOL,
+          REMOVE_TODO_TOOL,
+          CORRECT_MISSED_TASK_TOOL,
+          SEND_PAYMENT_LINK_TOOL,
+          SAVE_PROFILE_FIELD_TOOL,
+          SAVE_WEEKLY_SCHEDULE_TOOL,
+          CALCULATE_TOOL,
+        ]
+      : undefined;
+    const dispatch = toolHandlers
+      ? (block: Anthropic.Messages.ToolUseBlock) =>
+          this.dispatchCoachingTool(block, toolHandlers, user.id)
+      : undefined;
+
+    return this.runChat({
+      systemPrompt: finalSystemPrompt,
+      recentMessages,
+      incomingText,
+      imageUrls,
+      imageContentTypes,
+      tools,
+      dispatch,
+      onInterimText,
+      userId: user.id,
+      operationLabel: 'coaching_reply',
+      userOffsetMinutes: liveOffset,
+      activatedAtUtc,
+      boardItems: (todos ?? []).map((t) => t.content),
+    });
+  }
+
+  /**
+   * Pre-payment intake reply. Uses the intake prompt and exposes save_intake_field +
+   * send_payment_link. The processor passes the right tool handlers based on stage.
+   */
+  async generateIntakeReply(
+    user: User,
+    recentMessages: Message[],
+    incomingText: string,
+    ctx: IntakeContext,
+    toolHandlers: IntakeToolHandlers,
+    imageUrls?: string[],
+    imageContentTypes?: string[],
+  ): Promise<{ reply: string; tokenCount: number }> {
+    const systemPrompt = buildIntakeSystemPrompt(ctx);
+    const intakeOffset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
+    // Prevention: hand the model the exact gap to any date the user named (e.g.
+    // "before May 29") so it never computes it wrong (Karibi 2026-07-08).
+    const dateFacts = buildDateFactsBlock(incomingText, ctx.nowUtc ?? new Date(), intakeOffset);
+    const finalSystemPrompt = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
+    const tools = [SAVE_INTAKE_FIELD_TOOL, SEND_PAYMENT_LINK_TOOL, SCHEDULE_REMINDER_TOOL];
+    const dispatch = (block: Anthropic.Messages.ToolUseBlock) =>
+      this.dispatchIntakeTool(block, toolHandlers, user.id);
+
+    return this.runChat({
+      systemPrompt: finalSystemPrompt,
+      recentMessages,
+      incomingText,
+      imageUrls,
+      imageContentTypes,
+      tools,
+      dispatch,
+      userId: user.id,
+      operationLabel: 'intake_reply',
+      userOffsetMinutes: intakeOffset,
+    });
+  }
+
+  /**
+   * Generate ONE personalised win-back text for an unpaid lead who went quiet
+   * after getting the link. Replaces the old fixed template that read identically
+   * to every lead. Single short, tool-less LLM call (fires <=3x per lead, so the
+   * cost is negligible). Returns trimmed text, or null on any failure/empty so the
+   * caller can fall back to the deterministic template — a missed nudge must never
+   * become a crash or a blank send.
+   */
+  async generateWinbackNudge(ctx: WinbackContext): Promise<string | null> {
+    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    try {
+      const response = await this.client.messages.create({
+        model,
+        max_tokens: 200,
+        system: buildWinbackPrompt(ctx),
+        messages: [{ role: 'user', content: 'Write the win-back text now.' }],
+      });
+      const text = response.content
+        .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n')
+        .trim();
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'winback_nudge',
+        model,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+        nudgeIndex: ctx.nudgeIndex,
+      });
+      return text.length > 0 ? text : null;
+    } catch (err) {
+      this.logger.warn(
+        `generateWinbackNudge failed (falling back to template): ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Generate ONE payment-not-active reply for the deterministic payment-claim
+   * backstop: a lead claims they paid but no active sub exists. The DECISION to
+   * distrust the claim is made in the caller; this only varies the WORDING so a
+   * repeat claimant doesn't get the identical canned line. Single short, tool-less
+   * call. Returns trimmed text or null on failure/empty so the caller falls back
+   * to its static string — the refusal must never crash or send blank.
+   */
+  async generatePaymentNotActiveReply(ctx: PaymentClaimContext): Promise<string | null> {
+    const model = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    try {
+      const response = await this.client.messages.create({
+        model,
+        max_tokens: 160,
+        system: buildPaymentNotActivePrompt(ctx),
+        messages: [{ role: 'user', content: 'Write the reply now.' }],
+      });
+      const text = response.content
+        .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n')
+        .trim();
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'payment_not_active_reply',
+        model,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+      });
+      return text.length > 0 ? text : null;
+    } catch (err) {
+      this.logger.warn(
+        `generatePaymentNotActiveReply failed (falling back to static): ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Shared tool-use loop. Caller provides a system prompt, optional tools, and a
+   * dispatch function that turns a tool_use block into a JSON-stringifiable result.
+   */
+  private async runChat(args: {
+    /**
+     * Either a plain string, or ordered system blocks so a caller can mark its
+     * static prefix with cache_control. The Anthropic SDK accepts both; blocks
+     * are what make prompt caching possible.
+     */
+    systemPrompt: string | Anthropic.Messages.TextBlockParam[];
+    recentMessages: Message[];
+    incomingText: string;
+    imageUrls?: string[];
+    imageContentTypes?: string[];
+    tools?: Tool[];
+    dispatch?: (block: Anthropic.Messages.ToolUseBlock) => Promise<unknown>;
+    /**
+     * Send text the model emitted alongside a tool call, immediately, before the
+     * tools run. Optional — omit it and the turn behaves exactly as before
+     * (single reply at the end).
+     */
+    onInterimText?: (text: string) => Promise<void>;
+    userId: string;
+    operationLabel: string;
+    /** User's UTC offset — when set, history is stamped with local send-times. */
+    userOffsetMinutes?: number | null;
+    /** When the user's subscription was created (checkout completed). Grounds the
+     * deterministic payment-timing guard so KIBA can't invent a wrong "you paid X" day. */
+    activatedAtUtc?: Date | null;
+    /** Today's board, so the dump guard knows which bullets came off the list. */
+    boardItems?: string[];
+  }): Promise<{ reply: string; tokenCount: number }> {
+    const baseModel = this.config.get<string>('AI_MODEL', 'claude-haiku-4-5-20251001');
+    // Photos need real OCR + brand/world knowledge — read the "Salata" sign off a
+    // storefront, know what a McDonald's is. Haiku's vision is too weak for that
+    // (it saw "a restaurant" but couldn't read the sign), so route image-bearing
+    // turns to a stronger vision model. Text-only turns stay on the cheaper base
+    // model so cost only rises on photo turns. (Karibi 2026-06-29 — vision feedback)
+    const visionModel = this.config.get<string>('AI_VISION_MODEL', 'claude-sonnet-4-6');
+    const hasImages = (args.imageUrls ?? []).length > 0;
+    const model = hasImages ? visionModel : baseModel;
+
+    type MsgParam = Anthropic.Messages.MessageParam;
+    // Stamp each past USER message with when it was sent (user-local) so the model
+    // can tell an old late-night message from a current one — see formatHistoryStamp.
+    // Only user turns are stamped: stamping KIBA's own prior replies taught the model
+    // (few-shot from its own history) that assistant replies begin with "[today 8:31pm]",
+    // and it echoed that bracket into outbound texts. Assistant turns gain nothing from a
+    // stamp, so we never add one there. (Karibi 2026-07-06 — "[today 8:31pm]" leak)
+    const historyNow = new Date();
+    const history: MsgParam[] = args.recentMessages.map((m) => {
+      const role = m.role === 'user' ? ('user' as const) : ('assistant' as const);
+      const stamp =
+        role === 'user'
+          ? formatHistoryStamp(m.created_at, args.userOffsetMinutes, historyNow)
+          : null;
+      return {
+        role,
+        content: stamp ? `[${stamp}] ${m.content}` : m.content,
+      };
+    });
+
+    // Multi-image: people send several photos at once (a few angles, a couple of
+    // screenshots). Claude sees them all in one message, so KIBA reacts to the
+    // SET in one reply instead of one-per-photo.
+    //
+    // The cap comes from inbound-media.ts rather than being redeclared here. It
+    // used to be a local `const MAX_IMAGES = 4`, which meant the processor could
+    // resolve a 6-photo batch and this slice would quietly cut it back to 4 —
+    // one cap silently overriding the other.
+    const urls = (args.imageUrls ?? []).slice(0, MAX_TURN_IMAGES);
+    let usingImage = false;
+    let lastContent:
+      | string
+      | Array<Anthropic.Messages.ImageBlockParam | Anthropic.Messages.TextBlockParam>;
+    if (urls.length > 0) {
+      // Prepared CONCURRENTLY. This used to be a serial `for` with an await, so
+      // three photos paid three fetch+transcode round trips end to end. Most are
+      // cache hits now, but on a miss the fetches overlap instead of queueing —
+      // worth ~4.5s on a 3-photo turn. Promise.all preserves order, which
+      // matters: the model should see the photos as the user sent them.
+      let sawUnsupported = false;
+      const prepared = await Promise.all(
+        urls.map(async (url, i) => {
+          const ct = args.imageContentTypes?.[i];
+          if (!this.isSupportedImageFormat(url, ct)) {
+            sawUnsupported = true;
+            return null;
+          }
+          const prep = await this.prepareImageBlock(url, ct);
+          return prep.ok ? prep.block : null;
+        }),
+      );
+      const blocks: Anthropic.Messages.ImageBlockParam[] = prepared.filter(
+        (b): b is Anthropic.Messages.ImageBlockParam => b !== null,
+      );
+      if (blocks.length === 0) {
+        return {
+          reply: sawUnsupported
+            ? "i can't read that file type — send a jpeg, png, or screenshot."
+            : "couldn't open that photo — try sending it again as a screenshot or jpeg.",
+          tokenCount: 0,
+        };
+      }
+      usingImage = true;
+      const fallbackCaption =
+        blocks.length > 1
+          ? `The user sent these ${blocks.length} photos with no caption — react to what you actually see across ALL of them, in your voice.`
+          : 'The user sent this photo with no caption — react to what you actually see in it, in your voice.';
+      // With a caption AND several photos the model tends to answer the text and
+      // describe only the first image. State the count so every photo is
+      // accounted for (Karibi 2026-08-03 — "it only reads one").
+      const captioned =
+        blocks.length > 1 && args.incomingText
+          ? `${args.incomingText}\n\n(the user attached ${blocks.length} photos to this message — take all ${blocks.length} into account, don't react to just the first one)`
+          : args.incomingText;
+      lastContent = [...blocks, { type: 'text', text: captioned || fallbackCaption }];
+    } else {
+      lastContent = args.incomingText || 'I sent you a message.';
+    }
+    history.push({ role: 'user', content: lastContent });
+
+    let totalInputTokens = 0;
+    // Prompt-cache accounting. `cacheReadTokens` is the static rulebook served
+    // from cache (cheap + fast); `cacheWriteTokens` is us paying to (re)warm it.
+    // A healthy steady state is reads >> writes — if writes dominate, something
+    // user-specific has leaked into COACHING_STATIC_RULES and every turn is
+    // missing. Logged rather than asserted because only production traffic can
+    // show the real hit rate.
+    let cacheReadTokens = 0;
+    let cacheWriteTokens = 0;
+    let totalOutputTokens = 0;
+    let response: Anthropic.Messages.Message | undefined;
+    // Did this turn actually put a reminder on the books, or read back one that
+    // already exists? Either makes a "your reminder is set" claim TRUE, so the
+    // false-promise guard below must not touch the reply.
+    let reminderWritesOk = 0;
+    let reminderReads = 0;
+    // A checkout link went out this turn — the false-promise guard must not bolt
+    // a reminder question onto the close. See reminder-claim-guard.ts.
+    let paymentLinkSent = false;
+    // Naming a number at the moment of commitment makes people think about
+    // cancelling, so the close must not quote one. Unless they ASKED — answering
+    // that directly is mandatory, and dodging it is its own bug. See price-guard.ts.
+    const priceAsked = userAskedAboutPrice(args.incomingText);
+
+    // A bare "bet" acknowledging a statement is inert — it asks for nothing. Prod
+    // took one as an instruction and re-scheduled an already-fired reminder onto
+    // the wrong day, then spent 196 tokens explaining the contradiction it had
+    // just created. Computed once per turn; see ack-guard.ts for the full trace.
+    const inertAck = isInertAcknowledgmentTurn(args.incomingText, args.recentMessages);
+
+    // Age is never collected as a field, so the only signal is what they
+    // volunteered — and it may have been many turns ago (2026-07-30: declared at
+    // 15:47Z, checkout link sent at 21:03Z). Scan the whole user side.
+    const minorAge = declaredMinorAgeInThread(args.incomingText, args.recentMessages);
+
+    const extractText = (msg: Anthropic.Messages.Message | undefined): string =>
+      msg && Array.isArray(msg.content)
+        ? msg.content
+            .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+            .map((b) => b.text)
+            .join('\n')
+            .trim()
+        : '';
+
+    // Text the model emitted ALONGSIDE its tool calls, already sent to the user.
+    // Claude usually opens a tool turn with a line like "bet, locking that in" —
+    // we used to discard it and make the user wait through the whole tool
+    // round-trip before hearing anything, which is what turned a tool-using turn
+    // into 10+ seconds of silence (Karibi 2026-07-28). Sending it immediately
+    // costs nothing and makes KIBA feel present while the work happens.
+    const interimSent: string[] = [];
+    // Long enough to be a real sentence. A stray fragment shipped as its own
+    // bubble reads worse than saying nothing.
+    const INTERIM_MIN_CHARS = 12;
+
+    // How many model calls this turn actually cost. A tool call means a SECOND
+    // full round trip (~1.6s), and until now nothing recorded whether that was
+    // happening: this log fires once per turn, after the loop, so a 2-call turn
+    // looked identical to a 1-call turn. Measured 2026-07-30 that genMs spreads
+    // 853-3229ms with no obvious bimodality, which suggests reply length rather
+    // than tool calls — but that was an inference off 23 turns, and inferences
+    // have lost to measurement all day. This settles it passively.
+    let toolIterations = 0;
+    for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+      toolIterations = iter + 1;
+      try {
+        response = await this.client.messages.create({
+          model,
+          // Backstop, not the primary limit — the 60-word / 5-line caps in the
+          // prompt are. Generation time is the dominant cost of a turn and it
+          // scales with OUTPUT length: measured on prod 2026-07-30,
+          // genMs ~= 1624ms + 8.0ms per output token (n=33, r=0.67). Observed
+          // output was p50 76 / p95 373 / max 424 tokens, so 512 never actually
+          // bound anything; 400 clips only the true runaways (~1s saved there)
+          // while leaving every compliant reply untouched. Do not lower further
+          // without checking outputTokens percentiles again — below ~p95 this
+          // starts truncating real replies mid-sentence.
+          max_tokens: 400,
+          system: args.systemPrompt,
+          tools: args.tools,
+          messages: history,
+          ...noThinking(model),
+        } as Anthropic.Messages.MessageCreateParamsNonStreaming);
+      } catch (err: unknown) {
+        const isImageError =
+          usingImage &&
+          iter === 0 &&
+          err instanceof Error &&
+          (err.message.includes('invalid_request_error') || err.message.includes('image'));
+        if (!isImageError) throw err;
+
+        this.logger.warn(
+          `Image rejected by Anthropic for user ${args.userId} — ${(err as Error).message}`,
+        );
+        return { reply: "couldn't read that photo — try a screenshot or resend.", tokenCount: 0 };
+      }
+
+      totalInputTokens += response.usage.input_tokens;
+      totalOutputTokens += response.usage.output_tokens;
+      cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+      cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
+
+      if (response.stop_reason !== 'tool_use' || !args.dispatch) break;
+
+      history.push({ role: 'assistant', content: response.content });
+
+      // Ship the preamble NOW, before the tools run and before the next model
+      // call. Best-effort: a failed early bubble must never break the turn, and
+      // the final reply still goes out normally.
+      // If we're about to block a checkout link, its preamble must not ship
+      // either. In the audited thread the preamble ("bet. tap this and we start
+      // tonight:") went out 919ms AHEAD of the URL — sending it while the link
+      // is refused would leave a dangling promise, which is worse than either
+      // outcome on its own. Let the model reply properly once it sees the block.
+      const linkTurn = response.content.some(
+        (b) => b.type === 'tool_use' && b.name === 'send_payment_link',
+      );
+      const blockedMinorCheckout = minorAge !== null && linkTurn;
+
+      // The preamble ships AHEAD of the link, so a price quoted here reaches the
+      // user before the final reply is ever guarded. Strip it on the way out.
+      let interim = extractText(response);
+      if (linkTurn && !priceAsked) {
+        const priceGuard = stripPriceAtCheckout(interim);
+        if (priceGuard.corrected) {
+          interim = priceGuard.text;
+          structuredLog(this.logger, 'warn', {
+            service: 'ai',
+            operation: 'price_quoted_at_checkout_stripped',
+            userId: args.userId,
+            where: 'interim',
+            dropped: priceGuard.dropped,
+          });
+        }
+      }
+
+      if (!blockedMinorCheckout && interim.length >= INTERIM_MIN_CHARS && args.onInterimText) {
+        try {
+          await args.onInterimText(interim);
+          interimSent.push(interim);
+        } catch (err) {
+          this.logger.warn(`interim send failed (user ${args.userId}): ${(err as Error).message}`);
+        }
+      }
+
+      const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
+      for (const block of response.content) {
+        if (block.type !== 'tool_use') continue;
+        // Inert acknowledgment: refuse the WRITE, keep reads. Returning ok:false
+        // also leaves reminderWritesOk at 0, so if the model still narrates a
+        // reminder it never made, stripFalseReminderClaims below deletes the claim.
+        if (inertAck && block.name === 'schedule_reminder') {
+          structuredLog(this.logger, 'warn', {
+            service: 'ai',
+            operation: 'ack_reminder_write_suppressed',
+            userId: args.userId,
+            incomingPreview: args.incomingText.slice(0, 40),
+          });
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify({ ok: false, error: ACK_WRITE_SUPPRESSED_NOTE }),
+            is_error: true,
+          });
+          continue;
+        }
+        // Never sell to a self-declared minor. Blocks the checkout link only —
+        // KIBA keeps coaching them. See age-guard.ts.
+        if (minorAge !== null && block.name === 'send_payment_link') {
+          structuredLog(this.logger, 'warn', {
+            service: 'ai',
+            operation: 'payment_link_blocked_minor',
+            userId: args.userId,
+            declaredAge: minorAge,
+          });
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify({ ok: false, error: ageBlockedNote(minorAge) }),
+            is_error: true,
+          });
+          continue;
+        }
+        try {
+          const result = await args.dispatch(block);
+          const isError =
+            typeof result === 'object' &&
+            result !== null &&
+            'ok' in result &&
+            !(result as { ok: boolean }).ok;
+          if (!isError) {
+            if (block.name === 'schedule_reminder') reminderWritesOk++;
+            if (block.name === 'list_my_reminders') reminderReads++;
+            if (block.name === 'send_payment_link') paymentLinkSent = true;
+          }
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify(result),
+            is_error: isError,
+          });
+        } catch (err) {
+          // Never feed raw internal error text back to the model — it can parrot
+          // it to the user ("my database is lagging"). Log the real cause for us,
+          // hand the model a generic, self-contained instruction instead.
+          this.logger.warn(
+            `tool dispatch failed (user ${args.userId}, tool ${block.name}): ${(err as Error).message}`,
+          );
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify({
+              ok: false,
+              error: 'action_failed',
+              note: "that didn't go through. tell the user briefly it didn't work and to try again — never mention errors, servers, databases, or anything technical.",
+            }),
+            is_error: true,
+          });
+        }
+      }
+      history.push({ role: 'user', content: toolResults });
+    }
+
+    let finalReply = extractText(response);
+
+    // Don't say the preamble twice. The model often restates its opener in the
+    // post-tool reply ("bet, locking that in" → "bet, locking that in. done, it's
+    // on your list"), and that line already reached the user as an early bubble.
+    for (const sent of interimSent) {
+      if (finalReply === sent) {
+        finalReply = '';
+      } else if (finalReply.startsWith(sent)) {
+        // Drop the punctuation that joined the two clauses too, or the reply
+        // arrives starting with a stray ". " — the model wrote one sentence and
+        // we're removing its first half.
+        finalReply = finalReply
+          .slice(sent.length)
+          .replace(/^[\s.,;:!?—-]+/, '')
+          .trim();
+      }
+    }
+
+    // The model can spend its whole turn (or hit the tool-iteration cap) calling
+    // tools without ever emitting user-facing text — intake especially, since it's
+    // told to call save_intake_field aggressively. That left `finalReply` empty and
+    // tripped the destructive "tell me your goal in one sentence" fallback (Karibi
+    // 2026-06-20). The history already carries the tool calls + their results, so
+    // force ONE final completion WITHOUT tools to get the human-facing reply.
+    // ...but only when the user has heard NOTHING. If an early bubble already
+    // went out, an empty final reply is a complete turn, not a silent one — and
+    // forcing up to two more model calls to fill it would both re-say what they
+    // just read and add the very latency this change removes.
+    if (!finalReply && args.dispatch && interimSent.length === 0) {
+      // Re-sending the same history without tools often STILL comes back empty —
+      // the last thing the model sees is its own tool_result, so it thinks it's
+      // already responded and ends the turn silently. Append an explicit nudge to
+      // actually speak, so it can never leave the user on the canned fallback.
+      const nudge: Anthropic.Messages.MessageParam = {
+        role: 'user',
+        content:
+          '(system: you just saved that. now reply to the user in your normal texting voice — react to what they actually said and move the conversation forward. text only, do not call any tools, and do not mention this note.)',
+      };
+      for (let retry = 0; retry < 2 && !finalReply; retry++) {
+        try {
+          const forced = await this.client.messages.create({
+            model,
+            max_tokens: 512,
+            system: args.systemPrompt,
+            messages: [...history, nudge],
+            ...noThinking(model),
+          } as Anthropic.Messages.MessageCreateParamsNonStreaming);
+          totalInputTokens += forced.usage.input_tokens;
+          totalOutputTokens += forced.usage.output_tokens;
+          cacheReadTokens += forced.usage.cache_read_input_tokens ?? 0;
+          cacheWriteTokens += forced.usage.cache_creation_input_tokens ?? 0;
+          finalReply = extractText(forced);
+        } catch (err) {
+          this.logger.warn(
+            `forced text completion failed (user ${args.userId}): ${(err as Error).message}`,
+          );
+          break;
+        }
+      }
+    }
+
+    structuredLog(this.logger, 'log', {
+      service: 'ai',
+      operation: args.operationLabel,
+      userId: args.userId,
+      model,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      totalTokens: totalInputTokens + totalOutputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      // >1 means the tool loop ran again — i.e. this turn paid for two or more
+      // full model round trips. Compare against genMs to price tool turns.
+      toolIterations,
+    });
+    warnTokenBudget(this.logger, {
+      service: 'ai',
+      operation: args.operationLabel,
+      userId: args.userId,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+    });
+
+    // Belt-and-suspenders for the "[today 8:31pm]" leak: even with only user turns
+    // stamped, strip any history-stamp the model still parrots at the very start of
+    // its reply. Matches ONLY the stamp shape ([today ...] / [yesterday ...]) so real
+    // brackets survive. Loops to catch a doubled stamp. (Karibi 2026-07-06)
+    const STAMP_LEAK = /^\s*\[\s*(?:today|yesterday)\b[^\]]*\]\s*/i;
+    while (STAMP_LEAK.test(finalReply)) finalReply = finalReply.replace(STAMP_LEAK, '');
+    finalReply = finalReply.trim();
+
+    // HARD CHECK on any date/time claim before it goes out. The model can't be
+    // trusted to count months to a date — if it states a gap that's provably
+    // wrong vs a date in context, rewrite the number deterministically (no model
+    // call, no latency). Conservative: only acts on a single unambiguous date
+    // and a clear miss. (Karibi 2026-07-08: "May 29 is like 5 months out.")
+    const guard = correctTimeClaims(
+      finalReply,
+      args.incomingText ?? '',
+      new Date(),
+      args.userOffsetMinutes ?? null,
+    );
+    if (guard.corrections.length > 0) {
+      finalReply = guard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'time_claim_corrected',
+        userId: args.userId,
+        corrections: guard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on payment/signup timing. The model can't be trusted to know
+    // WHEN the user paid — it told a just-checked-out user "the link went through
+    // yesterday." Given the real activation instant, strip any day-word on a
+    // payment event that contradicts it. Deterministic, no model call, and
+    // conservative (only acts when it can prove the day wrong). (Karibi 2026-07-09)
+    const eventGuard = correctEventTimingClaims(
+      finalReply,
+      args.activatedAtUtc ?? null,
+      new Date(),
+      args.userOffsetMinutes ?? null,
+    );
+    if (eventGuard.corrections.length > 0) {
+      finalReply = eventGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'event_timing_corrected',
+        userId: args.userId,
+        corrections: eventGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on weekday claims. The model asserted "today's thursday
+    // equivalent" to a user on Monday and built a whole accusatory turn on top
+    // of it (Bianca 2026-07-20). If the reply names a weekday for today or
+    // tomorrow and it's provably wrong, swap the word before it ships.
+    const dowGuard = correctWeekdayClaims(finalReply, new Date(), args.userOffsetMinutes ?? null);
+    if (dowGuard.corrections.length > 0) {
+      finalReply = dowGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'weekday_claim_corrected',
+        userId: args.userId,
+        corrections: dowGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on dumping the board. The prompt has forbidden this since
+    // 2026-07-28 and the model did it anyway — fourteen un-agreed plan items in
+    // one message, which read to the user as KIBA inventing tasks for her. Only
+    // lines that match today's list are eligible, so this can't touch a list the
+    // model wrote about anything else.
+    const boardGuard = capBoardDump(finalReply, args.boardItems ?? []);
+    if (boardGuard.dropped > 0) {
+      finalReply = boardGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'board_dump_capped',
+        userId: args.userId,
+        dropped: boardGuard.dropped,
+      });
+    }
+
+    // HARD CHECK on inline arithmetic (Retraining B5 — founder priority).
+    // The calculate tool is the front door; this is the backstop for equations
+    // the model still writes in prose. Only provably-wrong sums/products with
+    // all operands present in the sentence are touched — see math-claim-guard.
+    const mathGuard = correctArithmeticClaims(finalReply);
+    if (mathGuard.corrections.length > 0) {
+      finalReply = mathGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'math_claim_corrected',
+        userId: args.userId,
+        corrections: mathGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on weight-progress claims. The model froze on a three-week-old
+    // anchor and told a weight-loss client she was "down 5.6 lbs in one week"
+    // when the real figure was 2.8 — exactly double, off a number it had
+    // already misused twice (Bianca 2026-07-23). A weigh-in is a dated fact and
+    // the delta is subtraction, so neither is left to the model.
+    const weighIns = extractWeighIns(
+      args.recentMessages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        created_at: m.created_at,
+      })),
+    );
+    const weightGuard = correctWeightClaims(finalReply, weighIns);
+    if (weightGuard.corrections.length > 0) {
+      finalReply = weightGuard.text;
+      structuredLog(this.logger, 'warn', {
+        service: 'ai',
+        operation: 'weight_claim_corrected',
+        userId: args.userId,
+        corrections: weightGuard.corrections.map((c) => `"${c.from}" → "${c.to}" (${c.reason})`),
+      });
+    }
+
+    // HARD CHECK on cancellation requests. A user asking to cancel must always
+    // be told how — the prompt used to say "never accept 'i quit' ... without a
+    // real conversation first", and the model obstructed a paying customer
+    // across three turns while never once naming the exit (Karibi 2026-07-23).
+    // Additive: the save attempt survives, the path is guaranteed.
+    const cancelIntent = detectCancellationIntent(args.incomingText ?? '');
+    if (cancelIntent) {
+      const cancelGuard = enforceCancellationPath(finalReply, true);
+      if (cancelGuard.corrected) {
+        finalReply = cancelGuard.text;
+        structuredLog(this.logger, 'warn', {
+          service: 'ai',
+          operation: 'cancellation_path_appended',
+          userId: args.userId,
+        });
+      }
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'cancellation_intent_detected',
+        userId: args.userId,
+        pathAlreadyStated: !cancelGuard.corrected,
+      });
+    }
+
+    // HARD CHECK on reminder promises. Saying "locked, 8am daily" without ever
+    // calling schedule_reminder is the worst failure the product has: the user
+    // stops holding the thing themselves and nothing ever fires. Only runs when
+    // the turn neither created nor read back a reminder — otherwise the claim is
+    // true and deleting it would be its own lie. (Karibi 2026-07-21)
+    if (args.dispatch && reminderWritesOk === 0 && reminderReads === 0) {
+      const claimGuard = stripFalseReminderClaims(finalReply, { paymentLinkSent });
+      if (claimGuard.corrected) {
+        finalReply = claimGuard.text;
+        structuredLog(this.logger, 'warn', {
+          service: 'ai',
+          operation: 'false_reminder_claim_stripped',
+          userId: args.userId,
+          dropped: claimGuard.dropped,
+        });
+      }
+    }
+
+    // Never volunteer a number at the moment of commitment. Runs only on a turn
+    // that actually sent a checkout link — outside the close the price
+    // conversation is legitimate (it is scheduled for the reveal day), so a
+    // blanket strip would delete real copy. Stands down entirely if they asked.
+    if (paymentLinkSent && !priceAsked) {
+      const priceGuard = stripPriceAtCheckout(finalReply);
+      if (priceGuard.corrected) {
+        finalReply = priceGuard.text;
+        structuredLog(this.logger, 'warn', {
+          service: 'ai',
+          operation: 'price_quoted_at_checkout_stripped',
+          userId: args.userId,
+          where: 'final',
+          dropped: priceGuard.dropped,
+        });
+      }
+    }
+
+    return { reply: finalReply, tokenCount: totalInputTokens + totalOutputTokens };
+  }
+
+  private async dispatchCoachingTool(
+    block: Anthropic.Messages.ToolUseBlock,
+    toolHandlers: CoachingToolHandlers,
+    userId: string,
+  ): Promise<unknown> {
+    if (block.name === 'schedule_reminder') {
+      // The model is told to send ONE of delay_minutes / local_clock / fire_at_iso
+      // (fire_at_iso is the last resort) and the server resolves the fire time.
+      // This dispatch must forward whichever it sent — gating on fire_at_iso alone
+      // silently rejected every normal "remind me at 8:30am" / "in 5 min" request
+      // and made the model improvise "system's being weird".
+      const input = block.input as {
+        delay_minutes?: number;
+        local_clock?: string;
+        fire_at_iso?: string;
+        message?: unknown;
+        recurrence?: unknown;
+      };
+      if (typeof input.message !== 'string' || !input.message.trim()) {
+        return { ok: false, error: 'message must be a non-empty string' };
+      }
+      let recurrence: { rule: 'daily'; local_time: string } | null = null;
+      if (input.recurrence != null) {
+        const r = input.recurrence as { rule?: unknown; local_time?: unknown };
+        if (r.rule !== 'daily') {
+          return { ok: false, error: 'recurrence.rule must be "daily" (only daily is supported)' };
+        }
+        if (typeof r.local_time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(r.local_time)) {
+          return { ok: false, error: 'recurrence.local_time must be HH:MM 24h' };
+        }
+        recurrence = { rule: 'daily', local_time: r.local_time };
+
+        // A daily reminder's text is replayed verbatim forever, so day-specific
+        // or single-use wording is a permanent bug. Gate deterministically —
+        // the prompt already said not to and the model did it anyway.
+        const verdict = validateRecurringMessage(input.message);
+        if (!verdict.ok) {
+          structuredLog(this.logger, 'warn', {
+            service: 'ai',
+            operation: 'recurring_reminder_content_rejected',
+            userId,
+            bodyPreview: input.message.slice(0, 80),
+          });
+          return { ok: false, error: verdict.error };
+        }
+      }
+      const result = await toolHandlers.scheduleReminder({
+        delay_minutes: input.delay_minutes,
+        local_clock: input.local_clock,
+        fire_at_iso: input.fire_at_iso,
+        message: input.message,
+        recurrence,
+      });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_schedule_reminder',
+        userId,
+        ok: result.ok,
+        delayMinutes: input.delay_minutes ?? null,
+        localClock: input.local_clock ?? null,
+        fireAtIso: input.fire_at_iso ?? null,
+        recurrence: recurrence?.rule ?? null,
+      });
+      return result;
+    }
+    if (block.name === 'list_my_reminders') {
+      const result = await toolHandlers.listMyReminders();
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_list_my_reminders',
+        userId,
+        count: result.ok ? result.reminders.length : 0,
+      });
+      return result;
+    }
+    if (block.name === 'cancel_reminder') {
+      const input = block.input as { reminder_id?: unknown };
+      if (typeof input.reminder_id !== 'string') {
+        return { ok: false, error: 'reminder_id must be a string' };
+      }
+      const result = await toolHandlers.cancelReminder({ reminder_id: input.reminder_id });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_cancel_reminder',
+        userId,
+        ok: result.ok,
+        reminderId: input.reminder_id,
+      });
+      return result;
+    }
+    if (block.name === 'add_todo') {
+      const input = block.input as { content?: unknown };
+      if (typeof input.content !== 'string') {
+        return { ok: false, error: 'content must be a string' };
+      }
+      const result = await toolHandlers.addTodo({ content: input.content });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_add_todo',
+        userId,
+        ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'list_today_todos') {
+      const result = await toolHandlers.listTodayTodos();
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_list_today_todos',
+        userId,
+        count: result.ok ? result.todos.length : 0,
+      });
+      return result;
+    }
+    if (block.name === 'mark_todo_done') {
+      const input = block.input as { todo_id?: unknown };
+      if (typeof input.todo_id !== 'string') {
+        return { ok: false, error: 'todo_id must be a string' };
+      }
+      const result = await toolHandlers.markTodoDone({ todo_id: input.todo_id });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_mark_todo_done',
+        userId,
+        ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'remove_todo') {
+      const input = block.input as { todo_id?: unknown };
+      if (typeof input.todo_id !== 'string') {
+        return { ok: false, error: 'todo_id must be a string' };
+      }
+      const result = await toolHandlers.removeTodo({ todo_id: input.todo_id });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_remove_todo',
+        userId,
+        ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'calculate') {
+      const input = block.input as { expression?: unknown };
+      if (typeof input.expression !== 'string') {
+        return { ok: false, error: 'expression must be a string' };
+      }
+      const result = evaluate(input.expression);
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_calculate',
+        userId,
+        ok: result.ok,
+        expression: input.expression.slice(0, 80),
+        result: result.ok ? result.result : null,
+      });
+      return result;
+    }
+    if (block.name === 'correct_missed_task') {
+      const input = block.input as { day?: unknown };
+      if (input.day !== 'today' && input.day !== 'yesterday') {
+        return { ok: false, error: "day must be 'today' or 'yesterday'" };
+      }
+      const result = await toolHandlers.correctMissedTask({ day: input.day });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_correct_missed_task',
+        userId,
+        ok: result.ok,
+        ...(result.ok
+          ? { corrected: result.corrected, strikesRemoved: result.strikes_removed }
+          : {}),
+      });
+      return result;
+    }
+    if (block.name === 'send_payment_link') {
+      const result = await toolHandlers.sendPaymentLink();
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_send_payment_link_coaching',
+        userId,
+        ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'save_profile_field') {
+      const input = block.input as { field?: unknown; value?: unknown };
+      if (typeof input.field !== 'string') {
+        return { ok: false, error: 'field must be a string' };
+      }
+      if (typeof input.value !== 'string' && typeof input.value !== 'boolean') {
+        return { ok: false, error: 'value must be a string or boolean' };
+      }
+      const result = await toolHandlers.saveProfileField({
+        field: input.field,
+        value: input.value,
+      });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_save_profile_field',
+        userId,
+        ok: result.ok,
+        field: input.field,
+      });
+      return result;
+    }
+    if (block.name === 'save_weekly_schedule') {
+      const input = block.input as { schedule?: unknown };
+      if (typeof input.schedule !== 'string' || !input.schedule.trim()) {
+        return { ok: false, error: 'schedule must be a non-empty string' };
+      }
+      const result = await toolHandlers.saveWeeklySchedule({ schedule: input.schedule });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_save_weekly_schedule',
+        userId,
+        ok: result.ok,
+      });
+      return result;
+    }
+    return { ok: false, error: `unknown tool: ${block.name}` };
+  }
+
+  private async dispatchIntakeTool(
+    block: Anthropic.Messages.ToolUseBlock,
+    toolHandlers: IntakeToolHandlers,
+    userId: string,
+  ): Promise<unknown> {
+    if (block.name === 'save_intake_field') {
+      const input = block.input as { field?: unknown; value?: unknown };
+      if (typeof input.field !== 'string') {
+        return { ok: false, error: 'field must be a string' };
+      }
+      // `goals` is an array of strings (multi-goal intake); everything else is a
+      // string/number/boolean. Reject anything outside that set BEFORE it reaches
+      // the handler — but DO let string[] through (this guard used to drop arrays
+      // silently, so save_intake_field("goals", [...]) always failed).
+      const value = input.value;
+      const isValid =
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean' ||
+        (Array.isArray(value) && value.every((v) => typeof v === 'string'));
+      if (!isValid) {
+        return { ok: false, error: 'value must be a string, number, boolean, or array of strings' };
+      }
+      const result = await toolHandlers.saveIntakeField({
+        field: input.field,
+        value: value as string | number | boolean | string[],
+      });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_save_intake_field',
+        userId,
+        ok: result.ok,
+        field: input.field,
+      });
+      return result;
+    }
+    if (block.name === 'send_payment_link') {
+      const result = await toolHandlers.sendPaymentLink();
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_send_payment_link',
+        userId,
+        ok: result.ok,
+      });
+      return result;
+    }
+    if (block.name === 'schedule_reminder') {
+      const input = block.input as {
+        delay_minutes?: number;
+        local_clock?: string;
+        fire_at_iso?: string;
+        message?: unknown;
+        recurrence?: { rule: 'daily'; local_time: string } | null;
+      };
+      if (typeof input.message !== 'string' || !input.message.trim()) {
+        return { ok: false, error: 'message must be a non-empty string' };
+      }
+      const result = await toolHandlers.scheduleReminder({
+        delay_minutes: input.delay_minutes,
+        local_clock: input.local_clock,
+        fire_at_iso: input.fire_at_iso,
+        message: input.message,
+        recurrence: input.recurrence ?? null,
+      });
+      structuredLog(this.logger, 'log', {
+        service: 'ai',
+        operation: 'tool_schedule_reminder_intake',
+        userId,
+        ok: result.ok,
+      });
+      return result;
+    }
+    return { ok: false, error: `unknown tool: ${block.name}` };
+  }
+}
