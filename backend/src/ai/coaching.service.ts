@@ -25,9 +25,9 @@ import { evaluate } from './calc';
 import { correctArithmeticClaims } from './math-claim-guard';
 import {
   buildCoachingDynamicContext,
-  COACHING_STATIC_RULES,
   PatternSignals,
 } from './prompts/coaching.prompt';
+import { selectRulebook, isV2EnabledFor } from './rulebook/select';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
@@ -830,6 +830,22 @@ export class CoachingService {
     const dateFacts = buildDateFactsBlock(incomingText, nowUtc, liveOffset);
     const dynamicContext = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
 
+    // Which rulebook serves this turn. V1 unless the flag or the number allowlist says
+    // otherwise, so live users are untouched while the V2 rebuild is being tested.
+    const rulebook = selectRulebook({
+      incomingText,
+      // The last couple of turns give the topic classifier context for replies that carry no
+      // signal alone: "did you go?" is obviously about the gym if the previous message was.
+      recentContext: recentMessages
+        .slice(-2)
+        .map((m) => m.content ?? '')
+        .join(' '),
+      useV2: isV2EnabledFor(user.phone_number, {
+        TRAINING_V2_ENABLED: this.config.get<string>('TRAINING_V2_ENABLED'),
+        TRAINING_V2_NUMBERS: this.config.get<string>('TRAINING_V2_NUMBERS'),
+      }),
+    });
+
     // Two system blocks, not one string. The first is the rulebook — byte-identical
     // for every user on every turn — so marking it `ephemeral` lets Anthropic serve
     // it from cache instead of re-reading ~14k tokens each message. Because it
@@ -837,14 +853,30 @@ export class CoachingService {
     // person's turn keeps it warm for everyone else. The volatile per-person
     // context goes in the SECOND block, after the breakpoint, where it can change
     // freely without ever invalidating the cached prefix.
+    //
+    // V2's domain playbook rides in the SECOND block for the same reason. Appending it to the
+    // cached one would give a different prefix per topic, splintering a single shared cache
+    // entry into seven colder ones — no error, no log, just a quietly larger bill.
     const finalSystemPrompt: Anthropic.Messages.TextBlockParam[] = [
       {
         type: 'text',
-        text: COACHING_STATIC_RULES,
+        text: rulebook.cachedRules,
         cache_control: { type: 'ephemeral' },
       },
-      { type: 'text', text: dynamicContext },
+      {
+        type: 'text',
+        text: rulebook.playbook ? `${rulebook.playbook}\n\n${dynamicContext}` : dynamicContext,
+      },
     ];
+
+    this.logger.log(
+      JSON.stringify({
+        evt: 'rulebook_selected',
+        version: rulebook.version,
+        topic: rulebook.topic,
+        userId: user.id,
+      }),
+    );
 
     const tools = toolHandlers
       ? [
@@ -1127,7 +1159,7 @@ export class CoachingService {
     // Prompt-cache accounting. `cacheReadTokens` is the static rulebook served
     // from cache (cheap + fast); `cacheWriteTokens` is us paying to (re)warm it.
     // A healthy steady state is reads >> writes — if writes dominate, something
-    // user-specific has leaked into COACHING_STATIC_RULES and every turn is
+    // user-specific has leaked into the cached rulebook block and every turn is
     // missing. Logged rather than asserted because only production traffic can
     // show the real hit rate.
     let cacheReadTokens = 0;

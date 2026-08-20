@@ -60,6 +60,14 @@ import { HealthController, VersionController } from './common/health/health.cont
         // charges another. Defaulted so it can't silently drift to a stale value.
         STRIPE_PRICE_DISPLAY: Joi.string().default('$9.99/month'),
 
+        // Training V2 rollout. Both default to off so a fresh environment always serves the
+        // V1 rulebook — a missing or malformed value must never move live users onto an
+        // untested doctrine. TRAINING_V2_ENABLED is the global switch; TRAINING_V2_NUMBERS is
+        // a comma-separated allowlist so the rebuild can be tested on one number while
+        // everyone else stays on V1. Same shape as LATENCY_ECHO_NUMBERS, deliberately.
+        TRAINING_V2_ENABLED: Joi.string().valid('true', 'false').default('false'),
+        TRAINING_V2_NUMBERS: Joi.string().allow('').default(''),
+
         // Anthropic
         ANTHROPIC_API_KEY: Joi.string().required(),
         AI_MODEL: Joi.string().default('claude-haiku-4-5-20251001'),
