@@ -58,6 +58,7 @@ import { captureNameFromReply } from './name-capture';
 import { detectOnboardingVariant } from './onboarding-variant';
 import { splitBubbles } from './bubbles';
 import { referencesRecentPhoto, findRecentInboundImages } from './image-recall';
+import { applySensitiveGuard, guardMode } from '../ai/reply-guards';
 import { humanizeVoice, scrubIntakeVoice } from './voice';
 import { extractReaction } from './outbound-reaction';
 import { stripIdentityReferendum } from './intake-close-guard';
@@ -2316,6 +2317,21 @@ export class CoachingProcessor {
       await reactionSent;
       return;
     }
+    // INV-6. Sits here because it needs nothing but the reply, so every path gets it —
+    // coaching, intake, recap, win-back. Observe-only until the logs prove the pattern is
+    // tight; see reply-guards.ts for why that ordering matters.
+    //
+    // In enforce mode `needsRegeneration` is the signal to re-ask the model with
+    // SENSITIVE_MEMORY_RETRY_NOTE. That is not wired yet: a second model call on a live turn
+    // is real added latency, and the honest sequence is to learn the true hit rate first. A
+    // guard that fires once a month can afford a retry; one that fires hourly cannot.
+    applySensitiveGuard(
+      this.logger,
+      user.id,
+      replyText,
+      guardMode({ REPLY_GUARDS_ENFORCE: this.config.get<string>('REPLY_GUARDS_ENFORCE') }),
+    );
+
     // Deterministic voice cleanup (strip em-dashes etc.) before anything else,
     // so it applies to every AI reply — intake and coaching — regardless of how
     // the model phrased it.

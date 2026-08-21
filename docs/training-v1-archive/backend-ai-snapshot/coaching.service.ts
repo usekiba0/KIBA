@@ -25,11 +25,9 @@ import { evaluate } from './calc';
 import { correctArithmeticClaims } from './math-claim-guard';
 import {
   buildCoachingDynamicContext,
+  COACHING_STATIC_RULES,
   PatternSignals,
 } from './prompts/coaching.prompt';
-import { selectRulebook, isV2EnabledFor, intakeRulesPrefix } from './rulebook/select';
-import { applyMemoryGuard, guardMode } from './reply-guards';
-import { resolvePressurePreference } from './accountability-consent';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
@@ -594,19 +592,10 @@ export class CoachingService {
       comparison_figure: intakeData?.comparison_figure ?? '',
       public_failure_scenario: intakeData?.public_failure_scenario ?? '',
       typical_failure_moment: intakeData?.typical_failure_moment ?? '',
-      // INV-5. Hard accountability is CONSENTED to, never assumed. Master 10 makes it a
-      // question KIBA has to ask ("how hard are you cool with me being?") and Master 18 allows
-      // the aggressive register "only when the user explicitly opted in".
-      //
-      // This used to default to PRESSURE, so anyone whose intake never recorded an answer got
-      // "stay sharp and direct, zero softening" without ever agreeing to it. Unknown now means
-      // encouragement: the doctrine's stated default, and the safe direction to be wrong in.
-      // Someone who wanted to be pushed and gets warmth says so in one message; someone who
-      // gets pushed and never asked for it just leaves.
-      //
-      // Only affects profiles created from here on. Existing rows keep whatever they hold, so
-      // no live user's tone changes underneath them.
-      pressure_preference: resolvePressurePreference(intakeData?.pressure_preference),
+      pressure_preference:
+        intakeData?.pressure_preference === 'encouragement'
+          ? PressurePreference.ENCOURAGEMENT
+          : PressurePreference.PRESSURE,
       cussing_ok: intakeData?.cussing_ok === true,
     });
     await this.profileRepo.save(created);
@@ -841,22 +830,6 @@ export class CoachingService {
     const dateFacts = buildDateFactsBlock(incomingText, nowUtc, liveOffset);
     const dynamicContext = dateFacts ? `${systemPrompt}\n\n${dateFacts}` : systemPrompt;
 
-    // Which rulebook serves this turn. V1 unless the flag or the number allowlist says
-    // otherwise, so live users are untouched while the V2 rebuild is being tested.
-    const rulebook = selectRulebook({
-      incomingText,
-      // The last couple of turns give the topic classifier context for replies that carry no
-      // signal alone: "did you go?" is obviously about the gym if the previous message was.
-      recentContext: recentMessages
-        .slice(-2)
-        .map((m) => m.content ?? '')
-        .join(' '),
-      useV2: isV2EnabledFor(user.phone_number, {
-        TRAINING_V2_ENABLED: this.config.get<string>('TRAINING_V2_ENABLED'),
-        TRAINING_V2_NUMBERS: this.config.get<string>('TRAINING_V2_NUMBERS'),
-      }),
-    });
-
     // Two system blocks, not one string. The first is the rulebook — byte-identical
     // for every user on every turn — so marking it `ephemeral` lets Anthropic serve
     // it from cache instead of re-reading ~14k tokens each message. Because it
@@ -864,30 +837,14 @@ export class CoachingService {
     // person's turn keeps it warm for everyone else. The volatile per-person
     // context goes in the SECOND block, after the breakpoint, where it can change
     // freely without ever invalidating the cached prefix.
-    //
-    // V2's domain playbook rides in the SECOND block for the same reason. Appending it to the
-    // cached one would give a different prefix per topic, splintering a single shared cache
-    // entry into seven colder ones — no error, no log, just a quietly larger bill.
     const finalSystemPrompt: Anthropic.Messages.TextBlockParam[] = [
       {
         type: 'text',
-        text: rulebook.cachedRules,
+        text: COACHING_STATIC_RULES,
         cache_control: { type: 'ephemeral' },
       },
-      {
-        type: 'text',
-        text: rulebook.playbook ? `${rulebook.playbook}\n\n${dynamicContext}` : dynamicContext,
-      },
+      { type: 'text', text: dynamicContext },
     ];
-
-    this.logger.log(
-      JSON.stringify({
-        evt: 'rulebook_selected',
-        version: rulebook.version,
-        topic: rulebook.topic,
-        userId: user.id,
-      }),
-    );
 
     const tools = toolHandlers
       ? [
@@ -910,7 +867,7 @@ export class CoachingService {
           this.dispatchCoachingTool(block, toolHandlers, user.id)
       : undefined;
 
-    const result = await this.runChat({
+    return this.runChat({
       systemPrompt: finalSystemPrompt,
       recentMessages,
       incomingText,
@@ -925,21 +882,6 @@ export class CoachingService {
       activatedAtUtc,
       boardItems: (todos ?? []).map((t) => t.content),
     });
-
-    // INV-2, here rather than at the send choke point because this is the only place the
-    // factual context of the turn exists. dynamicContext carries the known facts, goals, todos
-    // and pattern signals the model was handed; anything it cites that is absent from all of
-    // that was invented. Observe-only until the logs prove the pattern is tight (see
-    // reply-guards.ts).
-    const guardedReply = applyMemoryGuard(
-      this.logger,
-      user.id,
-      result.reply,
-      `${dynamicContext}\n${recentMessages.map((m) => m.content ?? '').join('\n')}`,
-      guardMode({ REPLY_GUARDS_ENFORCE: this.config.get<string>('REPLY_GUARDS_ENFORCE') }),
-    );
-
-    return { ...result, reply: guardedReply };
   }
 
   /**
@@ -955,24 +897,7 @@ export class CoachingService {
     imageUrls?: string[],
     imageContentTypes?: string[],
   ): Promise<{ reply: string; tokenCount: number }> {
-    const intakePrompt = buildIntakeSystemPrompt(ctx);
-
-    // Intake gets the V2 voice too, and it is the path that matters most for it: this is where
-    // the founder tests, and it is where V1's tapbacks were missing for weeks without anyone
-    // noticing, because the coaching prompt was the only one anybody checked.
-    //
-    // Only the identity and behaviour layers are prepended. No domain playbook: intake is a
-    // fixed sequence with its own phase logic, and a fitness pack arriving mid-close would
-    // compete with it rather than help. The intake prompt keeps the last word by sitting after
-    // the general rules.
-    const v2Rules = intakeRulesPrefix(
-      isV2EnabledFor(user.phone_number, {
-        TRAINING_V2_ENABLED: this.config.get<string>('TRAINING_V2_ENABLED'),
-        TRAINING_V2_NUMBERS: this.config.get<string>('TRAINING_V2_NUMBERS'),
-      }),
-    );
-    const systemPrompt = `${v2Rules}${intakePrompt}`;
-
+    const systemPrompt = buildIntakeSystemPrompt(ctx);
     const intakeOffset = resolveOffsetMinutes(user.iana_timezone, user.utc_offset_minutes);
     // Prevention: hand the model the exact gap to any date the user named (e.g.
     // "before May 29") so it never computes it wrong (Karibi 2026-07-08).
@@ -1202,7 +1127,7 @@ export class CoachingService {
     // Prompt-cache accounting. `cacheReadTokens` is the static rulebook served
     // from cache (cheap + fast); `cacheWriteTokens` is us paying to (re)warm it.
     // A healthy steady state is reads >> writes — if writes dominate, something
-    // user-specific has leaked into the cached rulebook block and every turn is
+    // user-specific has leaked into COACHING_STATIC_RULES and every turn is
     // missing. Logged rather than asserted because only production traffic can
     // show the real hit rate.
     let cacheReadTokens = 0;

@@ -4,6 +4,7 @@ import { ScoreService } from '../../src/accountability/score.service';
 import { ExecutionScore } from '../../src/data/entities/execution-score.entity';
 import { DailyTask, TaskStatus } from '../../src/data/entities/daily-task.entity';
 import { Proof, ProofValidationStatus } from '../../src/data/entities/proof.entity';
+import { DailyTodo, DailyTodoStatus } from '../../src/data/entities/daily-todo.entity';
 
 const userId = 'user-1';
 
@@ -11,6 +12,24 @@ function makeTask(status: TaskStatus, daysAgo: number, proofId?: string): Partia
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
   return { id: `task-${daysAgo}`, user_id: userId, status, scheduled_date: d, proof_id: proofId ?? null, created_at: d };
+}
+
+/**
+ * A to-do the way KIBA's own tools write them. This is the path real users are on: the score
+ * used to read only daily_tasks, which exist only when a goal has a generated action_plan, so
+ * anyone onboarded over SMS scored 0 no matter how much they actually did.
+ */
+function makeTodo(status: DailyTodoStatus, daysAgo: number): Partial<DailyTodo> {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return {
+    id: `todo-${status}-${daysAgo}`,
+    user_id: userId,
+    status,
+    scheduled_date: d,
+    completed_at: status === DailyTodoStatus.DONE ? d : null,
+    created_at: d,
+  } as Partial<DailyTodo>;
 }
 
 function makeScore(overrides: Partial<ExecutionScore> = {}): ExecutionScore {
@@ -22,11 +41,13 @@ describe('ScoreService', () => {
   let mockScoreRepo: any;
   let mockTaskRepo: any;
   let mockProofRepo: any;
+  let mockTodoRepo: any;
 
   beforeEach(async () => {
     mockScoreRepo = { findOne: jest.fn(), save: jest.fn(async (s: any) => s), create: jest.fn((s: any) => s) };
     mockTaskRepo = { find: jest.fn() };
     mockProofRepo = { find: jest.fn() };
+    mockTodoRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -34,6 +55,7 @@ describe('ScoreService', () => {
         { provide: getRepositoryToken(ExecutionScore), useValue: mockScoreRepo },
         { provide: getRepositoryToken(DailyTask), useValue: mockTaskRepo },
         { provide: getRepositoryToken(Proof), useValue: mockProofRepo },
+        { provide: getRepositoryToken(DailyTodo), useValue: mockTodoRepo },
       ],
     }).compile();
 
@@ -139,5 +161,116 @@ describe('ScoreService', () => {
 
       expect(mockScoreRepo.save).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+/**
+ * The recording fix (REC-01..REC-05 in specs/kiba-training-v2/TEST-CASES.md).
+ *
+ * Root cause: the score read daily_tasks and proofs only. Those rows exist only when a goal
+ * has a generated action_plan, while KIBA's live tools (add_todo / mark_todo_done) write
+ * daily_todos. So for anyone onboarded over SMS the score was computed from tables nothing
+ * populates, and read 0 forever regardless of how much the user actually did.
+ */
+describe('ScoreService — execution recording', () => {
+  let service: ScoreService;
+  let scoreRepo: any;
+  let taskRepo: any;
+  let proofRepo: any;
+  let todoRepo: any;
+
+  beforeEach(async () => {
+    scoreRepo = { findOne: jest.fn(), save: jest.fn(async (s: any) => s), create: jest.fn((s: any) => s) };
+    taskRepo = { find: jest.fn().mockResolvedValue([]) };
+    proofRepo = { find: jest.fn().mockResolvedValue([]) };
+    todoRepo = { find: jest.fn().mockResolvedValue([]) };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ScoreService,
+        { provide: getRepositoryToken(ExecutionScore), useValue: scoreRepo },
+        { provide: getRepositoryToken(DailyTask), useValue: taskRepo },
+        { provide: getRepositoryToken(Proof), useValue: proofRepo },
+        { provide: getRepositoryToken(DailyTodo), useValue: todoRepo },
+      ],
+    }).compile();
+
+    service = module.get<ScoreService>(ScoreService);
+  });
+
+  it('REC-03: a completed to-do produces a non-zero score', async () => {
+    // The headline bug. Before this fix the user below scored 0.
+    todoRepo.find.mockResolvedValue([
+      makeTodo(DailyTodoStatus.DONE, 1),
+      makeTodo(DailyTodoStatus.DONE, 2),
+    ]);
+
+    const snapshot = await service.updateScore(userId);
+
+    expect(snapshot.current_score).toBeGreaterThan(0);
+    expect(snapshot.completion_rate).toBe(1);
+  });
+
+  it('REC-04: silence never counts as a miss', async () => {
+    // An open to-do and a pending task are unresolved, not failed. Counting them against the
+    // user is exactly the "no response equals failure" behaviour the spec forbids.
+    todoRepo.find.mockResolvedValue([
+      makeTodo(DailyTodoStatus.DONE, 1),
+      makeTodo(DailyTodoStatus.OPEN, 1),
+      makeTodo(DailyTodoStatus.OPEN, 2),
+    ]);
+    taskRepo.find.mockResolvedValue([makeTask(TaskStatus.PENDING, 1)]);
+
+    const snapshot = await service.updateScore(userId);
+
+    expect(snapshot.completion_rate).toBe(1);
+  });
+
+  it('counts an explicit miss as a loss', async () => {
+    // MISSED is only ever written by StrikeService after a real escalated miss, so unlike
+    // silence it is genuine evidence of non-completion.
+    todoRepo.find.mockResolvedValue([makeTodo(DailyTodoStatus.DONE, 1)]);
+    taskRepo.find.mockResolvedValue([makeTask(TaskStatus.MISSED, 2)]);
+
+    const snapshot = await service.updateScore(userId);
+
+    expect(snapshot.completion_rate).toBe(0.5);
+  });
+
+  it('scores 0 when there is genuinely nothing resolved', async () => {
+    // A brand-new user has no execution history. Zero here is honest, not a bug.
+    const snapshot = await service.updateScore(userId);
+    expect(snapshot.current_score).toBe(0);
+    expect(snapshot.completion_rate).toBe(0);
+  });
+
+  it('ignores commitments outside the 14 day window', async () => {
+    todoRepo.find.mockResolvedValue([makeTodo(DailyTodoStatus.DONE, 40)]);
+    const snapshot = await service.updateScore(userId);
+    expect(snapshot.current_score).toBe(0);
+  });
+
+  it('counts both systems together rather than picking one', async () => {
+    // Users who predate the to-do tools have daily_tasks; newer ones have daily_todos. Someone
+    // mid-migration has both, and must not have half their history silently dropped.
+    taskRepo.find.mockResolvedValue([makeTask(TaskStatus.COMPLETED, 1)]);
+    todoRepo.find.mockResolvedValue([makeTodo(DailyTodoStatus.DONE, 2)]);
+
+    const snapshot = await service.updateScore(userId);
+
+    expect(snapshot.completion_rate).toBe(1);
+    expect(snapshot.current_score).toBeGreaterThan(0);
+  });
+
+  it('countExecutionDays credits days earned through to-dos', async () => {
+    // This gates the praise copy. Reading tasks only meant a to-do user looked like a ghost,
+    // and got under-credited just as badly as a real ghost once got over-credited.
+    todoRepo.find.mockResolvedValue([
+      makeTodo(DailyTodoStatus.DONE, 1),
+      makeTodo(DailyTodoStatus.DONE, 2),
+      makeTodo(DailyTodoStatus.OPEN, 3),
+    ]);
+
+    expect(await service.countExecutionDays(userId, 7)).toBe(2);
   });
 });
