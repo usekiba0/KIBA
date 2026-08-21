@@ -29,6 +29,7 @@ import {
 } from './prompts/coaching.prompt';
 import { selectRulebook, isV2EnabledFor, intakeRulesPrefix } from './rulebook/select';
 import { applyMemoryGuard, guardMode } from './reply-guards';
+import { resolvePressurePreference } from './accountability-consent';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
@@ -593,10 +594,19 @@ export class CoachingService {
       comparison_figure: intakeData?.comparison_figure ?? '',
       public_failure_scenario: intakeData?.public_failure_scenario ?? '',
       typical_failure_moment: intakeData?.typical_failure_moment ?? '',
-      pressure_preference:
-        intakeData?.pressure_preference === 'encouragement'
-          ? PressurePreference.ENCOURAGEMENT
-          : PressurePreference.PRESSURE,
+      // INV-5. Hard accountability is CONSENTED to, never assumed. Master 10 makes it a
+      // question KIBA has to ask ("how hard are you cool with me being?") and Master 18 allows
+      // the aggressive register "only when the user explicitly opted in".
+      //
+      // This used to default to PRESSURE, so anyone whose intake never recorded an answer got
+      // "stay sharp and direct, zero softening" without ever agreeing to it. Unknown now means
+      // encouragement: the doctrine's stated default, and the safe direction to be wrong in.
+      // Someone who wanted to be pushed and gets warmth says so in one message; someone who
+      // gets pushed and never asked for it just leaves.
+      //
+      // Only affects profiles created from here on. Existing rows keep whatever they hold, so
+      // no live user's tone changes underneath them.
+      pressure_preference: resolvePressurePreference(intakeData?.pressure_preference),
       cussing_ok: intakeData?.cussing_ok === true,
     });
     await this.profileRepo.save(created);
