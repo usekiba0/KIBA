@@ -132,14 +132,30 @@ a larger bill. Asserted in `rulebook-select.spec.ts`.
 
 ---
 
-## M5 — Recording fix
+## M5 — Recording fix ✅ 21 Aug
 
-Free, and the prerequisite for the Execution Score ever being honest.
+- [x] **Root cause found.** `ScoreService` read `daily_tasks` + `proofs`. Those rows only exist
+      when a goal has a generated `action_plan`, and KIBA's live tools write `daily_todos`,
+      which the score never read. For SMS-onboarded users the score was computed from tables
+      nothing populates. `todo.service.ts` had zero references to the score.
+- [x] **Second bug:** PENDING tasks and OPEN to-dos sat in the denominator, so "not done yet"
+      scored the same as "missed" — the silence-equals-failure behaviour the spec forbids.
+- [x] Only resolved commitments now count. `MISSED` is still a loss (StrikeService only writes
+      it after a real escalated miss); `SKIPPED` is written nowhere in live code.
+- [x] `countExecutionDays` fixed too — it gates praise copy, so a to-do user read as a ghost.
+- [x] 7 new tests (REC-03, REC-04, explicit-miss, honest-zero, window, both-systems, praise).
+- [ ] Verify against prod. Blocked: `.env` holds Render's **internal** DB hostname.
 
-- [ ] Find why `is_proof_submission` is written nowhere
-- [ ] Find why zero tasks have ever completed
-- [ ] Backfill where safely inferable; do not fabricate history
-- [ ] Assert: a completion round-trips to a non-zero score
+## M6 (partial) — behaviour check ✅ 21 Aug
+
+`scripts/behaviour-check.js` — 19 fixtures with deterministic assertions drawn from
+TEST-CASES.md, run against the delivered text (post-`humanizeVoice`), not raw model output.
+
+**V1 scores 15/19. V2 scores 19/19.** V1 fails: no celebration on an engagement, no offer to
+review a finished ad, no offer on an upcoming gym session, and a 177-word capability dump.
+
+Deterministic on purpose — structure is what a judge scores least consistently and is cheapest
+to assert directly. The LLM judge is for taste, and is still outstanding.
 
 ---
 

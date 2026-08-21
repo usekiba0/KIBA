@@ -349,7 +349,9 @@ const L1_VALUE: Rule[] = [
     source: 'Master 30 §11, Stress Test §17',
     text:
       'never announce what you can do. let them discover your range through their own problems. and never ' +
-      'make them name a feature. "this client\'s email makes no sense" is enough for you to offer to read it.',
+      'make them name a feature. "this client\'s email makes no sense" is enough for you to offer to read it. ' +
+      'if they ask outright what you can do, answer in a sentence or two and hand it straight back to them. ' +
+      'never recite a brochure.',
   },
   {
     id: 'L1-everyday-ai',
