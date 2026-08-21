@@ -68,6 +68,13 @@ import { HealthController, VersionController } from './common/health/health.cont
         TRAINING_V2_ENABLED: Joi.string().valid('true', 'false').default('false'),
         TRAINING_V2_NUMBERS: Joi.string().allow('').default(''),
 
+        // Trust guards (INV-2 fake memory, INV-6 weaponised vulnerability). Default 'false'
+        // means OBSERVE: the guards run and log what they would have done, but change no
+        // replies. Flip to 'true' only once guard_observed counts on real traffic show the
+        // patterns are tight — a guard that fires wrongly is worse than no guard, and it
+        // degrades replies silently.
+        REPLY_GUARDS_ENFORCE: Joi.string().valid('true', 'false').default('false'),
+
         // Anthropic
         ANTHROPIC_API_KEY: Joi.string().required(),
         AI_MODEL: Joi.string().default('claude-haiku-4-5-20251001'),

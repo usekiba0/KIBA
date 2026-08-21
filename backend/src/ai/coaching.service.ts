@@ -28,6 +28,7 @@ import {
   PatternSignals,
 } from './prompts/coaching.prompt';
 import { selectRulebook, isV2EnabledFor, intakeRulesPrefix } from './rulebook/select';
+import { applyMemoryGuard, guardMode } from './reply-guards';
 import { buildIntakeSystemPrompt, IntakeContext } from './prompts/intake.prompt';
 import { buildWinbackPrompt, WinbackContext } from './prompts/winback.prompt';
 import { buildPaymentNotActivePrompt, PaymentClaimContext } from './prompts/payment-claim.prompt';
@@ -899,7 +900,7 @@ export class CoachingService {
           this.dispatchCoachingTool(block, toolHandlers, user.id)
       : undefined;
 
-    return this.runChat({
+    const result = await this.runChat({
       systemPrompt: finalSystemPrompt,
       recentMessages,
       incomingText,
@@ -914,6 +915,21 @@ export class CoachingService {
       activatedAtUtc,
       boardItems: (todos ?? []).map((t) => t.content),
     });
+
+    // INV-2, here rather than at the send choke point because this is the only place the
+    // factual context of the turn exists. dynamicContext carries the known facts, goals, todos
+    // and pattern signals the model was handed; anything it cites that is absent from all of
+    // that was invented. Observe-only until the logs prove the pattern is tight (see
+    // reply-guards.ts).
+    const guardedReply = applyMemoryGuard(
+      this.logger,
+      user.id,
+      result.reply,
+      `${dynamicContext}\n${recentMessages.map((m) => m.content ?? '').join('\n')}`,
+      guardMode({ REPLY_GUARDS_ENFORCE: this.config.get<string>('REPLY_GUARDS_ENFORCE') }),
+    );
+
+    return { ...result, reply: guardedReply };
   }
 
   /**
